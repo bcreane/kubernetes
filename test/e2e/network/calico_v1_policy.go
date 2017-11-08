@@ -17,8 +17,8 @@ limitations under the License.
 package network
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
 
@@ -54,6 +54,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 		}
 	})
 	BeforeEach(func() {
+		Skip("Not running Calico V1 policy tests")
 		if datastoreType == "" {
 			// Infer datastore type by reading /etc/calico/calicoctl.cfg.
 			b, err := ioutil.ReadFile("/etc/calico/calicoctl.cfg")

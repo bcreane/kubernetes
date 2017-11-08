@@ -21,30 +21,29 @@ package calico
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"os/exec"
 	"strconv"
 	"strings"
 
-	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-// sshPort is used in IssueSSHCommandWithResult
-const sshPort = "22"
-
 var zeroGracePeriod int64 = 0
 
 var deleteImmediately = &metav1.DeleteOptions{GracePeriodSeconds: &zeroGracePeriod}
 
+var serviceCmd = "/bin/sh -c 'while /bin/true; do echo foo | nc -l %d; done'"
+
 func countSyslogLines(node *v1.Node) (count int64) {
-	result, err := IssueSSHCommandWithResult(
+	result, err := framework.IssueSSHCommandWithResult(
 		"wc -l /var/log/syslog",
 		framework.TestContext.Provider,
 		node)
@@ -56,7 +55,7 @@ func countSyslogLines(node *v1.Node) (count int64) {
 }
 
 func countSystemJournalLines(node *v1.Node) (count int64) {
-	result, err := IssueSSHCommandWithResult(
+	result, err := framework.IssueSSHCommandWithResult(
 		"journalctl --system | wc -l",
 		framework.TestContext.Provider,
 		node)
@@ -76,7 +75,7 @@ func CountSyslogLines(node *v1.Node) int64 {
 }
 
 func commandExists(cmd string, node *v1.Node) bool {
-	if _, err := IssueSSHCommandWithResult(
+	if _, err := framework.IssueSSHCommandWithResult(
 		fmt.Sprintf("command -v %s", cmd),
 		framework.TestContext.Provider,
 		node); err != nil {
@@ -96,7 +95,7 @@ func GetNewCalicoDropLogs(node *v1.Node, since int64, logPfx string) (logs []str
 }
 
 func getNewCalicoDropLogs(cmd string, node *v1.Node) (logs []string) {
-	result, err := IssueSSHCommandWithResult(
+	result, err := framework.IssueSSHCommandWithResult(
 		cmd,
 		framework.TestContext.Provider,
 		node)
@@ -241,46 +240,6 @@ func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
 	}
 }
 
-// IssueSSHCommandWithResult does the same thing as framework.IssueSSHCommandWithResult
-// but instead also looks for NodeInternalIP. This is already present in newer e2e
-// framework.go and can be removed when we have a IssueSSHCommandWithResult that looks
-// into NodeInternalIP.
-func IssueSSHCommandWithResult(cmd, provider string, node *v1.Node) (*framework.SSHResult, error) {
-	framework.Logf("Getting external IP address for %s", node.Name)
-	host := ""
-	for _, a := range node.Status.Addresses {
-		if a.Type == v1.NodeExternalIP {
-			host = net.JoinHostPort(a.Address, sshPort)
-			break
-		}
-	}
-
-	if host == "" {
-		// No external IPs were found, let's try to use internal as plan B
-		for _, a := range node.Status.Addresses {
-			if a.Type == v1.NodeInternalIP {
-				host = net.JoinHostPort(a.Address, sshPort)
-				break
-			}
-		}
-	}
-
-	if host == "" {
-		return nil, fmt.Errorf("couldn't find external IP address for node %s", node.Name)
-	}
-
-	framework.Logf("SSH %q on %s(%s)", cmd, node.Name, host)
-	result, err := framework.SSH(cmd, host, provider)
-	framework.LogSSHResult(result)
-
-	if result.Code != 0 || err != nil {
-		return nil, fmt.Errorf("failed running %q: %v (exit code %d)",
-			cmd, err, result.Code)
-	}
-
-	return &result, nil
-}
-
 func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, labels map[string]string, port int) *v1.Pod {
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -296,7 +255,7 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("/bin/nc -kl %d", port),
+						fmt.Sprintf(serviceCmd, port),
 					},
 					Ports: []v1.ContainerPort{{ContainerPort: int32(port)}},
 				},
@@ -384,6 +343,7 @@ func TestCannotPing(f *framework.Framework, ns *v1.Namespace, podName string, ta
 // Will also assign a pod label with key: "pod-name" and label set to the given podname for later use by the network
 // policy.
 func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, labels map[string]string) (*v1.Pod, *v1.Service) {
+
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
 	// and ServicePorts.for our Service.
 	containers := []v1.Container{}
@@ -392,13 +352,30 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
 			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: "gcr.io/google_containers/redis:e2e",
-			Args: []string{
-				"/bin/sh",
-				"-c",
-				fmt.Sprintf("/bin/nc -kl %d", port),
+			Image: imageutils.GetE2EImage(imageutils.Porter),
+			Env: []v1.EnvVar{
+				{
+					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
+					Value: "foo",
+				},
 			},
-			Ports: []v1.ContainerPort{{ContainerPort: int32(port)}},
+			Ports: []v1.ContainerPort{
+				{
+					ContainerPort: int32(port),
+					Name:          fmt.Sprintf("serve-%d", port),
+				},
+			},
+			ReadinessProbe: &v1.Probe{
+				Handler: v1.Handler{
+					HTTPGet: &v1.HTTPGetAction{
+						Path: "/",
+						Port: intstr.IntOrString{
+							IntVal: int32(port),
+						},
+						Scheme: v1.URISchemeHTTP,
+					},
+				},
+			},
 		})
 
 		// Build the Service Ports for the service.
@@ -409,16 +386,14 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		})
 	}
 
-	By(fmt.Sprintf("Creating a server pod %s in namespace %s", podName, namespace.Name))
-	// Copy the elements of labels into a new mapping so that adding pod name does not modify the original
 	newLabels := make(map[string]string)
 	for k, v := range labels {
 		newLabels[k] = v
 	}
 	newLabels["pod-name"] = podName
 
-	// Create the pod with the labels
-	pod, err := f.ClientSet.Core().Pods(namespace.Name).Create(&v1.Pod{
+	By(fmt.Sprintf("Creating a server pod %s in namespace %s", podName, namespace.Name))
+	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   podName,
 			Labels: newLabels,
@@ -433,7 +408,7 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 
 	svcName := fmt.Sprintf("svc-%s", podName)
 	By(fmt.Sprintf("Creating a service %s for pod %s in namespace %s", svcName, podName, namespace.Name))
-	svc, err := f.ClientSet.Core().Services(namespace.Name).Create(&v1.Service{
+	svc, err := f.ClientSet.CoreV1().Services(namespace.Name).Create(&v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: svcName,
 		},
