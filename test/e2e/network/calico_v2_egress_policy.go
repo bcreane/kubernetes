@@ -16,13 +16,12 @@ limitations under the License.
 
 package network
 
-
 import (
 	"errors"
 
 	"k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 
 	"fmt"
@@ -124,8 +123,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"    destination:\n"+
 				"      selector: calico/k8s_ns == \"%s\"",
 				policyName, nsName, podServer.Name, nsName)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client which will be able to contact the server since lower order allow ingress rule created.")
 			testCanConnect(f, f.Namespace, "client-can-connect", service, 80)
@@ -152,8 +151,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"    destination:\n"+
 				"      selector: calico/k8s_ns == \"%s\"",
 				policyName, nsName, nsName)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client which will not be able to contact the server since deny egress rule created.")
 			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
@@ -206,8 +205,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"    destination:\n"+
 				"      selector: calico/k8s_ns == \"%s\"",
 				policyName, nsA.Name, nsB.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client from namespace A which will not be able to contact the server in namespace A (default-deny), B (egress-deny) policy are present.")
 			By("Deny A -> A")
@@ -235,8 +234,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"    source:\n"+
 				"      notSelector: calico/k8s_ns == \"%s\"",
 				policyName, nsA.Name, nsB.Name, nsB.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client from namespace A which will not be able to contact the server in namespace B but allow to contact server in namespace A.")
 			By("Allow A -> A")
@@ -299,8 +298,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"    destination:\n"+
 				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"",
 				policyName, nsA.Name, nsB.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating calico egress policy to allow dns.")
 			policyName = "allow-dns"
@@ -318,8 +317,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"      selector: calico/k8s_ns == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
 				"      ports: [53]",
 				policyName, nsA.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client-a from namespace A which will not be able to contact the server in namespace A, B since egress deny policies are present.")
 			By("deny A.client-a -> A.server-b")
@@ -347,8 +346,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"  ingress:\n"+
 				"  - action: allow",
 				policyName, nsA.Name, nsB.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client-a from namespace A which will not be able to contact B.server-b but can contact A.server-b.")
 			By("Deny A.client-a -> A.server-b")
@@ -430,8 +429,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"\n"+
 				"      ports: [80, 81]",
 				policyName, nsA.Name, nsB.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating calico egress policy to allow dns.")
 			policyName = "allow-dns"
@@ -449,8 +448,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"      selector: calico/k8s_ns == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
 				"      ports: [53]",
 				policyName, nsA.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client-a from namespace A which will not be able to contact the server in namespace A, B since egress deny policies are present.")
 			By("deny A.Client-a -> B.server-b.80")
@@ -490,8 +489,8 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"\n"+
 				"      ports: [81, 82]",
 				policyName, nsA.Name, nsB.Name)
-			createCalicoPolicyV2(f, endPoints, policyName, policyStr)
-			defer cleanupCalicoPolicyV2(f, endPoints, policyName)
+			createCalicoResourceV2(f, endPoints, policyStr)
+			defer deleteCalicoResourceV2(f, endPoints, policyStr)
 
 			By("Creating client-a from namespace A which will not be able to contact B.server-b.80 but can contact B.server-b.81/82 and A.server-b.")
 			By("deny A.Client-a -> B.server-b.80")
@@ -569,23 +568,21 @@ func executeCalicoctlPod(f *framework.Framework, endPoints string, nsName string
 	return logs, exeErr
 }
 
-func createCalicoPolicyV2(f *framework.Framework, endPoints string, policyName string, policyStr string) {
-	framework.Logf("Setting up calico policy %s.", policyName)
-	policyArgs := fmt.Sprintf("echo '%s' | tee /$HOME/e2e-test-policy.yaml ; /calicoctl apply -f /$HOME/e2e-test-policy.yaml", policyStr)
-	logs, err := executeCalicoctlPod(f, endPoints, metav1.NamespaceSystem, "calicoctl", []string{"/bin/sh"}, []string{"-c", policyArgs})
-	if err != nil {
-		framework.Logf("Error Log from calicoctl: %s", logs)
-	}
-	Expect(err).NotTo(HaveOccurred(), "Error creating calico policy.")
+func createCalicoResourceV2(f *framework.Framework, endPoints string, resYaml string) {
+    actionCalicoResourceV2(f, endPoints, resYaml, "apply")
 }
 
-func cleanupCalicoPolicyV2(f *framework.Framework, endPoints string, policyName string) {
-	framework.Logf("Cleaning up calico policy %s.", policyName)
-	logs, err := executeCalicoctlPod(f, endPoints, metav1.NamespaceSystem, "calicoctl", []string{}, []string{"delete", "policy", policyName})
-	if err != nil {
-		framework.Logf("Error Log from calicoctl: %s", logs)
-	}
-	Expect(err).NotTo(HaveOccurred(), "Error cleaning up calico policy.")
+func deleteCalicoResourceV2(f *framework.Framework, endPoints string, resYaml string) {
+    actionCalicoResourceV2(f, endPoints, resYaml, "delete")
+}
+
+func actionCalicoResourceV2(f *framework.Framework, endPoints string, resYaml string, action string) {
+    resourceArgs := fmt.Sprintf("echo '%s' | tee /$HOME/e2e-test-resource.yaml ; /calicoctl %s -f /$HOME/e2e-test-resource.yaml", resYaml, action)
+    logs, err := executeCalicoctlPod(f, endPoints, metav1.NamespaceSystem, "calicoctl", []string{"/bin/sh"}, []string{"-c", resourceArgs})
+    if err != nil {
+        framework.Logf("Error Log from calicoctl: %s", logs)
+    }
+    Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Error '%s' calico resource.", action))
 }
 
 func getConfigMap(f *framework.Framework, configNames []string) (*v1.ConfigMap, error) {
