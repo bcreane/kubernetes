@@ -39,7 +39,7 @@ connections from one of the clients. The test then asserts that the clients
 failed or successfully connected as expected.
 */
 
-var _ = SIGDescribe("NetworkPolicy", func() {
+var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 	f := framework.NewDefaultFramework("network-policy")
@@ -64,7 +64,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			cleanupServerPodAndService(f, podServer, service)
 		})
 
-		It("should support a 'default-deny' policy [Feature:NetworkPolicy]", func() {
+		It("should support a 'default-deny' policy", func() {
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "deny-all",
@@ -84,7 +84,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
 		})
 
-		It("should enforce policy based on PodSelector [Feature:NetworkPolicy]", func() {
+		It("should enforce policy based on PodSelector", func() {
 			By("Creating a network policy for the server which allows traffic from the pod 'client-a'.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -122,7 +122,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			})
 		})
 
-		It("should enforce policy based on NamespaceSelector [Feature:NetworkPolicy]", func() {
+		It("should enforce policy based on NamespaceSelector", func() {
 			nsA := f.Namespace
 			nsBName := f.BaseName + "-b"
 			// The CreateNamespace helper uses the input name as a Name Generator, so the namespace itself
@@ -171,7 +171,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCanConnect(f, nsB, "client-b", service, 80)
 		})
 
-		It("should enforce policy based on Ports [Feature:NetworkPolicy]", func() {
+		It("should enforce policy based on Ports", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -201,7 +201,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should enforce multiple, stacked policies with overlapping podSelectors [Feature:NetworkPolicy]", func() {
+		It("should enforce multiple, stacked policies with overlapping podSelectors", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -255,7 +255,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should support allow-all policy [Feature:NetworkPolicy]", func() {
+		It("should support allow-all policy", func() {
 			By("Creating a network policy which allows all traffic.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -278,7 +278,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should allow ingress access on one named port [Feature:NetworkPolicy]", func() {
+		It("should allow ingress access on one named port", func() {
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "allow-client-a-via-named-port-ingress-rule",
