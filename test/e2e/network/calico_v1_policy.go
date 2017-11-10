@@ -34,7 +34,7 @@ const serverPort1 = 80
 
 // TODO: Need to consolidate these tests with the ones in test/e2e/network/calico_policy.
 
-var _ = framework.KubeDescribe("CalicoPolicy", func() {
+var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 
@@ -76,7 +76,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 		}
 		framework.Logf("Running tests for datastoreType %s", datastoreType)
 	})
-	Context("Calico specific network policy", func() {
+	Context("[Feature:CalicoPolicy] Calico specific network policy", func() {
 		BeforeEach(func() {
 			// Create Server with Service
 			By("Creating a simple server.")
@@ -94,7 +94,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			cleanupServerPodAndService(f, podServer, service)
 		})
 
-		It("should correctly isolate namespaces by ingress and egress policies [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
+		It("should correctly isolate namespaces by ingress and egress policies", func() {
 			nsA := f.Namespace
 			serviceA := service
 			nsBName := f.BaseName + "-b"
@@ -210,7 +210,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			testCannotConnect(f, nsA, "client-a", serviceB, 80)
 		})
 
-		It("should be able to set up a \"default-deny\" policy for a namespace [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
+		It("should be able to set up a \"default-deny\" policy for a namespace ", func() {
 			nsA := f.Namespace
 			serviceA := service
 			nsBName := f.BaseName + "-b"
@@ -323,7 +323,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			testCanConnect(f, nsA, "client-a", serviceB, 80)
 		})
 
-		It("should correctly overwrite existing calico policies with simple ingress and egress policies [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
+		It("should correctly overwrite existing calico policies with simple ingress and egress policies", func() {
 			nsA := f.Namespace
 			serviceA := service
 			nsBName := f.BaseName + "-b"
@@ -502,7 +502,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			testCanConnect(f, nsA, "client-a", serviceB, 80)
 		})
 
-		It("should correctly be able to select endpoints for policies using label selectors [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
+		It("should correctly be able to select endpoints for policies using label selectors", func() {
 			nsA := f.Namespace
 			serviceA := service
 			nsBName := f.BaseName + "-b"
@@ -863,7 +863,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 		})
 	})
 
-	It("should enforce rule ordering correctly [Feature:CalicoPolicy]", func() {
+	It("should enforce rule ordering correctly", func() {
 		ns := f.Namespace
 
 		By("Create a simple server pod.")
@@ -1001,7 +1001,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 		checkPolicyDoesntExist(policyName)
 	})
 
-	It("should support a 'log' rule [Feature:CalicoPolicy]", func() {
+	It("should support a 'log' rule", func() {
 		ns := f.Namespace
 
 		By("Create a simple server pod.")
@@ -1059,7 +1059,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 		Expect(len(newDropLogs)).NotTo(BeZero())
 	})
 
-	It("should support 'DefaultEndpointToHostAction' [Feature:CalicoPolicy]", func() {
+	It("should support 'DefaultEndpointToHostAction'", func() {
 		// TODO(doublek): Doesn't do DefaultEndpointToHostAction 'RETURN' yet.
 		// Only 'DROP' and 'ACCEPT' for now.
 
@@ -1085,7 +1085,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 		Expect(framework.CheckConnectivityToHost(f, nodeName, "ping-test-can-connect", nodeIP, framework.IPv4PingCommand, connectivityCheckTimeout)).NotTo(HaveOccurred())
 		// Pod created above will be cleaned up when the namespace goes away, which is exectuted as part of test teardown.
 	})
-	It("should allow negative selectors and support for filtering ICMP [Feature:CalicoPolicy]", func() {
+	It("should allow negative selectors and support for filtering ICMP", func() {
 		ns := f.Namespace
 
 		By("Create a server pods with label 'icmp:yes'.")

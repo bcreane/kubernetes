@@ -25,7 +25,7 @@ var (
 	datastoreType     = ""
 )
 
-var _ = framework.KubeDescribe("Essentials", func() {
+var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 	f := framework.NewDefaultFramework("network-policy")
 
 	BeforeEach(func() {
@@ -329,7 +329,7 @@ var _ = framework.KubeDescribe("Essentials", func() {
 	})
 })
 
-var _ = framework.KubeDescribe("Essentials CalicoQ", func() {
+var _ = framework.KubeDescribe("[Product: CNX] CalicoQ", func() {
 	It("should output version info when asked", func() {
 		By("Running command line client")
 		stdout, stderr, err := calico.Calicoq("version")

@@ -33,7 +33,7 @@ The following Network Policy tests verify that calico egress policy object defin
 are correctly enforced by a calico deployment.
 */
 
-var _ = SIGDescribe("NetworkPolicy", func() {
+var _ = SIGDescribe("[Feature:CalicoPolicy-v1] egress policy", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 
@@ -81,7 +81,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			cleanupServerPodAndService(f, podServer, service)
 		})
 
-		It("should support lower order 'allow ingress' policy [Feature:NetworkPolicy] [Feature:EgressNetworkPolicy]", func() {
+		It("should support lower order 'allow ingress' policy", func() {
 			if endPoints == "" {
 				Skip("Failed to get etcd_endpoints. This calico deployment does not support setting egress rules from calicoctl ")
 			}
@@ -129,7 +129,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 
 		})
 
-		It("should support a 'deny egress' policy [Feature:NetworkPolicy] [Feature:EgressNetworkPolicy]", func() {
+		It("should support a 'deny egress' policy", func() {
 			if endPoints == "" {
 				Skip("Failed to get etcd_endpoints. This calico deployment does not support setting egress rules from calicoctl ")
 			}
@@ -156,7 +156,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
 		})
 
-		It("should enforce egress policy based on NamespaceSelector [Feature:NetworkPolicy] [Feature:EgressNetworkPolicy]", func() {
+		It("should enforce egress policy based on NamespaceSelector", func() {
 			if endPoints == "" {
 				Skip("Failed to get etcd_endpoints. This calico deployment does not support setting egress rules from calicoctl ")
 			}
@@ -244,7 +244,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCanConnect(f, nsB, "client-can-connect", serviceB, 80) //allow B -> B
 		})
 
-		It("should enforce egress policy based on labelSelector and NamespaceSelector [Feature:NetworkPolicy] [Feature:EgressNetworkPolicy]", func() {
+		It("should enforce egress policy based on labelSelector and NamespaceSelector", func() {
 			if endPoints == "" {
 				Skip("Failed to get etcd_endpoints. This calico deployment does not support setting egress rules from calicoctl ")
 			}
@@ -358,7 +358,7 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 			testCanConnect(f, nsB, "client-a", serviceAB, 80) //allow B.client-a -> A.server-b
 		})
 
-		It("should enforce egress policy based on portSelector and labelSelector and NamespaceSelector [Feature:NetworkPolicy] [Feature:EgressNetworkPolicy]", func() {
+		It("should enforce egress policy based on portSelector and labelSelector and NamespaceSelector", func() {
 			if endPoints == "" {
 				Skip("Failed to get etcd_endpoints. This calico deployment does not support setting egress rules from calicoctl ")
 			}
