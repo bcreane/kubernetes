@@ -672,32 +672,30 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			testCannotConnect(f, nsB, "client-b", serviceC, 80)
 		})
 
-		/*
-			It("should correctly overwrite existing calico policies with simple ingress and egress policies using Calico v2.6.0 types [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
-				// TODO (mattl): uncomment this test when Essentials has been upgraded to Calico v2.6.0
-				nsA := f.Namespace
-				serviceA := service
-				nsBName := f.BaseName + "-b"
-				// The CreateNamespace helper uses the input name as a Name Generator, so the namespace itself
-				// will have a different name than what we are setting as the value of ns-name.
-				// This is fine as long as we don't try to match the label as nsB.Name in our policy.
-				nsB, err := f.CreateNamespace(nsBName, map[string]string{
-					"ns-name": nsBName,
-				})
-				Expect(err).NotTo(HaveOccurred())
-				framework.Logf("Created a new namespace %s.", nsB.Name)
+		It("should correctly overwrite existing calico policies with simple ingress and egress policies using Calico v2.6.0 types [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
+			Skip("(mattl): uncomment this test when Essentials has been upgraded to Calico v2.6.0")
+			nsA := f.Namespace
+			serviceA := service
+			nsBName := f.BaseName + "-b"
+			// The CreateNamespace helper uses the input name as a Name Generator, so the namespace itself
+			// will have a different name than what we are setting as the value of ns-name.
+			// This is fine as long as we don't try to match the label as nsB.Name in our policy.
+			nsB, err := f.CreateNamespace(nsBName, map[string]string{
+				"ns-name": nsBName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			framework.Logf("Created a new namespace %s.", nsB.Name)
 
-				By("Creating a simple server.")
-				podServerB, serviceB := createServerPodAndService(f, nsB, "server-b", []int{80})
-				defer cleanupServerPodAndService(f, podServerB, serviceB)
-				framework.Logf("Waiting for Server to come up.")
-				err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
-				Expect(err).NotTo(HaveOccurred())
-		*/
+			By("Creating a simple server.")
+			podServerB, serviceB := createServerPodAndService(f, nsB, "server-b", []int{80})
+			defer cleanupServerPodAndService(f, podServerB, serviceB)
+			framework.Logf("Waiting for Server to come up.")
+			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
+			Expect(err).NotTo(HaveOccurred())
 
-		// Verify that by default, all namespaces can connect with each other
-		// Currently commented out because it breaks tests that are not broken without this block
-		/*
+
+			// Verify that by default, all namespaces can connect with each other
+			// Currently commented out because it breaks tests that are not broken without this block
 			By("allow A -> A")
 			testCanConnect(f, nsA, "client-a", serviceA, 80)
 			By("allow B -> B")
@@ -706,166 +704,163 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			testCanConnect(f, nsB, "client-b", serviceA, 80)
 			By("allow A -> B")
 			testCanConnect(f, nsA, "client-a", serviceB, 80)
-		*/
 
-		/*
-						// TODO (mattl): remove this and rework these policies. Currently need to create a default deny since Calico v2.6.0
-						// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
-						By("Creating a namespace-wide default-deny policy")
-						denyPolicyStr := `
-			- apiVersion: v1
-			  kind: policy
-			  metadata:
-			    name: default-deny-all
-			  spec:
-			    order: 5000
-			    selector: has(pod-name)
-			    ingress:
-			    - action: deny
-			      source: {}
-			      destination: {}
-			`
-						createCalicoPolicy(f, "default-deny-all", denyPolicyStr)
-						defer cleanupCalicoPolicy(f, "default-deny-all")
+			// TODO (mattl): remove this and rework these policies. Currently need to create a default deny since Calico v2.6.0
+			// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
+			By("Creating a namespace-wide default-deny policy")
+			denyPolicyStr := `
+- apiVersion: v1
+  kind: policy
+  metadata:
+	name: default-deny-all
+  spec:
+	order: 5000
+	selector: has(pod-name)
+	ingress:
+	- action: deny
+	  source: {}
+	  destination: {}
+`
+			createCalicoPolicy(f, "default-deny-all", denyPolicyStr)
+			defer cleanupCalicoPolicy(f, "default-deny-all")
 
-						By("Creating calico namespace isolation policy.")
-						nsNameA := f.Namespace.Name
-						policyName := fmt.Sprintf("%s.%s", nsNameA, "namespace-isolation-a")
-						policyStr := fmt.Sprintf(`
-			- apiVersion: v1
-			  kind: policy
-			  metadata:
-			    name: %s
-			  spec:
-			    order: 1000
-			    selector: projectcalico.org/namespace == "%s"
-			    types:
-			    - ingress
-			    - egress
-			    ingress:
-			      - action: allow
-			        source:
-			          selector: projectcalico.org/namespace == "%s"
-			    egress:
-			      - action: allow
-			        destination:
-			          selector: projectcalico.org/namespace == "%s"
-			`,
-							policyName, nsNameA, nsNameA, nsNameA)
-						createCalicoPolicy(f, policyName, policyStr)
-						defer cleanupCalicoPolicy(f, policyName)
+			By("Creating calico namespace isolation policy.")
+			nsNameA := f.Namespace.Name
+			policyName := fmt.Sprintf("%s.%s", nsNameA, "namespace-isolation-a")
+			policyStr := fmt.Sprintf(`
+- apiVersion: v1
+  kind: policy
+  metadata:
+	name: %s
+  spec:
+	order: 1000
+	selector: projectcalico.org/namespace == "%s"
+	types:
+	- ingress
+	- egress
+	ingress:
+	  - action: allow
+		source:
+		  selector: projectcalico.org/namespace == "%s"
+	egress:
+	  - action: allow
+		destination:
+		  selector: projectcalico.org/namespace == "%s"
+`,
+				policyName, nsNameA, nsNameA, nsNameA)
+			createCalicoPolicy(f, policyName, policyStr)
+			defer cleanupCalicoPolicy(f, policyName)
 
-						By("Creating a calico \"default-deny\" policy that blocks all traffic to it.")
-						nsNameB := nsB.Name
-						policyNameB := fmt.Sprintf("%s.%s", nsNameB, "default-deny")
-						policyStrB := fmt.Sprintf(`
-			- apiVersion: v1
-			  kind: policy
-			  metadata:
-			    name: %s
-			  spec:
-			    order: 900
-			    selector: projectcalico.org/namespace == "%s"
-			    types:
-			    - egress
-			    egress:
-			    - action: allow
-			      destination: {}
-			      source: {}
-			`,
+			By("Creating a calico \"default-deny\" policy that blocks all traffic to it.")
+			nsNameB := nsB.Name
+			policyNameB := fmt.Sprintf("%s.%s", nsNameB, "default-deny")
+			policyStrB := fmt.Sprintf(`
+- apiVersion: v1
+  kind: policy
+  metadata:
+	name: %s
+  spec:
+	order: 900
+	selector: projectcalico.org/namespace == "%s"
+	types:
+	- egress
+	egress:
+	- action: allow
+	  destination: {}
+	  source: {}
+`,
 
-							policyNameB, nsNameB)
-						createCalicoPolicy(f, policyNameB, policyStrB)
-						defer cleanupCalicoPolicy(f, policyNameB)
+				policyNameB, nsNameB)
+			createCalicoPolicy(f, policyNameB, policyStrB)
+			defer cleanupCalicoPolicy(f, policyNameB)
 
-						By("Creating calico allow dns policy.")
-						dnsPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-dns")
-						dnsPolicyStr := fmt.Sprintf(`
-			- apiVersion: v1
-			  kind: policy
-			  metadata:
-			    name: %s
-			  spec:
-			    order: 400
-			    selector: projectcalico.org/namespace == "%s" || projectcalico.org/namespace == "%s"
-			    types:
-			    - egress
-			    egress:
-			      - action: allow
-			        destination:
-			          selector: projectcalico.org/namespace == "kube-system" && k8s-app == "kube-dns"
-			`,
-							dnsPolicyName, nsNameA, nsNameB)
-						createCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
-						defer cleanupCalicoPolicy(f, dnsPolicyName)
+			By("Creating calico allow dns policy.")
+			dnsPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-dns")
+			dnsPolicyStr := fmt.Sprintf(`
+- apiVersion: v1
+  kind: policy
+  metadata:
+	name: %s
+  spec:
+	order: 400
+	selector: projectcalico.org/namespace == "%s" || projectcalico.org/namespace == "%s"
+	types:
+	- egress
+	egress:
+	  - action: allow
+		destination:
+		  selector: projectcalico.org/namespace == "kube-system" && k8s-app == "kube-dns"
+`,
+				dnsPolicyName, nsNameA, nsNameB)
+			createCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
+			defer cleanupCalicoPolicy(f, dnsPolicyName)
 
-						// Verify that any pods in B cannot be reached and A can only communicate with itself
-						By("allow A -> A")
-						testCanConnect(f, nsA, "client-a", serviceA, 80)
-						By("deny B -> B")
-						testCannotConnect(f, nsB, "client-b", serviceB, 80)
-						By("deny B -> A")
-						testCannotConnect(f, nsB, "client-b", serviceA, 80)
-						By("deny A -> B")
-						testCannotConnect(f, nsA, "client-a", serviceB, 80)
+			// Verify that any pods in B cannot be reached and A can only communicate with itself
+			By("allow A -> A")
+			testCanConnect(f, nsA, "client-a", serviceA, 80)
+			By("deny B -> B")
+			testCannotConnect(f, nsB, "client-b", serviceB, 80)
+			By("deny B -> A")
+			testCannotConnect(f, nsB, "client-b", serviceA, 80)
+			By("deny A -> B")
+			testCannotConnect(f, nsA, "client-a", serviceB, 80)
 
-						By("Creating a simple ingress policy on B that allows traffic to B from A.")
-						ingressPolicyName := fmt.Sprintf("%s.%s", nsNameB, "simple-ingress")
-						ingressPolicyStr := fmt.Sprintf(`
-			- apiVersion: v1
-			  kind: policy
-			  metadata:
-			    name: %s
-			  spec:
-			    order: 800
-			    selector: projectcalico.org/namespace == "%s"
-			    types:
-			    - ingress
-			    ingress:
-			    - action: allow
-			      source:
-			        selector: projectcalico.org/namespace == "%s"
-			`,
-							ingressPolicyName, nsNameB, nsNameA)
-						createCalicoPolicy(f, ingressPolicyName, ingressPolicyStr)
-						defer cleanupCalicoPolicy(f, ingressPolicyName)
+			By("Creating a simple ingress policy on B that allows traffic to B from A.")
+			ingressPolicyName := fmt.Sprintf("%s.%s", nsNameB, "simple-ingress")
+			ingressPolicyStr := fmt.Sprintf(`
+- apiVersion: v1
+  kind: policy
+  metadata:
+	name: %s
+  spec:
+	order: 800
+	selector: projectcalico.org/namespace == "%s"
+	types:
+	- ingress
+	ingress:
+	- action: allow
+	  source:
+		selector: projectcalico.org/namespace == "%s"
+`,
+				ingressPolicyName, nsNameB, nsNameA)
+			createCalicoPolicy(f, ingressPolicyName, ingressPolicyStr)
+			defer cleanupCalicoPolicy(f, ingressPolicyName)
 
-						// This should not be accessible yet since A will also need an egress policy
-						By("deny A -> B")
-						testCannotConnect(f, nsA, "client-a", serviceB, 80)
+			// This should not be accessible yet since A will also need an egress policy
+			By("deny A -> B")
+			testCannotConnect(f, nsA, "client-a", serviceB, 80)
 
-						By("Creating a simple egress policy on A that allows traffic to B.")
-						egressPolicyName := fmt.Sprintf("%s.%s", nsNameA, "simple-egress")
-						egressPolicyStr := fmt.Sprintf(`
-			- apiVersion: v1
-			  kind: policy
-			  metadata:
-			    name: %s
-			  spec:
-			    order: 700
-			    selector: projectcalico.org/namespace == "%s"
-			    types:
-			    - egress
-			    egress:
-			    - action: allow
-			      destination:
-			        selector: projectcalico.org/namespace == "%s"
-			`,
-							egressPolicyName, nsNameA, nsNameB)
-						createCalicoPolicy(f, egressPolicyName, egressPolicyStr)
-						defer cleanupCalicoPolicy(f, egressPolicyName)
+			By("Creating a simple egress policy on A that allows traffic to B.")
+			egressPolicyName := fmt.Sprintf("%s.%s", nsNameA, "simple-egress")
+			egressPolicyStr := fmt.Sprintf(`
+- apiVersion: v1
+  kind: policy
+  metadata:
+	name: %s
+  spec:
+	order: 700
+	selector: projectcalico.org/namespace == "%s"
+	types:
+	- egress
+	egress:
+	- action: allow
+	  destination:
+		selector: projectcalico.org/namespace == "%s"
+`,
+				egressPolicyName, nsNameA, nsNameB)
+			createCalicoPolicy(f, egressPolicyName, egressPolicyStr)
+			defer cleanupCalicoPolicy(f, egressPolicyName)
 
-						By("Testing that A and B can access one another. Only B cannot connect to B.")
-						By("allow A -> A")
-						testCanConnect(f, nsA, "client-a", serviceA, 80)
-						By("deny B -> B")
-						testCannotConnect(f, nsB, "client-b", serviceB, 80)
-						By("deny B -> A")
-						testCannotConnect(f, nsB, "client-b", serviceA, 80)
-						By("allow A -> B")
-						testCanConnect(f, nsA, "client-a", serviceB, 80)
-					})
-		*/
+			By("Testing that A and B can access one another. Only B cannot connect to B.")
+			By("allow A -> A")
+			testCanConnect(f, nsA, "client-a", serviceA, 80)
+			By("deny B -> B")
+			testCannotConnect(f, nsB, "client-b", serviceB, 80)
+			By("deny B -> A")
+			testCannotConnect(f, nsB, "client-b", serviceA, 80)
+			By("allow A -> B")
+			testCanConnect(f, nsA, "client-a", serviceB, 80)
+		})
 	})
 
 	It("should enforce rule ordering correctly [Feature:CalicoPolicy]", func() {
