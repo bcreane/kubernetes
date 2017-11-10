@@ -116,12 +116,12 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"%s\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"%s\"\n"+
 				"  order: 500\n"+
 				"  ingress:\n"+
 				"  - action: allow\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\"",
+				"      selector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsName, podServer.Name, nsName)
 			createCalicoResourceV2(f, endPoints, policyStr)
 			defer deleteCalicoResourceV2(f, endPoints, policyStr)
@@ -144,12 +144,12 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
 				"  - action: deny\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\"",
+				"      selector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsName, nsName)
 			createCalicoResourceV2(f, endPoints, policyStr)
 			defer deleteCalicoResourceV2(f, endPoints, policyStr)
@@ -198,12 +198,12 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
 				"  - action: deny\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\"",
+				"      selector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsA.Name, nsB.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)
 			defer deleteCalicoResourceV2(f, endPoints, policyStr)
@@ -223,16 +223,16 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\"\n"+
 				"  order: 400\n"+
 				"  egress:\n"+
 				"  - action: allow\n"+
 				"    destination:\n"+
-				"      notSelector: calico/k8s_ns == \"%s\"\n"+
+				"      notSelector: projectcalico.org/namespace == \"%s\"\n"+
 				"  ingress:\n"+
 				"  - action: allow\n"+
 				"    source:\n"+
-				"      notSelector: calico/k8s_ns == \"%s\"",
+				"      notSelector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsA.Name, nsB.Name, nsB.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)
 			defer deleteCalicoResourceV2(f, endPoints, policyStr)
@@ -291,12 +291,12 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"client-a\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
 				"  - action: deny\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"",
+				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"",
 				policyName, nsA.Name, nsB.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)
 			defer deleteCalicoResourceV2(f, endPoints, policyStr)
@@ -308,13 +308,13 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"client-a\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 400\n"+
 				"  egress:\n"+
 				"  - action: allow\n"+
 				"    protocol: udp\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
+				"      selector: projectcalico.org/namespace == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
 				"      ports: [53]",
 				policyName, nsA.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)
@@ -337,12 +337,12 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"client-a\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 300\n"+
 				"  egress:\n"+
 				"  - action: allow\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"\n"+
+				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"\n"+
 				"  ingress:\n"+
 				"  - action: allow",
 				policyName, nsA.Name, nsB.Name)
@@ -420,13 +420,13 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"client-a\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
 				"  - action: deny\n"+
 				"    protocol: tcp\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"\n"+
+				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"\n"+
 				"      ports: [80, 81]",
 				policyName, nsA.Name, nsB.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)
@@ -439,13 +439,13 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"client-a\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 400\n"+
 				"  egress:\n"+
 				"  - action: allow\n"+
 				"    protocol: udp\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
+				"      selector: projectcalico.org/namespace == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
 				"      ports: [53]",
 				policyName, nsA.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)
@@ -480,13 +480,13 @@ var _ = SIGDescribe("NetworkPolicy", func() {
 				"metadata:\n"+
 				"  name: %s\n"+
 				"spec:\n"+
-				"  selector: calico/k8s_ns == \"%s\" && pod-name == \"client-a\"\n"+
+				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 300\n"+
 				"  egress:\n"+
 				"  - action: allow\n"+
 				"    protocol: tcp\n"+
 				"    destination:\n"+
-				"      selector: calico/k8s_ns == \"%s\" && pod-name == \"server-b\"\n"+
+				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"\n"+
 				"      ports: [81, 82]",
 				policyName, nsA.Name, nsB.Name)
 			createCalicoResourceV2(f, endPoints, policyStr)

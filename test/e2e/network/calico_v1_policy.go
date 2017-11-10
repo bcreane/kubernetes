@@ -143,15 +143,15 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 1000
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     ingress:
       - action: allow
         source:
-          selector: calico/k8s_ns == "%s"
+          selector: projectcalico.org/namespace == "%s"
     egress:
       - action: allow
         destination:
-          selector: calico/k8s_ns == "%s"
+          selector: projectcalico.org/namespace == "%s"
 `,
 				policyName, nsNameA, nsNameA, nsNameA)
 			createCalicoPolicy(f, policyName, policyStr)
@@ -167,15 +167,15 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 1000
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     ingress:
       - action: allow
         source:
-          selector: calico/k8s_ns == "%s"
+          selector: projectcalico.org/namespace == "%s"
     egress:
       - action: allow
         destination:
-          selector: calico/k8s_ns == "%s"
+          selector: projectcalico.org/namespace == "%s"
 `,
 				policyNameB, nsNameB, nsNameB, nsNameB)
 			createCalicoPolicy(f, policyNameB, policyStrB)
@@ -190,11 +190,11 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 400
-    selector: calico/k8s_ns == "%s" || calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s" || projectcalico.org/namespace == "%s"
     egress:
       - action: allow
         destination:
-          selector: calico/k8s_ns == "kube-system" && k8s-app == "kube-dns"
+          selector: projectcalico.org/namespace == "kube-system" && k8s-app == "kube-dns"
 `,
 				dnsPolicyName, nsNameA, nsNameB)
 			createCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
@@ -259,7 +259,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: default-allow
   spec:
     order: 4900
-    selector: calico/k8s_ns != "%s"
+    selector: projectcalico.org/namespace != "%s"
     ingress:
     - action: allow
       source: {}
@@ -284,7 +284,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 1000
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     egress:
     - action: allow
       destination: {}
@@ -303,11 +303,11 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 400
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     egress:
       - action: allow
         destination:
-          selector: calico/k8s_ns == "kube-system" && k8s-app == "kube-dns"
+          selector: projectcalico.org/namespace == "kube-system" && k8s-app == "kube-dns"
 `,
 				dnsPolicyName, nsNameA)
 			createCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
@@ -385,15 +385,15 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 1000
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     ingress:
       - action: allow
         source:
-          selector: calico/k8s_ns == "%s"
+          selector: projectcalico.org/namespace == "%s"
     egress:
       - action: allow
         destination:
-          selector: calico/k8s_ns == "%s"
+          selector: projectcalico.org/namespace == "%s"
 `,
 				policyName, nsNameA, nsNameA, nsNameA)
 			createCalicoPolicy(f, policyName, policyStr)
@@ -409,7 +409,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 900
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     egress:
     - action: allow
       destination: {}
@@ -429,11 +429,11 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 400
-    selector: calico/k8s_ns == "%s" || calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s" || projectcalico.org/namespace == "%s"
     egress:
       - action: allow
         destination:
-          selector: calico/k8s_ns == "kube-system" && k8s-app == "kube-dns"
+          selector: projectcalico.org/namespace == "kube-system" && k8s-app == "kube-dns"
 `,
 				dnsPolicyName, nsNameA, nsNameB)
 			createCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
@@ -458,11 +458,11 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 800
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     ingress:
     - action: allow
       source:
-        selector: calico/k8s_ns == "%s"
+        selector: projectcalico.org/namespace == "%s"
 `,
 				ingressPolicyName, nsNameB, nsNameA)
 			createCalicoPolicy(f, ingressPolicyName, ingressPolicyStr)
@@ -481,11 +481,11 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     name: %s
   spec:
     order: 700
-    selector: calico/k8s_ns == "%s"
+    selector: projectcalico.org/namespace == "%s"
     egress:
     - action: allow
       destination:
-        selector: calico/k8s_ns == "%s"
+        selector: projectcalico.org/namespace == "%s"
 `,
 				egressPolicyName, nsNameA, nsNameB)
 			createCalicoPolicy(f, egressPolicyName, egressPolicyStr)
@@ -615,7 +615,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     ingress:
     - action: allow
       source:
-        selector: calico/k8s_ns == "%s"
+        selector: projectcalico.org/namespace == "%s"
 `,
 				policyNameAllowB, "pod-name", nsNameB)
 			createCalicoPolicy(f, policyNameAllowB, policyStrAllowB)
@@ -648,10 +648,10 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
     ingress:
     - action: allow
       source:
-        selector: calico/k8s_ns == "%s"
+        selector: projectcalico.org/namespace == "%s"
     - action: deny
       source:
-        selector: calico/k8s_ns == "%s"
+        selector: projectcalico.org/namespace == "%s"
 `,
 				policyNameSpecificLabel, identifierKey, "ident2", nsNameA, nsNameB)
 			createCalicoPolicy(f, policyNameSpecificLabel, policyStrSpecificLabel)
@@ -738,18 +738,18 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			    name: %s
 			  spec:
 			    order: 1000
-			    selector: calico/k8s_ns == "%s"
+			    selector: projectcalico.org/namespace == "%s"
 			    types:
 			    - ingress
 			    - egress
 			    ingress:
 			      - action: allow
 			        source:
-			          selector: calico/k8s_ns == "%s"
+			          selector: projectcalico.org/namespace == "%s"
 			    egress:
 			      - action: allow
 			        destination:
-			          selector: calico/k8s_ns == "%s"
+			          selector: projectcalico.org/namespace == "%s"
 			`,
 							policyName, nsNameA, nsNameA, nsNameA)
 						createCalicoPolicy(f, policyName, policyStr)
@@ -765,7 +765,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			    name: %s
 			  spec:
 			    order: 900
-			    selector: calico/k8s_ns == "%s"
+			    selector: projectcalico.org/namespace == "%s"
 			    types:
 			    - egress
 			    egress:
@@ -787,13 +787,13 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			    name: %s
 			  spec:
 			    order: 400
-			    selector: calico/k8s_ns == "%s" || calico/k8s_ns == "%s"
+			    selector: projectcalico.org/namespace == "%s" || projectcalico.org/namespace == "%s"
 			    types:
 			    - egress
 			    egress:
 			      - action: allow
 			        destination:
-			          selector: calico/k8s_ns == "kube-system" && k8s-app == "kube-dns"
+			          selector: projectcalico.org/namespace == "kube-system" && k8s-app == "kube-dns"
 			`,
 							dnsPolicyName, nsNameA, nsNameB)
 						createCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
@@ -818,13 +818,13 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			    name: %s
 			  spec:
 			    order: 800
-			    selector: calico/k8s_ns == "%s"
+			    selector: projectcalico.org/namespace == "%s"
 			    types:
 			    - ingress
 			    ingress:
 			    - action: allow
 			      source:
-			        selector: calico/k8s_ns == "%s"
+			        selector: projectcalico.org/namespace == "%s"
 			`,
 							ingressPolicyName, nsNameB, nsNameA)
 						createCalicoPolicy(f, ingressPolicyName, ingressPolicyStr)
@@ -843,13 +843,13 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
 			    name: %s
 			  spec:
 			    order: 700
-			    selector: calico/k8s_ns == "%s"
+			    selector: projectcalico.org/namespace == "%s"
 			    types:
 			    - egress
 			    egress:
 			    - action: allow
 			      destination:
-			        selector: calico/k8s_ns == "%s"
+			        selector: projectcalico.org/namespace == "%s"
 			`,
 							egressPolicyName, nsNameA, nsNameB)
 						createCalicoPolicy(f, egressPolicyName, egressPolicyStr)
@@ -967,7 +967,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
           selector: pod-name=='client'
         destination:
           ports: [%d]
-    selector: pod-name=='%s' && calico/k8s_ns == '%s'
+    selector: pod-name=='%s' && projectcalico.org/namespace == '%s'
 `,
 			policyName, serverPort1, serverPod1.Name, ns.Name)
 		By("Creating a client that should not be able to connect to the server")
@@ -993,7 +993,7 @@ var _ = framework.KubeDescribe("CalicoPolicy", func() {
           selector: pod-name=='client'
         destination:
           ports: [%d]
-    selector: pod-name=='%s' && calico/k8s_ns == '%s'
+    selector: pod-name=='%s' && projectcalico.org/namespace == '%s'
 `,
 			policyName, serverPort1, serverPod1.Name, ns.Name)
 		By("Creating a client that can connect to the server")
