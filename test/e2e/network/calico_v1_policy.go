@@ -30,13 +30,12 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const serverPort1 = 80
-
 // TODO: Need to consolidate these tests with the ones in test/e2e/network/calico_policy.
 
 var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
+	serverPort1 := 80
 
 	f := framework.NewDefaultFramework("calico-policy")
 
@@ -50,32 +49,32 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 			if len(line) == 0 {
 				continue
 			}
-			calico.Calicoctl("delete", "policy", line)
+			calico.CalicoctlExec("delete", "policy", line)
 		}
 	})
 	BeforeEach(func() {
 		Skip("Not running Calico V1 policy tests")
-		if datastoreType == "" {
+		if calico.DatastoreType == "" {
 			// Infer datastore type by reading /etc/calico/calicoctl.cfg.
 			b, err := ioutil.ReadFile("/etc/calico/calicoctl.cfg")
 			Expect(err).NotTo(HaveOccurred())
 			for _, line := range strings.Split(string(b), "\n") {
 				if strings.Contains(line, "datastoreType") {
 					if strings.Contains(line, "kubernetes") {
-						datastoreType = "kdd"
+						calico.DatastoreType = "kdd"
 					}
 					if strings.Contains(line, "etcd") {
-						datastoreType = "etcd"
+						calico.DatastoreType = "etcd"
 					}
 				}
 			}
-			framework.Logf("datastoreType = %v", datastoreType)
-			Expect(datastoreType).NotTo(Equal(""))
+			framework.Logf("datastoreType = %v", calico.DatastoreType)
+			Expect(calico.DatastoreType).NotTo(Equal(""))
 		}
-		if datastoreType == "kdd" {
+		if calico.DatastoreType == "kdd" {
 			Skip("KDD mode not supported")
 		}
-		framework.Logf("Running tests for datastoreType %s", datastoreType)
+		framework.Logf("Running tests for datastoreType %s", calico.DatastoreType)
 	})
 	Context("[Feature:CalicoPolicy] Calico specific network policy", func() {
 		BeforeEach(func() {
@@ -694,7 +693,6 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
 
-
 			// Verify that by default, all namespaces can connect with each other
 			// Currently commented out because it breaks tests that are not broken without this block
 			By("allow A -> A")
@@ -897,7 +895,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 `,
 			serverPort1, serverPod.Name)
 		defer func() {
-			calico.Calicoctl("delete", "policy", "client-policy")
+			calico.CalicoctlExec("delete", "policy", "client-policy")
 		}()
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
@@ -996,7 +994,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 		testCanConnect(f, ns, "client", service, serverPort1)
 
 		By("Deleting the policy")
-		calico.Calicoctl("delete", "policy", policyName)
+		calico.CalicoctlExec("delete", "policy", policyName)
 
 		By("Checking if the policy doesn't exists")
 		checkPolicyDoesntExist(policyName)
@@ -1050,7 +1048,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 `,
 			serverPort1, serverPort1, serverPod.Name)
 		defer func() {
-			calico.Calicoctl("delete", "policy", "policy-log-then-deny")
+			calico.CalicoctlExec("delete", "policy", "policy-log-then-deny")
 		}()
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
@@ -1144,8 +1142,8 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 `,
 		)
 		defer func() {
-			calico.Calicoctl("delete", "policy", "deny-icmp")
-			calico.Calicoctl("delete", "policy", "allow-icmp-access")
+			calico.CalicoctlExec("delete", "policy", "deny-icmp")
+			calico.CalicoctlExec("delete", "policy", "allow-icmp-access")
 		}()
 
 		By("Pinging the IMCP allowed pod")
@@ -1165,7 +1163,7 @@ func createCalicoPolicy(f *framework.Framework, policyName string, policyStr str
 
 func cleanupCalicoPolicy(f *framework.Framework, policyName string) {
 	framework.Logf("Cleaning up calico policy %s.", policyName)
-	calico.Calicoctl("delete", "policy", policyName)
+	calico.CalicoctlExec("delete", "policy", policyName)
 }
 
 func chooseNode(nodes *v1.NodeList) (string, string) {

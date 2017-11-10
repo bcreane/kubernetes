@@ -10,23 +10,18 @@ import (
 	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-)
-
-var (
-	felixConfigNeeded = true
-	datastoreType     = ""
 )
 
 var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 	f := framework.NewDefaultFramework("network-policy")
+	felixConfigNeeded := true
 
 	BeforeEach(func() {
 		if felixConfigNeeded {
@@ -35,22 +30,22 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 			calico.RestartCalicoNodePods(f.ClientSet, "")
 			felixConfigNeeded = false
 		}
-		if datastoreType == "" {
+		if calico.DatastoreType == "" {
 			// Infer datastore type by reading /etc/calico/calicoctl.cfg.
 			b, err := ioutil.ReadFile("/etc/calico/calicoctl.cfg")
 			Expect(err).NotTo(HaveOccurred())
 			for _, line := range strings.Split(string(b), "\n") {
 				if strings.Contains(line, "datastoreType") {
 					if strings.Contains(line, "kubernetes") {
-						datastoreType = "kdd"
+						calico.DatastoreType = "kdd"
 					}
 					if strings.Contains(line, "etcd") {
-						datastoreType = "etcd"
+						calico.DatastoreType = "etcd"
 					}
 				}
 			}
-			framework.Logf("datastoreType = %v", datastoreType)
-			Expect(datastoreType).NotTo(Equal(""))
+			framework.Logf("datastoreType = %v", calico.DatastoreType)
+			Expect(calico.DatastoreType).NotTo(Equal(""))
 		}
 	})
 
@@ -78,7 +73,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 
 				switch dropType {
 				case "policyDeny":
-					if datastoreType == "kdd" {
+					if calico.DatastoreType == "kdd" {
 						Skip("can't write Calico policy with KDD")
 					}
 
@@ -110,7 +105,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 `,
 						serverPod.Name)
 					defer func() {
-						calico.Calicoctl("delete", "policy", "policyDeny")
+						calico.CalicoctlExec("delete", "policy", "policyDeny")
 					}()
 
 				case "profileDeny":
@@ -164,8 +159,8 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 					panic("Unhandled dropType")
 				}
 
-				calico.Calicoctl("get", "policy", "-o", "yaml")
-				calico.Calicoctl("get", "profile", "-o", "yaml")
+				calico.CalicoctlExec("get", "policy", "-o", "yaml")
+				calico.CalicoctlExec("get", "profile", "-o", "yaml")
 
 				By("Creating client-a, which can connect on port 443")
 				testCanConnect(f, ns, "client-a", service, 443)
@@ -180,7 +175,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 				if dropActionOverride != "" {
 					switch daoMethod {
 					case "calicoctl global":
-						calico.Calicoctl(
+						calico.CalicoctlExec(
 							"config",
 							"set",
 							"DropActionOverride",
@@ -189,7 +184,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 						)
 						defer func() {
 							By("clean up calicoctl global setting")
-							calico.Calicoctl(
+							calico.CalicoctlExec(
 								"config",
 								"unset",
 								"DropActionOverride",
@@ -197,11 +192,11 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 							)
 						}()
 					case "calicoctl node":
-						if datastoreType == "kdd" {
+						if calico.DatastoreType == "kdd" {
 							Skip("can't do node-specific calicoctl config with KDD")
 						}
 
-						calico.Calicoctl(
+						calico.CalicoctlExec(
 							"config",
 							"set",
 							"DropActionOverride",
@@ -211,7 +206,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 						)
 						defer func() {
 							By("clean up calicoctl node setting")
-							calico.Calicoctl(
+							calico.CalicoctlExec(
 								"config",
 								"unset",
 								"DropActionOverride",
