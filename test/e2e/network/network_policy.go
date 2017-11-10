@@ -360,8 +360,11 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 })
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
+	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {})
+}
+func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) {
 	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPod(f, ns, podName, service, targetPort)
+	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -407,8 +410,11 @@ func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, se
 }
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
+	testCannotConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {})
+}
+func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) {
 	By(fmt.Sprintf("Creating client pod %s that should not be able to connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPod(f, ns, podName, service, targetPort)
+	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -456,6 +462,14 @@ func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string,
 // Will also assign a pod label with key: "pod-name" and label set to the given podname for later use by the network
 // policy.
 func createServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
+	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {})
+}
+func createHostNetworkedServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
+	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {
+		pod.Spec.HostNetwork = true
+	})
+}
+func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod)) (*v1.Pod, *v1.Service) {
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
 	// and ServicePorts.for our Service.
 	containers := []v1.Container{}
@@ -499,7 +513,7 @@ func createServerPodAndService(f *framework.Framework, namespace *v1.Namespace, 
 	}
 
 	By(fmt.Sprintf("Creating a server pod %s in namespace %s", podName, namespace.Name))
-	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(&v1.Pod{
+	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
 			Labels: map[string]string{
@@ -510,7 +524,10 @@ func createServerPodAndService(f *framework.Framework, namespace *v1.Namespace, 
 			Containers:    containers,
 			RestartPolicy: v1.RestartPolicyNever,
 		},
-	})
+	}
+	// Allow customization of the pod spec before creation.
+	podCustomizer(pod)
+	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 	Expect(err).NotTo(HaveOccurred())
 	framework.Logf("Created pod %v", pod.ObjectMeta.Name)
 
@@ -548,7 +565,10 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 // This client will attempt a one-shot connection, then die, without restarting the pod.
 // Test can then be asserted based on whether the pod quit with an error or not.
 func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int) *v1.Pod {
-	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(&v1.Pod{
+	return createNetworkClientPodX(f, namespace, podName, targetService, targetPort, func(pod *v1.Pod) {})
+}
+func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) *v1.Pod {
+	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
 			Labels: map[string]string{
@@ -570,7 +590,10 @@ func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, pod
 				},
 			},
 		},
-	})
+	}
+	podCustomizer(pod)
+	var err error
+	pod, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 
 	Expect(err).NotTo(HaveOccurred())
 

@@ -471,6 +471,10 @@ func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
 	return &ctl
 }
 
+func (c *Calicoctl) DatastoreType() string {
+	return c.datastore
+}
+
 func (c *Calicoctl) Apply(yaml string, args ...interface{}) {
 	c.actionCtl(fmt.Sprintf(yaml, args...), "apply")
 }
@@ -485,6 +489,10 @@ func (c *Calicoctl) Get(args ...string) string {
 
 func (c *Calicoctl) Exec(args ...string) string {
 	return c.execExpectNoError(args...)
+}
+
+func (c *Calicoctl) DeleteHE(hostEndpointName string) {
+	c.execExpectNoError("delete", "hostendpoint", hostEndpointName)
 }
 
 func (c *Calicoctl) DeleteGNP(policyName string) {
@@ -559,4 +567,32 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	framework.Logf("Getting current log for calicoctl: %s", logs)
 
 	return logs, exeErr
+}
+
+func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) {
+	node, err := f.ClientSet.Core().Nodes().Get(nodeName, metav1.GetOptions{})
+	framework.ExpectNoError(err)
+
+	// For the following operations to work, you need to run the e2e.test binary with
+	// '--provider local', and to have an unencrypted SSH key in ~/.ssh/id_rsa on the
+	// machine/account where you are running that binary, that is able to access the other nodes
+	// in the cluster.
+	//
+	// (Probably other provider setups would work too, but I have not researched those.)
+	framework.IssueSSHCommand("sudo ip route", framework.TestContext.Provider, node)
+	framework.IssueSSHCommand("sudo ipset save", framework.TestContext.Provider, node)
+	framework.IssueSSHCommand("sudo iptables-save -c -t filter", framework.TestContext.Provider, node)
+}
+
+func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
+	podNow, err := f.ClientSet.Core().Pods(f.Namespace.Name).Get(podName, metav1.GetOptions{})
+	framework.ExpectNoError(err)
+	framework.Logf("Pod is on %v, IP %v", podNow.Spec.NodeName, podNow.Status.PodIP)
+	framework.Logf("Full pod detail = %#v", podNow)
+	return podNow
+}
+
+func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) {
+	podNow := GetPodNow(f, podName)
+	LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
 }
