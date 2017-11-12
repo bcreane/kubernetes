@@ -70,9 +70,6 @@ var _ = framework.KubeDescribe("CalicoPolicyV2", func() {
 			framework.Logf("datastoreType = %v", datastoreType)
 			Expect(datastoreType).NotTo(Equal(""))
 		}
-		if datastoreType == "kdd" {
-			Skip("KDD mode not supported")
-		}
 		framework.Logf("Running tests for datastoreType %s", datastoreType)
 	})
 	Context("Calico specific network policy", func() {
