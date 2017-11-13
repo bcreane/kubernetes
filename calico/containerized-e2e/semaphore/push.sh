@@ -7,7 +7,7 @@ if [ "${SEMAPHORE_THREAD_RESULT}" == "passed" ]; then
 
   echo "[INFO] pushed gcr.io/unique-caldron-775/k8s-e2e:${GIT_SHA}"
   # TODO: change to :latest
-  echo "[INFO] pushed gcr.io/unique-caldron-775/k8s-e2e:v2.0-alpha"
+  echo "[INFO] pushed gcr.io/unique-caldron-775/k8s-e2e:master"
 else
   echo "[ERROR] not pushing due to job result: ${SEMAPHORE_THREAD_RESULT}"
   exit 1
