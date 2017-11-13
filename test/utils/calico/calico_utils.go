@@ -439,7 +439,7 @@ func getConfigMap(f *framework.Framework, configNames []string) (*v1.ConfigMap, 
 	return nil, errors.New("Cannot get ConfigMap")
 }
 
-func getCalicoConfigMapData(f *framework.Framework, cfgNames []string) (*map[string]string, error) {
+func GetCalicoConfigMapData(f *framework.Framework, cfgNames []string) (*map[string]string, error) {
 	configMap, err := getConfigMap(f, cfgNames)
 	if err != nil {
 		framework.Logf("unable to get config map: %v", err)
@@ -460,10 +460,9 @@ func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
 	ctl.framework = f
 	ctl.datastore = "kubernetes"
 	ctl.endPoints = "unused"
-	cfg, err := getCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
-	if err != nil {
-		framework.Logf("Unable to get config map: %v", err)
-	} else if v, ok := (*cfg)["etcd_endpoints"]; ok {
+	cfg, err := GetCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
+	Expect(err).NotTo(HaveOccurred(), "Unable to get config map: %v", err)
+	if v, ok := (*cfg)["etcd_endpoints"]; ok {
 		ctl.datastore = "etcdv3"
 		ctl.endPoints = v
 	}
