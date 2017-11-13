@@ -20,6 +20,7 @@ package calico
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -36,11 +37,14 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var zeroGracePeriod int64 = 0
-
-var deleteImmediately = &metav1.DeleteOptions{GracePeriodSeconds: &zeroGracePeriod}
-
-var serviceCmd = "/bin/sh -c 'while /bin/true; do echo foo | nc -l %d; done'"
+var (
+	felixConfigNeeded       = true
+	DatastoreType           = ""
+	zeroGracePeriod   int64 = 0
+	deleteImmediately       = &metav1.DeleteOptions{GracePeriodSeconds: &zeroGracePeriod}
+	serviceCmd              = "/bin/sh -c 'while /bin/true; do echo foo | nc -l %d; done'"
+	serverPort1             = 80
+)
 
 func countSyslogLines(node *v1.Node) (count int64) {
 	result, err := framework.IssueSSHCommandWithResult(
@@ -108,7 +112,7 @@ func getNewCalicoDropLogs(cmd string, node *v1.Node) (logs []string) {
 	return
 }
 
-func Calicoctl(args ...string) {
+func CalicoctlExec(args ...string) {
 	cmd := exec.Command("calicoctl", args...)
 	runCommandExpectNoError(cmd)
 }
@@ -423,4 +427,137 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	framework.Logf("Created service %s", svc.Name)
 
 	return pod, svc
+}
+
+func getConfigMap(f *framework.Framework, configNames []string) (*v1.ConfigMap, error) {
+	for _, name := range configNames {
+		if configMap, err := f.ClientSet.CoreV1().ConfigMaps(metav1.NamespaceSystem).Get(name, metav1.GetOptions{}); err == nil {
+			return configMap, nil
+		}
+	}
+
+	return nil, errors.New("Cannot get ConfigMap")
+}
+
+func getCalicoConfigMapData(f *framework.Framework, cfgNames []string) (*map[string]string, error) {
+	configMap, err := getConfigMap(f, cfgNames)
+	if err != nil {
+		framework.Logf("unable to get config map: %v", err)
+		return nil, err
+	}
+	return &configMap.Data, nil
+
+}
+
+type Calicoctl struct {
+	datastore string
+	endPoints string
+	framework *framework.Framework
+}
+
+func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
+	var ctl Calicoctl
+	ctl.framework = f
+	ctl.datastore = "kubernetes"
+	ctl.endPoints = "unused"
+	cfg, err := getCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
+	if err != nil {
+		framework.Logf("Unable to get config map: %v", err)
+	} else if v, ok := (*cfg)["etcd_endpoints"]; ok {
+		ctl.datastore = "etcdv3"
+		ctl.endPoints = v
+	}
+
+	framework.Logf("Configured for datastoreType %s", ctl.datastore)
+	return &ctl
+}
+
+func (c *Calicoctl) Apply(yaml string, args ...interface{}) {
+	c.actionCtl(fmt.Sprintf(yaml, args...), "apply")
+}
+
+func (c *Calicoctl) Replace(yaml string, args ...interface{}) {
+	c.actionCtl(fmt.Sprintf(yaml, args...), "replace")
+}
+
+func (c *Calicoctl) Get(args ...string) string {
+	return c.execExpectNoError(append([]string{"get"}, args...)...)
+}
+
+func (c *Calicoctl) Exec(args ...string) string {
+	return c.execExpectNoError(args...)
+}
+
+func (c *Calicoctl) DeleteGNP(policyName string) {
+	c.execExpectNoError("delete", "globalnetworkpolicy", policyName)
+}
+
+func (c *Calicoctl) DeleteNP(namespace, policyName string) {
+	c.execExpectNoError("delete", "networkpolicy", "-n", namespace, policyName)
+}
+
+func (c *Calicoctl) execExpectNoError(args ...string) string {
+	result, err := c.executeCalicoctl("calicoctl", args...)
+	Expect(err).NotTo(HaveOccurred())
+	return result
+}
+
+func (c *Calicoctl) actionCtl(resYaml string, action string) {
+	resourceArgs := fmt.Sprintf("echo '%s' | tee /$HOME/e2e-test-resource.yaml ; /calicoctl %s -f /$HOME/e2e-test-resource.yaml", resYaml, action)
+	logs, err := c.executeCalicoctl("/bin/sh", "-c", resourceArgs)
+	if err != nil {
+		framework.Logf("Error Log from calicoctl: %s", logs)
+	}
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Error '%s' calico resource.", action))
+}
+
+func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error) {
+	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
+
+	f := c.framework
+	podClient, err := f.ClientSet.Core().Pods("kube-system").Create(&v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "calicoctl",
+			Labels: map[string]string{
+				"pod-name": "calicoctl",
+			},
+		},
+		Spec: v1.PodSpec{
+			HostNetwork:   true,
+			RestartPolicy: v1.RestartPolicyNever,
+			Containers: []v1.Container{
+				{
+					Name:    "calicoctl-container",
+					Image:   "quay.io/calico/ctl:master",
+					Command: []string{cmd},
+					Args:    args,
+					Env: []v1.EnvVar{
+						{Name: "DATASTORE_TYPE", Value: c.datastore},
+						{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
+					},
+				},
+			},
+		},
+	})
+
+	Expect(err).NotTo(HaveOccurred())
+	defer func() {
+		if err := f.ClientSet.Core().Pods(podClient.Namespace).Delete(podClient.Name, nil); err != nil {
+			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
+		}
+	}()
+
+	err = framework.WaitForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, "kube-system")
+	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
+
+	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, "kube-system")
+
+	// Collect pod logs regardless of execution result.
+	logs, logErr := framework.GetPodLogs(f.ClientSet, "kube-system", podClient.Name, fmt.Sprintf("%s-container", podClient.Name))
+	if logErr != nil {
+		framework.Failf("Error getting container logs: %s", logErr)
+	}
+	framework.Logf("Getting current log for calicoctl: %s", logs)
+
+	return logs, exeErr
 }

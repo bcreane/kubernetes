@@ -18,14 +18,12 @@ package network
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-
-	"io/ioutil"
-	"strings"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -36,41 +34,13 @@ import (
 var _ = framework.KubeDescribe("CalicoPolicyV3", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
+	var calicoctl *calico.Calicoctl
+	serverPort1 := 80
 
 	f := framework.NewDefaultFramework("calico-policy")
 
-	AfterEach(func() {
-		polRes := calico.CalicoctlGet("policy", "--all-namespaces")
-		for _, line := range strings.Split(polRes, "\n") {
-			if strings.Contains(line, "NAME") {
-				continue
-			}
-			framework.Logf("%v", line)
-			if len(line) == 0 {
-				continue
-			}
-			calico.Calicoctl(append([]string{"delete", "policy", "-n"}, strings.Fields(line)...)...)
-		}
-	})
 	BeforeEach(func() {
-		if datastoreType == "" {
-			// Infer datastore type by reading /etc/calico/calicoctl.cfg.
-			b, err := ioutil.ReadFile("/etc/calico/calicoctl.cfg")
-			Expect(err).NotTo(HaveOccurred())
-			for _, line := range strings.Split(string(b), "\n") {
-				if strings.Contains(line, "datastoreType") {
-					if strings.Contains(line, "kubernetes") {
-						datastoreType = "kdd"
-					}
-					if strings.Contains(line, "etcd") {
-						datastoreType = "etcd"
-					}
-				}
-			}
-			framework.Logf("datastoreType = %v", datastoreType)
-			Expect(datastoreType).NotTo(Equal(""))
-		}
-		framework.Logf("Running tests for datastoreType %s", datastoreType)
+		calicoctl = calico.ConfigureCalicoctl(f)
 	})
 	Context("Calico specific network policy", func() {
 		BeforeEach(func() {
@@ -83,6 +53,7 @@ var _ = framework.KubeDescribe("CalicoPolicyV3", func() {
 
 			By("Creating client which will be able to contact the server since no policies are present.")
 			testCanConnect(f, f.Namespace, "client-can-connect", service, 80)
+			calicoctl = calico.ConfigureCalicoctl(f)
 
 		})
 
@@ -122,8 +93,8 @@ var _ = framework.KubeDescribe("CalicoPolicyV3", func() {
     order: 5000
     selector: has(pod-name)
 `
-			v2CreateCalicoPolicy(f, "default-deny-all", denyPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, "default-deny-all")
+			calicoctl.Apply(denyPolicyStr)
+			defer calicoctl.DeleteGNP("default-deny-all")
 
 			By("Creating calico namespace isolation policy.")
 			nsNameA := f.Namespace.Name
@@ -146,8 +117,8 @@ var _ = framework.KubeDescribe("CalicoPolicyV3", func() {
           namespaceSelector: e2e-framework == "%s"
 `,
 				policyName, nsNameA, f.BaseName, f.BaseName)
-			v2CreateCalicoPolicy(f, policyName, policyStr)
-			defer v2CleanupCalicoPolicy(f, nsNameA, policyName)
+			calicoctl.Apply(policyStr)
+			defer calicoctl.DeleteNP(nsNameA, policyName)
 
 			By("Creating another calico namespace isolation policy.")
 			policyNameB := fmt.Sprintf("%s.%s", nsBName, "namespace-isolation-b")
@@ -169,8 +140,8 @@ var _ = framework.KubeDescribe("CalicoPolicyV3", func() {
           namespaceSelector: ns-name == "%s"
 `,
 				policyNameB, nsB.Name, nsBName, nsBName)
-			v2CreateCalicoPolicy(f, policyNameB, policyStrB)
-			defer v2CleanupCalicoPolicy(f, nsB.Name, policyNameB)
+			calicoctl.Apply(policyStrB)
+			defer calicoctl.DeleteNP(nsB.Name, policyNameB)
 
 			By("Creating calico allow to dns policy.")
 			dnsPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-egress-to-dns")
@@ -188,8 +159,8 @@ spec:
         selector: k8s-app == "kube-dns"
 `,
 				dnsPolicyName)
-			v2CreateCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, dnsPolicyName)
+			calicoctl.Apply(dnsPolicyStr)
+			defer calicoctl.DeleteGNP(dnsPolicyName)
 
 			By("Creating calico allow dns egress policy.")
 			dnsEgressPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-dns-egress")
@@ -205,8 +176,8 @@ spec:
     - action: allow
 `,
 				dnsEgressPolicyName)
-			v2CreateCalicoPolicy(f, dnsEgressPolicyName, dnsEgressPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, dnsEgressPolicyName)
+			calicoctl.Apply(dnsEgressPolicyStr)
+			defer calicoctl.DeleteGNP(dnsEgressPolicyName)
 
 			By("allow A -> A")
 			testCanConnect(f, nsA, "client-a", serviceA, 80)
@@ -251,8 +222,8 @@ spec:
     order: 5000
 `,
 				nsA.Name)
-			v2CreateCalicoPolicy(f, "default-deny", denyPolicyStr)
-			defer v2CleanupCalicoPolicy(f, nsA.Name, "default-deny")
+			calicoctl.Apply(denyPolicyStr)
+			defer calicoctl.DeleteNP(nsA.Name, "default-deny")
 
 			By("Creating calico allow egress in namespace A.")
 			policyName := fmt.Sprintf("%s.%s", nsA.Name, "allow-egress")
@@ -271,8 +242,8 @@ spec:
       source: {}
 `,
 				policyName, nsA.Name)
-			v2CreateCalicoPolicy(f, policyName, policyStr)
-			defer v2CleanupCalicoPolicy(f, nsA.Name, policyName)
+			calicoctl.Apply(policyStr)
+			defer calicoctl.DeleteNP(nsA.Name, policyName)
 
 			By("allow B -> B")
 			testCanConnect(f, nsB, "client-b", serviceB, 80)
@@ -338,8 +309,8 @@ spec:
       source: {}
       destination: {}
 `
-			v2CreateCalicoPolicy(f, "default-deny-all", denyPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, "default-deny-all")
+			calicoctl.Apply(denyPolicyStr)
+			defer calicoctl.DeleteGNP("default-deny-all")
 
 			By("Creating calico policy to allow dns egress.")
 			dnsPolicyName := fmt.Sprintf("%s.%s", nsAName, "allow-dns-egress")
@@ -357,8 +328,8 @@ spec:
     - action: allow
 `,
 				dnsPolicyName)
-			v2CreateCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, dnsPolicyName)
+			calicoctl.Apply(dnsPolicyStr)
+			defer calicoctl.DeleteGNP(dnsPolicyName)
 
 			By("Creating calico policy to access dns.")
 			dnsPolicyName = fmt.Sprintf("%s.%s", nsAName, "allow-access-to-dns")
@@ -375,8 +346,8 @@ spec:
           selector: k8s-app == "kube-dns"
 `,
 				dnsPolicyName)
-			v2CreateCalicoPolicy(f, dnsPolicyName, dnsPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, dnsPolicyName)
+			calicoctl.Apply(dnsPolicyStr)
+			defer calicoctl.DeleteGNP(dnsPolicyName)
 
 			By("Creating calico policy to allow internal namespace traffic.")
 			policyName := fmt.Sprintf("%s.%s", nsAName, "namespace-isolation-a")
@@ -398,8 +369,8 @@ spec:
           namespaceSelector: %s == "%s"
 `,
 				policyName, nsAName, nsALabelName, nsALabelValue, nsALabelName, nsALabelValue)
-			v2CreateCalicoPolicy(f, policyName, policyStr)
-			defer v2CleanupCalicoPolicy(f, nsAName, policyName)
+			calicoctl.Apply(policyStr)
+			defer calicoctl.DeleteNP(nsAName, policyName)
 
 			// Verify that any pods in B cannot be reached and A can only communicate with itself
 			By("allow A -> A")
@@ -427,8 +398,8 @@ spec:
         namespaceSelector: %s == "%s"
 `,
 				ingressPolicyName, nsBName, nsALabelName, nsALabelValue)
-			v2CreateCalicoPolicy(f, ingressPolicyName, ingressPolicyStr)
-			defer v2CleanupCalicoPolicy(f, nsBName, ingressPolicyName)
+			calicoctl.Apply(ingressPolicyStr)
+			defer calicoctl.DeleteNP(nsBName, ingressPolicyName)
 
 			// This should not be accessible yet since A will also need an egress policy
 			By("deny A -> B")
@@ -450,8 +421,8 @@ spec:
         namespaceSelector: %s == "%s"
 `,
 				egressPolicyName, nsAName, nsBLabelName, nsBLabelValue)
-			v2CreateCalicoPolicy(f, egressPolicyName, egressPolicyStr)
-			defer v2CleanupCalicoPolicy(f, nsAName, egressPolicyName)
+			calicoctl.Apply(egressPolicyStr)
+			defer calicoctl.DeleteNP(nsAName, egressPolicyName)
 
 			By("Testing that A and B can access one another. Only B cannot connect to B.")
 			By("allow A -> A")
@@ -533,8 +504,8 @@ spec:
       source: {}
       destination: {}
 `
-			v2CreateCalicoPolicy(f, "default-deny-all", denyPolicyStr)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, "default-deny-all")
+			calicoctl.Apply(denyPolicyStr)
+			defer calicoctl.DeleteGNP("default-deny-all")
 
 			// Test that none of the pods are able to reach each other since they all have a pod-name selector
 			By("deny A -> A")
@@ -566,8 +537,8 @@ spec:
         namespaceSelector: %s == "%s"
 `,
 				policyNameAllowB, "pod-name", nsBLabelName, nsBLabelValue)
-			v2CreateCalicoPolicy(f, policyNameAllowB, policyStrAllowB)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, policyNameAllowB)
+			calicoctl.Apply(policyStrAllowB)
+			defer calicoctl.DeleteGNP(policyNameAllowB)
 
 			// Test that any pod can receive traffic from namespace B only
 			By("deny A -> A")
@@ -604,8 +575,8 @@ spec:
 				policyNameSpecificLabel, identifierKey, "ident2",
 				nsALabelName, nsALabelValue,
 				nsBLabelName, nsBLabelValue)
-			v2CreateCalicoPolicy(f, policyNameSpecificLabel, policyStrSpecificLabel)
-			defer v2CleanupCalicoGlobalNetworkPolicy(f, policyNameSpecificLabel)
+			calicoctl.Apply(policyStrSpecificLabel)
+			defer calicoctl.DeleteGNP(policyNameSpecificLabel)
 
 			// Test that only A can access C. B should be able to access A but not C.
 			By("deny A -> A")
@@ -820,6 +791,7 @@ spec:
 
 	It("should enforce rule ordering correctly [Feature:CalicoPolicy]", func() {
 		ns := f.Namespace
+		calicoctl := calico.ConfigureCalicoctl(f)
 
 		By("Create a simple server pod.")
 		serverPod, service := createServerPodAndService(f, ns, "server", []int{serverPort1})
@@ -832,7 +804,7 @@ spec:
 		testCanConnect(f, ns, "client", service, serverPort1)
 
 		By("Applying a policy that drops traffic from client.")
-		calico.CalicoctlApply(
+		calicoctl.Apply(
 			`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -845,20 +817,20 @@ spec:
       - action: deny
         protocol: tcp
         source:
-          selector: pod-name=='client'
+          selector: pod-name=="client"
         destination:
           ports: [%d]
-    selector: pod-name=='%s'
+    selector: pod-name=="%s"
 `,
 			ns.Name, serverPort1, serverPod.Name)
 		defer func() {
-			calico.Calicoctl("delete", "-n", ns.Name, "policy", "client-policy")
+			calicoctl.Exec("delete", "-n", ns.Name, "policy", "client-policy")
 		}()
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
 
 		By("Updating the policy with a allow rule before the drop rule in the same policy.")
-		calico.CalicoctlApply(
+		calicoctl.Apply(
 			`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -871,16 +843,16 @@ spec:
       - action: allow
         protocol: tcp
         source:
-          selector: pod-name=='client'
+          selector: pod-name=="client"
         destination:
           ports: [%d]
       - action: deny
         protocol: tcp
         source:
-          selector: pod-name=='client'
+          selector: pod-name=="client"
         destination:
           ports: [%d]
-    selector: pod-name=='%s'
+    selector: pod-name=="%s"
 `,
 			ns.Name, serverPort1, serverPort1, serverPod.Name)
 
@@ -890,6 +862,7 @@ spec:
 
 	It("should support CRUD operations of a policy", func() {
 		ns := f.Namespace
+		calicoctl := calico.ConfigureCalicoctl(f)
 
 		By("Create a simple server pod.")
 		serverPod1, service := createServerPodAndService(f, ns, "server1", []int{serverPort1})
@@ -904,7 +877,7 @@ spec:
 		policyName := "test-policy"
 
 		By("Applying a policy that drops traffic from client.")
-		calico.CalicoctlApply(
+		calicoctl.Apply(
 			`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -917,21 +890,21 @@ spec:
       - action: deny
         protocol: tcp
         source:
-          selector: pod-name=='client'
+          selector: pod-name=="client"
         destination:
           ports: [%d]
-    selector: pod-name=='%s'
+    selector: pod-name=="%s"
 `,
 			policyName, ns.Name, serverPort1, serverPod1.Name)
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
 
 		By("Checking if the policy exists")
-		v2CheckPolicyExists(policyName, ns.Name)
+		v2CheckPolicyExists(calicoctl, policyName, ns.Name)
 
 		// TODO(doublek): Consider if combining this with the logging test makes sense.
 		By("Replace a policy that allows traffic from client.")
-		calico.CalicoctlReplace(
+		calicoctl.Replace(
 			`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -944,20 +917,20 @@ spec:
       - action: allow
         protocol: tcp
         source:
-          selector: pod-name=='client'
+          selector: pod-name=="client"
         destination:
           ports: [%d]
-    selector: pod-name=='%s'
+    selector: pod-name=="%s"
 `,
 			policyName, ns.Name, serverPort1, serverPod1.Name)
 		By("Creating a client that can connect to the server")
 		testCanConnect(f, ns, "client", service, serverPort1)
 
 		By("Deleting the policy")
-		calico.Calicoctl("delete", "-n", ns.Name, "policy", policyName)
+		calicoctl.Exec("delete", "-n", ns.Name, "policy", policyName)
 
 		By("Checking if the policy doesn't exists")
-		v2CheckPolicyDoesntExist(policyName, "")
+		v2CheckPolicyDoesntExist(calicoctl, policyName, "")
 	})
 
 	// TODO: re-enable when we've got a minute to figure out how to grab these logs
@@ -998,16 +971,16 @@ spec:
 	//      - action: log
 	//        protocol: tcp
 	//        source:
-	//          selector: pod-name=='client'
+	//          selector: pod-name=="client"
 	//        destination:
 	//          ports: [%d]
 	//      - action: deny
 	//        protocol: tcp
 	//        source:
-	//          selector: pod-name=='client'
+	//          selector: pod-name=="client"
 	//        destination:
 	//          ports: [%d]
-	//    selector: pod-name=='%s'
+	//    selector: pod-name=="%s"
 	//`,
 	//			ns.Name, serverPort1, serverPort1, serverPod.Name)
 	//		defer func() {
@@ -1049,6 +1022,7 @@ spec:
 	})
 	It("should allow negative selectors and support for filtering ICMP [Feature:CalicoPolicy]", func() {
 		ns := f.Namespace
+		calicoctl := calico.ConfigureCalicoctl(f)
 
 		By("Create a server pods with label 'icmp:yes'.")
 		serverName := "server-icmp"
@@ -1077,7 +1051,7 @@ spec:
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Applying a policy that logs traffic from client then drops the same traffic.")
-		calico.CalicoctlApply(
+		calicoctl.Apply(
 			`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -1091,7 +1065,7 @@ spec:
     egress:
       - action: allow
     order: 100
-    selector: '!has(icmp)'
+    selector: "!has(icmp)"
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
@@ -1103,12 +1077,12 @@ spec:
     egress:
       - action: allow
     order: 50
-    selector: role != 'server'
+    selector: role != "server"
 `, ns.Name, ns.Name,
 		)
 		defer func() {
-			calico.Calicoctl("delete", "-n", ns.Name, "policy", "deny-icmp")
-			calico.Calicoctl("delete", "-n", ns.Name, "policy", "allow-icmp-access")
+			calicoctl.Exec("delete", "-n", ns.Name, "policy", "allow-icmp-access")
+			calicoctl.Exec("delete", "-n", ns.Name, "policy", "deny-icmp")
 		}()
 
 		By("Pinging the IMCP allowed pod")
@@ -1120,21 +1094,6 @@ spec:
 		calico.TestCannotPing(f, ns, "client-cannot-ping", notIcmpPod)
 	})
 })
-
-func v2CreateCalicoPolicy(f *framework.Framework, policyName string, policyStr string) {
-	framework.Logf("setting up calico policy %s: %s", policyName, policyStr)
-	calico.CalicoctlApply(policyStr)
-}
-
-func v2CleanupCalicoPolicy(f *framework.Framework, ns string, policyName string) {
-	framework.Logf("Cleaning up calico policy %s.", policyName)
-	calico.Calicoctl("delete", "-n", ns, "policy", policyName)
-}
-
-func v2CleanupCalicoGlobalNetworkPolicy(f *framework.Framework, policyName string) {
-	framework.Logf("Cleaning up calico GlobalNetworkPolicy %s.", policyName)
-	calico.Calicoctl("delete", "GlobalNetworkPolicy", policyName)
-}
 
 func v2ChooseNode(nodes *v1.NodeList) (string, string) {
 	// TODO(doublek): Make a more informed decision here rather than picking the first one.
@@ -1161,12 +1120,12 @@ func v2ChooseNode(nodes *v1.NodeList) (string, string) {
 	return nodeName, nodeIP
 }
 
-func v2SearchPolicy(policyName, ns string) bool {
+func v2SearchPolicy(c *calico.Calicoctl, policyName, ns string) bool {
 	args := []string{"policy", "--all-namespaces"}
 	if ns != "" {
 		args = []string{"policy", "-n", ns}
 	}
-	polRes := calico.CalicoctlGet(args...)
+	polRes := c.Get(args...)
 	polExists := false
 	for _, line := range strings.Split(polRes, "\n") {
 		if strings.Contains(line, "NAME") {
@@ -1179,10 +1138,10 @@ func v2SearchPolicy(policyName, ns string) bool {
 	return polExists
 }
 
-func v2CheckPolicyExists(policyName, ns string) {
-	Expect(v2SearchPolicy(policyName, ns)).To(BeTrue())
+func v2CheckPolicyExists(c *calico.Calicoctl, policyName, ns string) {
+	Expect(v2SearchPolicy(c, policyName, ns)).To(BeTrue())
 }
 
-func v2CheckPolicyDoesntExist(policyName, ns string) {
-	Expect(v2SearchPolicy(policyName, ns)).NotTo(BeTrue())
+func v2CheckPolicyDoesntExist(c *calico.Calicoctl, policyName, ns string) {
+	Expect(v2SearchPolicy(c, policyName, ns)).NotTo(BeTrue())
 }
