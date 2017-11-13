@@ -33,7 +33,7 @@ import (
 
 // TODO: Need to consolidate these tests with the ones in test/e2e/network/calico_policy.
 
-var _ = framework.KubeDescribe("CalicoPolicyV2", func() {
+var _ = framework.KubeDescribe("CalicoPolicyV3", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 
@@ -114,7 +114,7 @@ var _ = framework.KubeDescribe("CalicoPolicyV2", func() {
 			// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
 			By("Creating a namespace-wide default-deny policy")
 			denyPolicyStr := `
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
   metadata:
     name: default-deny-all
@@ -129,7 +129,7 @@ var _ = framework.KubeDescribe("CalicoPolicyV2", func() {
 			nsNameA := f.Namespace.Name
 			policyName := fmt.Sprintf("%s.%s", nsNameA, "namespace-isolation-a")
 			policyStr := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -152,7 +152,7 @@ var _ = framework.KubeDescribe("CalicoPolicyV2", func() {
 			By("Creating another calico namespace isolation policy.")
 			policyNameB := fmt.Sprintf("%s.%s", nsBName, "namespace-isolation-b")
 			policyStrB := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -175,7 +175,7 @@ var _ = framework.KubeDescribe("CalicoPolicyV2", func() {
 			By("Creating calico allow to dns policy.")
 			dnsPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-egress-to-dns")
 			dnsPolicyStr := fmt.Sprintf(`
-apiVersion: projectcalico.org/v2
+apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
 metadata:
   name: %s
@@ -194,7 +194,7 @@ spec:
 			By("Creating calico allow dns egress policy.")
 			dnsEgressPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-dns-egress")
 			dnsEgressPolicyStr := fmt.Sprintf(`
-apiVersion: projectcalico.org/v2
+apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
 metadata:
   name: %s
@@ -242,7 +242,7 @@ spec:
 			// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
 			By("Creating a namespace-wide default-deny policy")
 			denyPolicyStr := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: default-deny
@@ -258,7 +258,7 @@ spec:
 			policyName := fmt.Sprintf("%s.%s", nsA.Name, "allow-egress")
 			// Policy only defines egress rules so ingress rules are defaulted to nothing (deny)
 			policyStr := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -326,7 +326,7 @@ spec:
 
 			By("Creating a namespace-wide default-deny policy")
 			denyPolicyStr := `
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
   metadata:
     name: default-deny-all
@@ -344,7 +344,7 @@ spec:
 			By("Creating calico policy to allow dns egress.")
 			dnsPolicyName := fmt.Sprintf("%s.%s", nsAName, "allow-dns-egress")
 			dnsPolicyStr := fmt.Sprintf(`
-apiVersion: projectcalico.org/v2
+apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
 metadata:
   name: %s
@@ -363,7 +363,7 @@ spec:
 			By("Creating calico policy to access dns.")
 			dnsPolicyName = fmt.Sprintf("%s.%s", nsAName, "allow-access-to-dns")
 			dnsPolicyStr = fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
   metadata:
     name: %s
@@ -381,7 +381,7 @@ spec:
 			By("Creating calico policy to allow internal namespace traffic.")
 			policyName := fmt.Sprintf("%s.%s", nsAName, "namespace-isolation-a")
 			policyStr := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -414,7 +414,7 @@ spec:
 			By("Creating a simple ingress policy on B that allows traffic to B from A.")
 			ingressPolicyName := fmt.Sprintf("%s.%s", nsBName, "simple-ingress")
 			ingressPolicyStr := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -437,7 +437,7 @@ spec:
 			By("Creating a simple egress policy on A that allows traffic to B.")
 			egressPolicyName := fmt.Sprintf("%s.%s", nsAName, "simple-egress")
 			egressPolicyStr := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -521,7 +521,7 @@ spec:
 			// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
 			By("Creating a namespace-wide default-deny policy")
 			denyPolicyStr := `
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
   metadata:
     name: default-deny-all
@@ -553,7 +553,7 @@ spec:
 			By("Creating an ingress policy to allow traffic from namespace B to any pods with with a specific label.")
 			policyNameAllowB := fmt.Sprintf("%s.%s", nsBName, "ingress-allow-b")
 			policyStrAllowB := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
   metadata:
     name: %s
@@ -586,7 +586,7 @@ spec:
 			By("Creating an ingress policy to allow traffic from namespace A and deny traffic from namespace B only on a specific label with a specific value.")
 			policyNameSpecificLabel := fmt.Sprintf("%s", "ingress-allow-a-deny-b")
 			policyStrSpecificLabel := fmt.Sprintf(`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
   metadata:
     name: %s
@@ -663,7 +663,7 @@ spec:
 						// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
 						By("Creating a namespace-wide default-deny policy")
 						denyPolicyStr := `
-			- apiVersion: projectcalico.org/v2
+			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
 			  metadata:
 			    name: default-deny-all
@@ -682,7 +682,7 @@ spec:
 						sNameA := f.Namespace.Name
 						policyName := fmt.Sprintf("%s.%s", nsNameA, "namespace-isolation-a")
 						policyStr := fmt.Sprintf(`
-			- apiVersion: projectcalico.org/v2
+			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
 			  metadata:
 			    name: %s
@@ -709,7 +709,7 @@ spec:
 						nsNameB := nsB.Name
 						policyNameB := fmt.Sprintf("%s.%s", nsNameB, "default-deny")
 						policyStrB := fmt.Sprintf(`
-			- apiVersion: projectcalico.org/v2
+			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
 			  metadata:
 			    name: %s
@@ -731,7 +731,7 @@ spec:
 						By("Creating calico allow dns policy.")
 						dnsPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-dns")
 						dnsPolicyStr := fmt.Sprintf(`
-			- apiVersion: projectcalico.org/v2
+			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
 			  metadata:
 			    name: %s
@@ -762,7 +762,7 @@ spec:
 						By("Creating a simple ingress policy on B that allows traffic to B from A.")
 						ingressPolicyName := fmt.Sprintf("%s.%s", nsNameB, "simple-ingress")
 						ingressPolicyStr := fmt.Sprintf(`
-			- apiVersion: projectcalico.org/v2
+			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
 			  metadata:
 			    name: %s
@@ -787,7 +787,7 @@ spec:
 						By("Creating a simple egress policy on A that allows traffic to B.")
 						egressPolicyName := fmt.Sprintf("%s.%s", nsNameA, "simple-egress")
 						egressPolicyStr := fmt.Sprintf(`
-			- apiVersion: projectcalico.org/v2
+			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
 			  metadata:
 			    name: %s
@@ -834,7 +834,7 @@ spec:
 		By("Applying a policy that drops traffic from client.")
 		calico.CalicoctlApply(
 			`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: client-policy
@@ -860,7 +860,7 @@ spec:
 		By("Updating the policy with a allow rule before the drop rule in the same policy.")
 		calico.CalicoctlApply(
 			`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: client-policy
@@ -906,7 +906,7 @@ spec:
 		By("Applying a policy that drops traffic from client.")
 		calico.CalicoctlApply(
 			`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -933,7 +933,7 @@ spec:
 		By("Replace a policy that allows traffic from client.")
 		calico.CalicoctlReplace(
 			`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: %s
@@ -987,7 +987,7 @@ spec:
 	//		By("Applying a policy that logs traffic from client then drops the same traffic.")
 	//		calico.CalicoctlApply(
 	//			`
-	//- apiVersion: projectcalico.org/v2
+	//- apiVersion: projectcalico.org/v3
 	//  kind: NetworkPolicy
 	//  metadata:
 	//    name: policy-log-then-deny
@@ -1079,7 +1079,7 @@ spec:
 		By("Applying a policy that logs traffic from client then drops the same traffic.")
 		calico.CalicoctlApply(
 			`
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: deny-icmp
@@ -1092,7 +1092,7 @@ spec:
       - action: allow
     order: 100
     selector: '!has(icmp)'
-- apiVersion: projectcalico.org/v2
+- apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
     name: allow-icmp-access
