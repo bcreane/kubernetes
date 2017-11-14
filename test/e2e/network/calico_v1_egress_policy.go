@@ -21,6 +21,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/utils/calico"
 
 	"fmt"
 
@@ -53,7 +54,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v1] egress policy", func() {
 			By("Checking calicoctl config information")
 			if calicoCfg == nil || endPoints == "" {
 				By("Extracting calicoctl config information")
-				configCfg, err := getCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
+				configCfg, err := calico.GetCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
 				if err != nil {
 					framework.Logf("before each unable to get config map: %v", err)
 				} else if v, ok := (*configCfg)["etcd_endpoints"]; ok {
