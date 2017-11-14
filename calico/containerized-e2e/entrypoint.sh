@@ -7,7 +7,9 @@ elif [[ ! $FOCUS ]]; then
   FOCUS="(Networking).*(\[Conformance\])|\[Feature:NetworkPolicy\]"
 fi
 
-SKIP="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy"
+if [[ ! $SKIP ]]; then
+  SKIP="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy"
+fi
 
 echo Using Focus: $FOCUS
 e2e.test -kubeconfig=/root/kubeconfig --ginkgo.focus="$FOCUS" --ginkgo.skip="$SKIP" -report-dir=/report "$EXTRA_ARGS"
