@@ -76,7 +76,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 		}
 		framework.Logf("Running tests for datastoreType %s", calico.DatastoreType)
 	})
-	Context("[Feature:CalicoPolicy] Calico specific network policy", func() {
+	Context("Calico specific network policy", func() {
 		BeforeEach(func() {
 			// Create Server with Service
 			By("Creating a simple server.")
@@ -672,7 +672,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 			testCannotConnect(f, nsB, "client-b", serviceC, 80)
 		})
 
-		It("should correctly overwrite existing calico policies with simple ingress and egress policies using Calico v2.6.0 types [Feature:NetworkPolicy] [Feature:CalicoPolicy]", func() {
+		It("should correctly overwrite existing calico policies with simple ingress and egress policies using Calico v2.6.0 types", func() {
 			Skip("(mattl): uncomment this test when Essentials has been upgraded to Calico v2.6.0")
 			nsA := f.Namespace
 			serviceA := service
