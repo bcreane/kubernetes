@@ -52,6 +52,16 @@ To use your own regex express, pass in a new `$FOCUS`:
    docker build -t gcr.io/unique-caldron-775/k8s-e2e $(GOPATH)/src/k8s.io/kubernetes
    ```
 
+### Available Tags
+
+- `:master` is built and pushed by semaphore automatically from the master branch.
+- `:vX.Y-A` is pushed to match the github releases of this repo, where `vX.Y` represents
+  the Kubernetes version this release was based off of, and `A` represents the release
+  of the repo itself.
+- `:vX.Y-latest` points to the most recent release for a particular kubernetes release.
+- Each commit of master is tagged with the result of `git rev-parse --short HEAD`.
+
 ### Testing
 
-gcr.io/unique-caldron-775/k8s-e2e 
+Testing infrastructure is limited at the moment. See [test/test.sh](test/test.sh)
+and don't hesitate to add more.
