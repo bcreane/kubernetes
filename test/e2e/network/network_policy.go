@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	utilversion "k8s.io/kubernetes/pkg/util/version"
 
 	"fmt"
 
@@ -38,6 +39,8 @@ attributes. Each test case creates a network policy which should only allow
 connections from one of the clients. The test then asserts that the clients
 failed or successfully connected as expected.
 */
+
+var egressVersion = utilversion.MustParseSemantic("v1.8.0")
 
 var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 	var service *v1.Service
@@ -312,6 +315,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 		})
 
 		It("should allow egress access on one named port [Feature:NetworkPolicy]", func() {
+			framework.SkipUnlessServerVersionGTE(egressVersion, f.ClientSet.Discovery())
 			clientPodName := "client-a"
 			protocolUDP := v1.ProtocolUDP
 			policy := &networkingv1.NetworkPolicy{
