@@ -66,7 +66,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		serverNodeName = podServer.Spec.NodeName
 
 		// Discover the server node's IP addresses.
-		node, err := f.ClientSet.Core().Nodes().Get(serverNodeName, metav1.GetOptions{})
+		node, err := f.ClientSet.CoreV1().Nodes().Get(serverNodeName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 		serverNodeIPs = []string{}
 		for _, address := range node.Status.Addresses {
