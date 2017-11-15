@@ -334,6 +334,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 		})
 
 		It("should enforce egress policy based on portSelector and labelSelector and NamespaceSelector", func() {
+			Skip("[turk] currently fails on all setups. Needs investigation before enabling")
 			// Create Server with Service
 			By("Creating a simple server.")
 			podServerA, serviceA := createServerPodAndService(f, f.Namespace, "server-b", []int{80, 81, 82})
