@@ -102,7 +102,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 
 			By("Creating calico namespace isolation policy.")
 			nsNameA := f.Namespace.Name
-			policyName := fmt.Sprintf("%s.%s", nsNameA, "namespace-isolation-a")
+			policyName := fmt.Sprintf("%s", "namespace-isolation-a")
 			policyStr := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -125,7 +125,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 			defer calicoctl.DeleteNP(nsNameA, policyName)
 
 			By("Creating another calico namespace isolation policy.")
-			policyNameB := fmt.Sprintf("%s.%s", nsBName, "namespace-isolation-b")
+			policyNameB := fmt.Sprintf("%s", "namespace-isolation-b")
 			policyStrB := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -148,7 +148,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 			defer calicoctl.DeleteNP(nsB.Name, policyNameB)
 
 			By("Creating calico allow to dns policy.")
-			dnsPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-egress-to-dns")
+			dnsPolicyName := fmt.Sprintf("%s", "allow-egress-to-dns")
 			dnsPolicyStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
@@ -167,7 +167,7 @@ spec:
 			defer calicoctl.DeleteGNP(dnsPolicyName)
 
 			By("Creating calico allow dns egress policy.")
-			dnsEgressPolicyName := fmt.Sprintf("%s.%s", nsNameA, "allow-dns-egress")
+			dnsEgressPolicyName := fmt.Sprintf("%s", "allow-dns-egress")
 			dnsEgressPolicyStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
@@ -230,7 +230,7 @@ spec:
 			defer calicoctl.DeleteNP(nsA.Name, "default-deny")
 
 			By("Creating calico allow egress in namespace A.")
-			policyName := fmt.Sprintf("%s.%s", nsA.Name, "allow-egress")
+			policyName := fmt.Sprintf("%s", "allow-egress")
 			// Policy only defines egress rules so ingress rules are defaulted to nothing (deny)
 			policyStr := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
@@ -317,7 +317,7 @@ spec:
 			defer calicoctl.DeleteGNP("default-deny-all")
 
 			By("Creating calico policy to allow dns egress.")
-			dnsPolicyName := fmt.Sprintf("%s.%s", nsAName, "allow-dns-egress")
+			dnsPolicyName := fmt.Sprintf("%s", "allow-dns-egress")
 			dnsPolicyStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
@@ -336,7 +336,7 @@ spec:
 			defer calicoctl.DeleteGNP(dnsPolicyName)
 
 			By("Creating calico policy to access dns.")
-			dnsPolicyName = fmt.Sprintf("%s.%s", nsAName, "allow-access-to-dns")
+			dnsPolicyName = fmt.Sprintf("%s", "allow-access-to-dns")
 			dnsPolicyStr = fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
@@ -354,7 +354,7 @@ spec:
 			defer calicoctl.DeleteGNP(dnsPolicyName)
 
 			By("Creating calico policy to allow internal namespace traffic.")
-			policyName := fmt.Sprintf("%s.%s", nsAName, "namespace-isolation-a")
+			policyName := fmt.Sprintf("%s", "namespace-isolation-a")
 			policyStr := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -387,7 +387,7 @@ spec:
 			testCannotConnect(f, nsA, "client-a", serviceB, 80)
 
 			By("Creating a simple ingress policy on B that allows traffic to B from A.")
-			ingressPolicyName := fmt.Sprintf("%s.%s", nsBName, "simple-ingress")
+			ingressPolicyName := fmt.Sprintf("%s", "simple-ingress")
 			ingressPolicyStr := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -410,7 +410,7 @@ spec:
 			testCannotConnect(f, nsA, "client-a", serviceB, 80)
 
 			By("Creating a simple egress policy on A that allows traffic to B.")
-			egressPolicyName := fmt.Sprintf("%s.%s", nsAName, "simple-egress")
+			egressPolicyName := fmt.Sprintf("%s", "simple-egress")
 			egressPolicyStr := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
@@ -458,7 +458,6 @@ spec:
 			})
 			Expect(err).NotTo(HaveOccurred())
 			framework.Logf("Created a new namespace %s.", nsB.Name)
-			nsBName := nsB.Name
 
 			By("Creating simple servers with labels.")
 			identifierKey := "identifier"
@@ -526,7 +525,7 @@ spec:
 			testCannotConnect(f, nsB, "client-b", serviceC, 80)
 
 			By("Creating an ingress policy to allow traffic from namespace B to any pods with with a specific label.")
-			policyNameAllowB := fmt.Sprintf("%s.%s", nsBName, "ingress-allow-b")
+			policyNameAllowB := fmt.Sprintf("%s", "ingress-allow-b")
 			policyStrAllowB := fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: GlobalNetworkPolicy
@@ -655,7 +654,7 @@ spec:
 
 						By("Creating calico namespace isolation policy.")
 						sNameA := f.Namespace.Name
-						policyName := fmt.Sprintf("%s.%s", nsNameA, "namespace-isolation-a")
+						policyName := fmt.Sprintf("%s", "namespace-isolation-a")
 						policyStr := fmt.Sprintf(`
 			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
@@ -682,7 +681,7 @@ spec:
 
 						By("Creating a calico \"default-deny\" policy that blocks all traffic to it.")
 						nsNameB := nsB.Name
-						policyNameB := fmt.Sprintf("%s.%s", nsNameB, "default-deny")
+						policyNameB := fmt.Sprintf("%s", "default-deny")
 						policyStrB := fmt.Sprintf(`
 			- apiVersion: projectcalico.org/v3
 			  kind: NetworkPolicy
@@ -1065,7 +1064,7 @@ spec:
   spec:
     ingress:
     - action: Deny
-      protocol: icmp
+      protocol: ICMP
     egress:
       - action: Allow
     order: 100
