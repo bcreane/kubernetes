@@ -112,11 +112,11 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
   spec:
     order: 1000
     ingress:
-      - action: allow
+      - action: Allow
         source:
           namespaceSelector: e2e-framework == "%s"
     egress:
-      - action: allow
+      - action: Allow
         destination:
           namespaceSelector: e2e-framework == "%s"
 `,
@@ -135,11 +135,11 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
   spec:
     order: 1000
     ingress:
-      - action: allow
+      - action: Allow
         source:
           namespaceSelector: ns-name == "%s"
     egress:
-      - action: allow
+      - action: Allow
         destination:
           namespaceSelector: ns-name == "%s"
 `,
@@ -158,7 +158,7 @@ spec:
   order: 400
   selector: all()
   egress:
-    - action: allow
+    - action: Allow
       destination:
         selector: k8s-app == "kube-dns"
 `,
@@ -177,7 +177,7 @@ spec:
   order: 300
   selector: k8s-app == "kube-dns"
   egress:
-    - action: allow
+    - action: Allow
 `,
 				dnsEgressPolicyName)
 			calicoctl.Apply(dnsEgressPolicyStr)
@@ -241,7 +241,7 @@ spec:
   spec:
     order: 1000
     egress:
-    - action: allow
+    - action: Allow
       destination: {}
       source: {}
 `,
@@ -309,7 +309,7 @@ spec:
     order: 5000
     selector: all()
     ingress:
-    - action: deny
+    - action: Deny
       source: {}
       destination: {}
 `
@@ -327,9 +327,9 @@ spec:
   order: 10
   selector: k8s-app == "kube-dns"
   egress:
-    - action: allow
+    - action: Allow
   ingress:
-    - action: allow
+    - action: Allow
 `,
 				dnsPolicyName)
 			calicoctl.Apply(dnsPolicyStr)
@@ -345,7 +345,7 @@ spec:
   spec:
     order: 40
     egress:
-      - action: allow
+      - action: Allow
         destination:
           selector: k8s-app == "kube-dns"
 `,
@@ -364,11 +364,11 @@ spec:
   spec:
     order: 1000
     ingress:
-      - action: allow
+      - action: Allow
         source:
           namespaceSelector: %s == "%s"
     egress:
-      - action: allow
+      - action: Allow
         destination:
           namespaceSelector: %s == "%s"
 `,
@@ -397,7 +397,7 @@ spec:
   spec:
     order: 800
     ingress:
-    - action: allow
+    - action: Allow
       source:
         namespaceSelector: %s == "%s"
 `,
@@ -420,7 +420,7 @@ spec:
   spec:
     order: 700
     egress:
-    - action: allow
+    - action: Allow
       destination:
         namespaceSelector: %s == "%s"
 `,
@@ -504,7 +504,7 @@ spec:
     order: 5000
     selector: has(pod-name)
     ingress:
-    - action: deny
+    - action: Deny
       source: {}
       destination: {}
 `
@@ -536,7 +536,7 @@ spec:
     order: 900
     selector: has(%s)
     ingress:
-    - action: allow
+    - action: Allow
       source:
         namespaceSelector: %s == "%s"
 `,
@@ -569,10 +569,10 @@ spec:
     order: 800
     selector: %s in {"%s"}
     ingress:
-    - action: allow
+    - action: Allow
       source:
         namespaceSelector: %s == "%s"
-    - action: deny
+    - action: Deny
       source:
         namespaceSelector: %s == "%s"
 `,
@@ -646,7 +646,7 @@ spec:
 			    order: 5000
 			    selector: has(pod-name)
 			    ingress:
-			    - action: deny
+			    - action: Deny
 			      source: {}
 			      destination: {}
 			`
@@ -665,14 +665,14 @@ spec:
 			    order: 1000
 			    selector: calico/k8s_ns == "%s"
 			    types:
-			    - ingress
-			    - egress
+			    - Ingress
+			    - Egress
 			    ingress:
-			      - action: allow
+			      - action: Allow
 			        source:
 			          selector: calico/k8s_ns == "%s"
 			    egress:
-			      - action: allow
+			      - action: Allow
 			        destination:
 			          selector: calico/k8s_ns == "%s"
 			`,
@@ -692,9 +692,9 @@ spec:
 			    order: 900
 			    selector: calico/k8s_ns == "%s"
 			    types:
-			    - egress
+			    - Egress
 			    egress:
-			    - action: allow
+			    - action: Allow
 			      destination: {}
 			      source: {}
 			`,
@@ -714,9 +714,9 @@ spec:
 			    order: 400
 			    selector: calico/k8s_ns == "%s" || calico/k8s_ns == "%s"
 			    types:
-			    - egress
+			    - Egress
 			    egress:
-			      - action: allow
+			      - action: Allow
 			        destination:
 			          selector: calico/k8s_ns == "kube-system" && k8s-app == "kube-dns"
 			`,
@@ -745,9 +745,9 @@ spec:
 			    order: 800
 			    selector: calico/k8s_ns == "%s"
 			    types:
-			    - ingress
+			    - Ingress
 			    ingress:
-			    - action: allow
+			    - action: Allow
 			      source:
 			        selector: calico/k8s_ns == "%s"
 			`,
@@ -770,9 +770,9 @@ spec:
 			    order: 700
 			    selector: calico/k8s_ns == "%s"
 			    types:
-			    - egress
+			    - Egress
 			    egress:
-			    - action: allow
+			    - action: Allow
 			      destination:
 			        selector: calico/k8s_ns == "%s"
 			`,
@@ -818,8 +818,8 @@ spec:
   spec:
     order: 100
     ingress:
-      - action: deny
-        protocol: tcp
+      - action: Deny
+        protocol: TCP
         source:
           selector: pod-name=="client"
         destination:
@@ -844,14 +844,14 @@ spec:
   spec:
     order: 100
     ingress:
-      - action: allow
-        protocol: tcp
+      - action: Allow
+        protocol: TCP
         source:
           selector: pod-name=="client"
         destination:
           ports: [%d]
-      - action: deny
-        protocol: tcp
+      - action: Deny
+        protocol: TCP
         source:
           selector: pod-name=="client"
         destination:
@@ -891,8 +891,8 @@ spec:
   spec:
     order: 100
     ingress:
-      - action: deny
-        protocol: tcp
+      - action: Deny
+        protocol: TCP
         source:
           selector: pod-name=="client"
         destination:
@@ -918,8 +918,8 @@ spec:
   spec:
     order: 100
     ingress:
-      - action: allow
-        protocol: tcp
+      - action: Allow
+        protocol: TCP
         source:
           selector: pod-name=="client"
         destination:
@@ -972,14 +972,14 @@ spec:
 	//  spec:
 	//    order: 100
 	//    ingress:
-	//      - action: log
-	//        protocol: tcp
+	//      - action: Log
+	//        protocol: TCP
 	//        source:
 	//          selector: pod-name=="client"
 	//        destination:
 	//          ports: [%d]
-	//      - action: deny
-	//        protocol: tcp
+	//      - action: Deny
+	//        protocol: TCP
 	//        source:
 	//          selector: pod-name=="client"
 	//        destination:
@@ -1064,10 +1064,10 @@ spec:
     namespace: %s
   spec:
     ingress:
-    - action: deny
+    - action: Deny
       protocol: icmp
     egress:
-      - action: allow
+      - action: Allow
     order: 100
     selector: "!has(icmp)"
 - apiVersion: projectcalico.org/v3
@@ -1077,9 +1077,9 @@ spec:
     namespace: %s
   spec:
     ingress:
-    - action: allow
+    - action: Allow
     egress:
-      - action: allow
+      - action: Allow
     order: 50
     selector: role != "server"
 `, ns.Name, ns.Name,

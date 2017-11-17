@@ -102,7 +102,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"%s\"\n"+
 				"  order: 500\n"+
 				"  ingress:\n"+
-				"  - action: allow\n"+
+				"  - action: Allow\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsName, podServer.Name, nsName)
@@ -126,7 +126,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
-				"  - action: deny\n"+
+				"  - action: Deny\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsName, nsName)
@@ -177,7 +177,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
-				"  - action: deny\n"+
+				"  - action: Deny\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsA.Name, nsB.Name)
@@ -202,11 +202,11 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\"\n"+
 				"  order: 400\n"+
 				"  egress:\n"+
-				"  - action: allow\n"+
+				"  - action: Allow\n"+
 				"    destination:\n"+
 				"      notSelector: projectcalico.org/namespace == \"%s\"\n"+
 				"  ingress:\n"+
-				"  - action: allow\n"+
+				"  - action: Allow\n"+
 				"    source:\n"+
 				"      notSelector: projectcalico.org/namespace == \"%s\"",
 				policyName, nsA.Name, nsB.Name, nsB.Name)
@@ -267,7 +267,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
-				"  - action: deny\n"+
+				"  - action: Deny\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"",
 				policyName, nsA.Name, nsB.Name)
@@ -284,8 +284,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 400\n"+
 				"  egress:\n"+
-				"  - action: allow\n"+
-				"    protocol: udp\n"+
+				"  - action: Allow\n"+
+				"    protocol: UDP\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
 				"      ports: [53]",
@@ -313,11 +313,11 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 300\n"+
 				"  egress:\n"+
-				"  - action: allow\n"+
+				"  - action: Allow\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"\n"+
 				"  ingress:\n"+
-				"  - action: allow",
+				"  - action: Allow",
 				policyName, nsA.Name, nsB.Name)
 			calicoctl.Apply(policyStr)
 			defer calicoctl.DeleteGNP(policyName)
@@ -393,8 +393,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 500\n"+
 				"  egress:\n"+
-				"  - action: deny\n"+
-				"    protocol: tcp\n"+
+				"  - action: Deny\n"+
+				"    protocol: TCP\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"\n"+
 				"      ports: [80, 81]",
@@ -412,8 +412,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 400\n"+
 				"  egress:\n"+
-				"  - action: allow\n"+
-				"    protocol: udp\n"+
+				"  - action: Allow\n"+
+				"    protocol: UDP\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
 				"      ports: [53]",
@@ -453,8 +453,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 				"  selector: projectcalico.org/namespace == \"%s\" && pod-name == \"client-a\"\n"+
 				"  order: 300\n"+
 				"  egress:\n"+
-				"  - action: allow\n"+
-				"    protocol: tcp\n"+
+				"  - action: Allow\n"+
+				"    protocol: TCP\n"+
 				"    destination:\n"+
 				"      selector: projectcalico.org/namespace == \"%s\" && pod-name == \"server-b\"\n"+
 				"      ports: [81, 82]",
