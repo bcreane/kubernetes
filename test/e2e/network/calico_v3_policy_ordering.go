@@ -27,18 +27,18 @@ import (
 const (
 	allowAll = `
   ingress:
-  - action: allow
+  - action: Allow
   egress:
-  - action: allow
+  - action: Allow
 `
 	denyAll = `
   ingress:
-  - action: deny
+  - action: Deny
   egress:
-  - action: deny
+  - action: Deny
 `
 	noneAll = `
-  types: [ingress, egress]
+  types: [Ingress, Egress]
 `
 )
 
