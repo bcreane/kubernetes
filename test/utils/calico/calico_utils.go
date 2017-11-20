@@ -232,13 +232,13 @@ retry:
 }
 
 func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
-	calicoNodePodList, err := clientset.Core().Pods("kube-system").List(metav1.ListOptions{
+	calicoNodePodList, err := clientset.CoreV1().Pods("kube-system").List(metav1.ListOptions{
 		LabelSelector: "k8s-app=calico-node",
 	})
 	Expect(err).NotTo(HaveOccurred())
 	for _, calicoNodePod := range calicoNodePodList.Items {
 		if specificNode == "" || calicoNodePod.Spec.NodeName == specificNode {
-			clientset.Core().Pods("kube-system").Delete(calicoNodePod.ObjectMeta.Name, deleteImmediately)
+			clientset.CoreV1().Pods("kube-system").Delete(calicoNodePod.ObjectMeta.Name, deleteImmediately)
 			framework.WaitForPodNameRunningInNamespace(clientset, calicoNodePod.Spec.NodeName, "kube-system")
 		}
 	}
@@ -266,20 +266,20 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 			},
 		},
 	}
-	_, err := f.ClientSet.Core().Pods(namespace.Name).Create(pod)
+	_, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 	Expect(err).NotTo(HaveOccurred())
 	return pod
 }
 
 func CleanupServerPod(f *framework.Framework, pod *v1.Pod) {
 	framework.Logf("CleanupServerPod")
-	if err := f.ClientSet.Core().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
+	if err := f.ClientSet.CoreV1().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
 		framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
 	}
 }
 
 func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {
-	pod, err := f.ClientSet.Core().Pods(namespace.Name).Create(&v1.Pod{
+	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
 			Labels: map[string]string{
@@ -310,7 +310,7 @@ func TestCanPing(f *framework.Framework, ns *v1.Namespace, podName string, targe
 	podClient := createPingClientPod(f, ns, podName, targetPod)
 	defer func() {
 		framework.Logf("Cleaning up the pod %s", podName)
-		if err := f.ClientSet.Core().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
+		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
 	}()
@@ -329,7 +329,7 @@ func TestCannotPing(f *framework.Framework, ns *v1.Namespace, podName string, ta
 	podClient := createPingClientPod(f, ns, podName, targetPod)
 	defer func() {
 		framework.Logf("Cleaning up the pod %s", podName)
-		if err := f.ClientSet.Core().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
+		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
 	}()
@@ -471,6 +471,10 @@ func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
 	return &ctl
 }
 
+func (c *Calicoctl) DatastoreType() string {
+	return c.datastore
+}
+
 func (c *Calicoctl) Apply(yaml string, args ...interface{}) {
 	c.actionCtl(fmt.Sprintf(yaml, args...), "apply")
 }
@@ -485,6 +489,10 @@ func (c *Calicoctl) Get(args ...string) string {
 
 func (c *Calicoctl) Exec(args ...string) string {
 	return c.execExpectNoError(args...)
+}
+
+func (c *Calicoctl) DeleteHE(hostEndpointName string) {
+	c.execExpectNoError("delete", "hostendpoint", hostEndpointName)
 }
 
 func (c *Calicoctl) DeleteGNP(policyName string) {
@@ -514,7 +522,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
 
 	f := c.framework
-	podClient, err := f.ClientSet.Core().Pods("kube-system").Create(&v1.Pod{
+	podClient, err := f.ClientSet.CoreV1().Pods("kube-system").Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "calicoctl",
 			Labels: map[string]string{
@@ -541,7 +549,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 
 	Expect(err).NotTo(HaveOccurred())
 	defer func() {
-		if err := f.ClientSet.Core().Pods(podClient.Namespace).Delete(podClient.Name, nil); err != nil {
+		if err := f.ClientSet.CoreV1().Pods(podClient.Namespace).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
 	}()
@@ -559,4 +567,32 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	framework.Logf("Getting current log for calicoctl: %s", logs)
 
 	return logs, exeErr
+}
+
+func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) {
+	node, err := f.ClientSet.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	framework.ExpectNoError(err)
+
+	// For the following operations to work, you need to run the e2e.test binary with
+	// '--provider local', and to have an unencrypted SSH key in ~/.ssh/id_rsa on the
+	// machine/account where you are running that binary, that is able to access the other nodes
+	// in the cluster.
+	//
+	// (Probably other provider setups would work too, but I have not researched those.)
+	framework.IssueSSHCommand("sudo ip route", framework.TestContext.Provider, node)
+	framework.IssueSSHCommand("sudo ipset save", framework.TestContext.Provider, node)
+	framework.IssueSSHCommand("sudo iptables-save -c -t filter", framework.TestContext.Provider, node)
+}
+
+func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
+	podNow, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(podName, metav1.GetOptions{})
+	framework.ExpectNoError(err)
+	framework.Logf("Pod is on %v, IP %v", podNow.Spec.NodeName, podNow.Status.PodIP)
+	framework.Logf("Full pod detail = %#v", podNow)
+	return podNow
+}
+
+func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) {
+	podNow := GetPodNow(f, podName)
+	LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
 }
