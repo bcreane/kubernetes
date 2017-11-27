@@ -584,7 +584,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 3); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; exit 1",
+						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; exit 1",
 							targetService.Name, targetService.Namespace, targetPort),
 					},
 				},
