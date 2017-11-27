@@ -12,5 +12,5 @@ if [[ ! $SKIP ]]; then
 fi
 
 echo Using Focus: $FOCUS
-e2e.test -kubeconfig=/root/kubeconfig --ginkgo.focus="$FOCUS" --ginkgo.skip="$SKIP" -report-dir=/report "$EXTRA_ARGS"
+e2e.test -kubeconfig=/root/kubeconfig --ginkgo.focus="$FOCUS" --ginkgo.skip="$SKIP" -report-dir=/report $EXTRA_ARGS
 
