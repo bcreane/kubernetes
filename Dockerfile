@@ -8,4 +8,5 @@ ADD calico/containerized-e2e/kubeconfig /root/kubeconfig
 ADD ./_output/dockerized/bin/linux/amd64/e2e.test /usr/bin/
 ADD calico/containerized-e2e/entrypoint.sh /entrypoint.sh
 
-CMD /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD []
