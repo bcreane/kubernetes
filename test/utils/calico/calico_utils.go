@@ -136,16 +136,19 @@ func runCommandExpectNoError(cmd *exec.Cmd) string {
 	return stdout.String()
 }
 
+// Deprecated: Use containerized command: calicoctl.Apply().
 func CalicoctlApply(yaml string, args ...interface{}) {
 	cmd := exec.Command("calicoctl", "apply", "-f", "-")
 	calicoctlCmdWithFile(cmd, yaml, args...)
 }
 
+// Deprecated: Use containerized command: calicoctl.Create().
 func CalicoctlCreate(yaml string, args ...interface{}) {
 	cmd := exec.Command("calicoctl", "create", "-f", "-")
 	calicoctlCmdWithFile(cmd, yaml, args...)
 }
 
+// Deprecated: Use containerized command: calicoctl.Replace().
 func CalicoctlReplace(yaml string, args ...interface{}) {
 	cmd := exec.Command("calicoctl", "replace", "-f", "-")
 	calicoctlCmdWithFile(cmd, yaml, args...)
@@ -479,6 +482,14 @@ func (c *Calicoctl) Apply(yaml string, args ...interface{}) {
 	c.actionCtl(fmt.Sprintf(yaml, args...), "apply")
 }
 
+func (c *Calicoctl) Create(yaml string, args ...interface{}) {
+	c.actionCtl(fmt.Sprintf(yaml, args...), "create")
+}
+
+func (c *Calicoctl) Delete(yaml string, args ...interface{}) {
+	c.actionCtl(fmt.Sprintf(yaml, args...), "delete")
+}
+
 func (c *Calicoctl) Replace(yaml string, args ...interface{}) {
 	c.actionCtl(fmt.Sprintf(yaml, args...), "replace")
 }
@@ -488,7 +499,11 @@ func (c *Calicoctl) Get(args ...string) string {
 }
 
 func (c *Calicoctl) Exec(args ...string) string {
-	return c.execExpectNoError(args...)
+	return c.exec(args...)
+}
+
+func (c *Calicoctl) ExecReturnError(args ...string) (string, error) {
+	return c.execReturnError(args...)
 }
 
 func (c *Calicoctl) DeleteHE(hostEndpointName string) {
@@ -503,19 +518,28 @@ func (c *Calicoctl) DeleteNP(namespace, policyName string) {
 	c.execExpectNoError("delete", "networkpolicy", "-n", namespace, policyName)
 }
 
+func (c *Calicoctl) exec(args ...string) string {
+	result, _ := c.executeCalicoctl("calicoctl", args...)
+	return result
+}
+
 func (c *Calicoctl) execExpectNoError(args ...string) string {
 	result, err := c.executeCalicoctl("calicoctl", args...)
 	Expect(err).NotTo(HaveOccurred())
 	return result
 }
 
+func (c *Calicoctl) execReturnError(args ...string) (string, error) {
+	result, err := c.executeCalicoctl("calicoctl", args...)
+	return result, err
+}
+
 func (c *Calicoctl) actionCtl(resYaml string, action string) {
 	resourceArgs := fmt.Sprintf("echo '%s' | tee /$HOME/e2e-test-resource.yaml ; /calicoctl %s -f /$HOME/e2e-test-resource.yaml", resYaml, action)
 	logs, err := c.executeCalicoctl("/bin/sh", "-c", resourceArgs)
 	if err != nil {
-		framework.Logf("Error Log from calicoctl: %s", logs)
+		framework.Failf("Error '%s'-ing calico resource: %s", action, logs)
 	}
-	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Error '%s' calico resource.", action))
 }
 
 func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error) {
@@ -535,7 +559,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			Containers: []v1.Container{
 				{
 					Name:    "calicoctl-container",
-					Image:   "quay.io/calico/ctl:master",
+					Image:   framework.TestContext.CalicoCtlImage,
 					Command: []string{cmd},
 					Args:    args,
 					Env: []v1.EnvVar{
