@@ -19,7 +19,7 @@ function combine_regex {
 function focus_calico {
   CALICO_FOCUS_REGEX="\[Feature:CalicoPolicy-${CALICO_VER}\]"
   if [ "$CALICO_VER" == "v2" ]; then
-    SKIPS=$(combine_regex "|" "named ports" "$SKIPS")
+    SKIPS=$(combine_regex "|" "named port" "$SKIPS")
   fi
 }
 
