@@ -47,6 +47,7 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				calicoctl := calico.ConfigureCalicoctl(f)
+				defer calicoctl.Cleanup()
 
 				switch dropType {
 				case "policyDeny":

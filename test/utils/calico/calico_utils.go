@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -578,9 +579,12 @@ func GetCalicoConfigMapData(f *framework.Framework, cfgNames []string) (*map[str
 }
 
 type Calicoctl struct {
-	datastore string
-	endPoints string
-	framework *framework.Framework
+	datastore      string
+	endPoints      string
+	framework      *framework.Framework
+	serviceAccount *v1.ServiceAccount
+	role           *rbacv1.ClusterRole
+	roleBinding    *rbacv1.ClusterRoleBinding
 }
 
 func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
@@ -595,8 +599,102 @@ func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
 		ctl.endPoints = v
 	}
 
+	// The following resources are created for RBAC permissions for KDD tests. They do not affect etcd tests.
+	sa := v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "calicoctl",
+			Namespace:    f.Namespace.Name,
+		},
+	}
+	saa, err := f.ClientSet.CoreV1().ServiceAccounts(f.Namespace.Name).Create(&sa)
+	Expect(err).ShouldNot(HaveOccurred())
+	ctl.serviceAccount = saa
+
+	r := rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "calicoctl",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{
+					"crd.projectcalico.org",
+				},
+				Resources: []string{
+					// Allow access to all calico resources
+					"*",
+				},
+				Verbs: []string{
+					"create",
+					"get",
+					"list",
+					"update",
+					"delete",
+				},
+			},
+			{
+				APIGroups: []string{
+					"extensions",
+					"networking.k8s.io",
+				},
+				Resources: []string{
+					"networkpolicies",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+					"watch",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"namespaces",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+					"watch",
+				},
+			},
+		},
+	}
+	rr, err := f.ClientSet.RbacV1().ClusterRoles().Create(&r)
+	Expect(err).ShouldNot(HaveOccurred())
+	ctl.role = rr
+
+	rb := rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "calicoctl",
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     rr.ObjectMeta.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      saa.ObjectMeta.Name,
+				Namespace: f.Namespace.Name,
+			},
+		},
+	}
+	rbb, err := f.ClientSet.RbacV1().ClusterRoleBindings().Create(&rb)
+	Expect(err).ShouldNot(HaveOccurred())
+	ctl.roleBinding = rbb
+
 	framework.Logf("Configured for datastoreType %s", ctl.datastore)
 	return &ctl
+}
+
+func (c *Calicoctl) Cleanup() {
+	if c.datastore == "kubernetes" {
+		c.framework.ClientSet.CoreV1().ServiceAccounts(c.framework.Namespace.Name).Delete(c.serviceAccount.Name, &metav1.DeleteOptions{})
+		c.framework.ClientSet.RbacV1().ClusterRoles().Delete(c.role.Name, &metav1.DeleteOptions{})
+		c.framework.ClientSet.RbacV1().ClusterRoleBindings().Delete(c.roleBinding.Name, &metav1.DeleteOptions{})
+	}
 }
 
 func (c *Calicoctl) DatastoreType() string {
@@ -671,12 +769,13 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
 
 	f := c.framework
-	podClient, err := f.ClientSet.CoreV1().Pods("kube-system").Create(&v1.Pod{
+	podClient, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "calicoctl",
 			Labels: map[string]string{
 				"pod-name": "calicoctl",
 			},
+			Namespace: f.Namespace.Name,
 		},
 		Spec: v1.PodSpec{
 			HostNetwork:   true,
@@ -693,6 +792,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 					},
 				},
 			},
+			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
 		},
 	})
 
@@ -703,13 +803,13 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		}
 	}()
 
-	err = framework.WaitForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, "kube-system")
+	err = framework.WaitForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
 	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
 
-	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, "kube-system")
+	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
 
 	// Collect pod logs regardless of execution result.
-	logs, logErr := framework.GetPodLogs(f.ClientSet, "kube-system", podClient.Name, fmt.Sprintf("%s-container", podClient.Name))
+	logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podClient.Name))
 	if logErr != nil {
 		framework.Failf("Error getting container logs: %s", logErr)
 	}

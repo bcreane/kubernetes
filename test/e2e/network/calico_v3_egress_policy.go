@@ -68,6 +68,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 
 		AfterEach(func() {
 			cleanupServerPodAndService(f, podServer, service)
+			calicoctl.Cleanup()
 		})
 
 		It("should support lower order 'allow ingress' policy", func() {

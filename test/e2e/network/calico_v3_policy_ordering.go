@@ -190,6 +190,7 @@ spec:
 			for ii := range policies {
 				calicoctl.DeleteGNP(names[ii])
 			}
+			calicoctl.Cleanup()
 		})
 
 		definePolicyContentTests := func() {

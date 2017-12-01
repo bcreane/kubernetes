@@ -78,6 +78,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v3][Serial] tiers", func() {
 			if err != nil {
 				framework.Failf("Error deleting calico Tier 't0': %s", result)
 			}
+			calicoctl.Cleanup()
 		})
 
 		Describe("take precedence over the default tier", func() {

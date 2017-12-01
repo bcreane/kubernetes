@@ -46,6 +46,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 		// This will avoid complexity of creating a client by ourself.
 		calicoctl = calico.ConfigureCalicoctl(f)
 	})
+
 	Context("Calico specific network policy", func() {
 		BeforeEach(func() {
 			// Create Server with Service
@@ -63,6 +64,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 
 		AfterEach(func() {
 			cleanupServerPodAndService(f, podServer, service)
+			calicoctl.Cleanup()
 		})
 
 		It("should correctly isolate namespaces by ingress and egress policies", func() {
