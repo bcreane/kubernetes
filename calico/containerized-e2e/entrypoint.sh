@@ -64,7 +64,8 @@ function usage {
 --extended-networking (true|false) \
 --extended-conformance (true|false) \
 --focus (user_defined) \
---extra-args (user_defined ie -ginkgo.dryRun)"
+--extra-args (user_defined ie -ginkgo.dryRun) \
+--skips (user_defined)"
   exit 0
 }
 while [ -n "$1" ]; do
@@ -75,6 +76,7 @@ while [ -n "$1" ]; do
     --extended-conformance) EXT_CONFORMANCE=$2 ;;
     --focus) FOCUS=$2 ;;
     --extra-args) EXTRA_ARGS=$2 ;;
+    --skip|--skips) SKIPS=$2 ;;
     --help) usage ;;
   esac
   shift
