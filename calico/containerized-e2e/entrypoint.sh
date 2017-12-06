@@ -35,7 +35,7 @@ function focus_combined {
   elif [[ -z "$CALICO_FOCUS_REGEX" && -n "$CNX_FOCUS_REGEX" ]]; then
     FOCUS="$CNX_FOCUS_REGEX"
   else
-    FOCUS="$EXT_NETWORK_FOCUS"
+    echo '[WARNING] did not match calico or cnx options'
   fi
 }
 
@@ -82,22 +82,25 @@ while [ -n "$1" ]; do
   shift
 done
 
-# build out focus regex
+# custom focus, exists w/out eval extended options
 if [ -n "$FOCUS" ]; then
   focus_info "$FOCUS"
   runner "$FOCUS"
   exit 0
 fi
 
+# build out expected calico/cnx focus cmds
 if [ -n "$CALICO_VER" ]; then focus_calico ; fi
 if [ -n "$CNX_VER" ]; then focus_cnx ; fi
 if [ -z "$FOCUS" ]; then focus_combined ; fi
 
-# first calico|cnx|both focus run
-focus_info "$FOCUS"
-runner "$FOCUS"
+# focus_combined should have crafted calico/cnx focus if provided
+if [ -n "$FOCUS" ]; then
+  focus_info "$FOCUS"
+  runner "$FOCUS"
+fi
 
-# secondary/tertiary focus runs
+# extended secondary/tertiary focus runs whether or not calico/cnx were provided
 EXT_NETWORK_FOCUS="(Network|Pods|Services).*(\[Conformance\])|\[Feature:NetworkPolicy\]|\[Feature:Ingress\]"
 EXT_CONFORMANCE_FOCUS="(ConfigMap|Docker|Downward API|Events|DNS|Proxy|Scheduler|ReplicationController|ReplicaSet|CustomResourceDefinition).*(\[Conformance\])"
 if [ "$EXT_NETWORKING" == true ]; then
