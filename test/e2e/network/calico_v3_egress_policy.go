@@ -93,7 +93,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 
 			By("Creating calico allow ingress policy with lower order.")
 			nsName := f.Namespace.Name
-			policyName := fmt.Sprintf("%s.%s", nsName, "allow-ingress")
+			policyName := "allow-ingress"
 			policyStr := fmt.Sprintf("apiVersion: projectcalico.org/v3\n"+
 				"kind: GlobalNetworkPolicy\n"+
 				"metadata:\n"+
@@ -117,7 +117,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 		It("should support a 'deny egress' policy", func() {
 			By("Creating calico egress policy which denies traffic within namespace.")
 			nsName := f.Namespace.Name
-			policyName := fmt.Sprintf("%s.%s", nsName, "deny-egress")
+			policyName := "deny-egress"
 			policyStr := fmt.Sprintf("apiVersion: projectcalico.org/v3\n"+
 				"kind: GlobalNetworkPolicy\n"+
 				"metadata:\n"+
@@ -168,7 +168,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 			testCanConnect(f, nsB, "client-can-connect", serviceB, 80) //allow B -> B
 
 			By("Creating calico egress policy which denies traffic egress from namespace A to namespace B.")
-			policyName := fmt.Sprintf("deny-egress-from-ns.%s-to-ns.%s", nsA.Name, nsB.Name)
+			policyName := fmt.Sprintf("deny-egress-from-ns-%s-to-ns-%s", nsA.Name, nsB.Name)
 			policyStr := fmt.Sprintf("apiVersion: projectcalico.org/v3\n"+
 				"kind: GlobalNetworkPolicy\n"+
 				"metadata:\n"+
