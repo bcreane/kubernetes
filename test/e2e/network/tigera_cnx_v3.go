@@ -9,7 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	networkingv1 "k8s.io/api/networking/v1"
+	extensions "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -88,11 +88,11 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 					// profile that is generated from the server pod's
 					// Namespace.  Here we create a NetworkPolicy to allow port
 					// 443 traffic through.
-					policy := networkingv1.NetworkPolicy{
+					policy := extensions.NetworkPolicy{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "allow-client-port-443",
 						},
-						Spec: networkingv1.NetworkPolicySpec{
+						Spec: extensions.NetworkPolicySpec{
 							// Apply this policy to the Server
 							PodSelector: metav1.LabelSelector{
 								MatchLabels: map[string]string{
@@ -100,22 +100,22 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 								},
 							},
 							// Allow traffic only from client-a on port 443.
-							Ingress: []networkingv1.NetworkPolicyIngressRule{{
-								From: []networkingv1.NetworkPolicyPeer{{
+							Ingress: []extensions.NetworkPolicyIngressRule{{
+								From: []extensions.NetworkPolicyPeer{{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"pod-name": "client-a",
 										},
 									},
 								}},
-								Ports: []networkingv1.NetworkPolicyPort{{
+								Ports: []extensions.NetworkPolicyPort{{
 									Port: &intstr.IntOrString{IntVal: 443},
 								}},
 							}},
 						},
 					}
 
-					result := networkingv1.NetworkPolicy{}
+					result := extensions.NetworkPolicy{}
 					err = f.ClientSet.Extensions().RESTClient().Post().Namespace(ns.Name).
 						Resource("networkpolicies").Body(&policy).Do().Into(&result)
 					Expect(err).NotTo(HaveOccurred())
