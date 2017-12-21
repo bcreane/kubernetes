@@ -58,14 +58,20 @@ function focus_info {
 }
 
 function usage {
-  echo "usage: $0 \
---calico-version (v2|v3) \
---cnx v3 \
---extended-networking (true|false) \
---extended-conformance (true|false) \
---focus (user_defined) \
---extra-args (user_defined ie -ginkgo.dryRun) \
---skips (user_defined)"
+  cat <<EOF
+Usage: $0 \
+  docker run --net=host -v \$KUBECONFIG:/root/kubeconfig gcr.io/unique-caldron-775/k8s-e2e ARGS...
+
+Arguments:
+  --calico-version (v2|v3)              Run calico tests. [default: none]
+  --cnx v3                              Run CNX tests. [default: none]
+  --extended-networking (true|false)    Run extended networking tests. [default: true]
+  --extended-conformance (true|false)   Run extended conformance tests. [default: true]
+  --focus <FOCUS>                       Set to override any of the above options with a
+                                        manually specified focus.
+  --extra-args <EXTRA_ARGS>             Pass additional args to the e2e.test binary.
+  --skip <SKIPS>                        Control which tests are skipped by ginkgo.
+EOF
   exit 0
 }
 while [ -n "$1" ]; do
