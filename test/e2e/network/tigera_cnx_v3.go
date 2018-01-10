@@ -160,7 +160,7 @@ metadata:
 spec:
   ipipEnabled: true
   logSeverityScreen: Info
-  reportingIntervalSecs: 0
+  reportingInterval: 0s
   dropActionOverride: %s
 `,
 							dropActionOverride)
@@ -173,7 +173,7 @@ metadata:
 spec:
   ipipEnabled: true
   logSeverityScreen: Info
-  reportingIntervalSecs: 0`
+  reportingInterval: 0s`
 
 					case "calicoctl node":
 						felixConfig = fmt.Sprintf(`
