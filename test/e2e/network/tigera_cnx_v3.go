@@ -9,7 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	extensions "k8s.io/api/extensions/v1beta1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -88,11 +88,11 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 					// profile that is generated from the server pod's
 					// Namespace.  Here we create a NetworkPolicy to allow port
 					// 443 traffic through.
-					policy := extensions.NetworkPolicy{
+					policy := networkingv1.NetworkPolicy{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "allow-client-port-443",
 						},
-						Spec: extensions.NetworkPolicySpec{
+						Spec: networkingv1.NetworkPolicySpec{
 							// Apply this policy to the Server
 							PodSelector: metav1.LabelSelector{
 								MatchLabels: map[string]string{
@@ -100,28 +100,28 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 								},
 							},
 							// Allow traffic only from client-a on port 443.
-							Ingress: []extensions.NetworkPolicyIngressRule{{
-								From: []extensions.NetworkPolicyPeer{{
+							Ingress: []networkingv1.NetworkPolicyIngressRule{{
+								From: []networkingv1.NetworkPolicyPeer{{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
 											"pod-name": "client-a",
 										},
 									},
 								}},
-								Ports: []extensions.NetworkPolicyPort{{
+								Ports: []networkingv1.NetworkPolicyPort{{
 									Port: &intstr.IntOrString{IntVal: 443},
 								}},
 							}},
 						},
 					}
 
-					result := extensions.NetworkPolicy{}
-					err = f.ClientSet.Extensions().RESTClient().Post().Namespace(ns.Name).
+					result := networkingv1.NetworkPolicy{}
+					err = f.ClientSet.NetworkingV1().RESTClient().Post().Namespace(ns.Name).
 						Resource("networkpolicies").Body(&policy).Do().Into(&result)
 					Expect(err).NotTo(HaveOccurred())
 					defer func() {
 						By("Cleaning up the policy.")
-						if err = f.ClientSet.Extensions().RESTClient().
+						if err = f.ClientSet.NetworkingV1().RESTClient().
 							Delete().
 							Namespace(ns.Name).
 							Resource("networkpolicies").
@@ -225,8 +225,8 @@ spec:
 				}
 
 				time.Sleep(3 * time.Second)
-				initPackets := sumCalicoDeniedPackets(serverPodNow.Status.HostIP)
-				serverSyslogCount := calico.CountSyslogLines(serverNode)
+				initPackets := sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)
+				serverSyslogCount := calico.CountSyslogLines(f, serverNode)
 
 				By("Creating client-a that tries to connect on port 80")
 				switch dropActionOverride {
@@ -242,17 +242,17 @@ spec:
 
 				// Regardless of DropActionOverride, there should always be an
 				// increase in the calico_denied_packets metric.
-				nowPackets := sumCalicoDeniedPackets(serverPodNow.Status.HostIP)
+				nowPackets := sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)
 				Expect(nowPackets).To(BeNumerically(">", initPackets))
 
 				// When DropActionOverride begins with "Log", there should be new
 				// syslogs for the packets to port 80.
-				newDropLogs := calico.GetNewCalicoDropLogs(serverNode, serverSyslogCount, "calico-drop")
+				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-drop")
 				framework.Logf("New drop logs: %#v", newDropLogs)
 				if strings.HasPrefix(dropActionOverride, "Log") {
 					if len(newDropLogs) >= 0 {
-						newSyslogCount := calico.CountSyslogLines(serverNode)
-						Expect(newSyslogCount).NotTo(BeZero())
+						newSyslogCount := calico.CountSyslogLines(f, serverNode)
+						Expect(newSyslogCount - serverSyslogCount).NotTo(BeZero())
 					}
 					Expect(len(newDropLogs)).NotTo(BeZero())
 				} else {

@@ -25,16 +25,24 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labelutils "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+)
+
+const (
+	cmdTestPodName = "cmd-test-container-pod"
 )
 
 var (
@@ -46,36 +54,146 @@ var (
 	serverPort1             = 80
 )
 
-func countSyslogLines(node *v1.Node) (count int64) {
-	result, err := framework.IssueSSHCommandWithResult(
-		"wc -l /var/log/syslog",
-		framework.TestContext.Provider,
-		node)
+func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
+	pod, err := CreateLoggingPod(f, node)
+	defer func() {
+		By("Cleaning up the logging pod serving number of log lines.")
+		if err := f.ClientSet.CoreV1().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
+			framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
+		}
+		/*
+			// TODO: Commented this out because logging pods do not terminate quickly enough for this to pass
+			err := framework.WaitForPodToDisappear(f.ClientSet, f.Namespace.Name, pod.Name, labelutils.Everything(), time.Second, wait.ForeverTestTimeout)
+			if err != nil {
+				framework.Failf("Failed to delete %s pod: %v", pod.Name, err)
+			}
+		*/
+	}()
 	framework.ExpectNoError(err)
-	words := strings.Split(result.Stdout, " ")
-	count, err = strconv.ParseInt(words[0], 10, 64)
-	framework.ExpectNoError(err)
-	return
-}
 
-func countSystemJournalLines(node *v1.Node) (count int64) {
-	result, err := framework.IssueSSHCommandWithResult(
-		"journalctl --system | wc -l",
-		framework.TestContext.Provider,
-		node)
-	framework.ExpectNoError(err)
-	words := strings.Trim(result.Stdout, "\n")
-	count, err = strconv.ParseInt(words, 10, 64)
-	framework.ExpectNoError(err)
-	return
-}
-
-func CountSyslogLines(node *v1.Node) int64 {
-	if commandExists("journalctl", node) {
-		return countSystemJournalLines(node)
-	} else {
-		return countSyslogLines(node)
+	By("Counting the log lines from the logging pod")
+	cmd := "journalctl --system | wc -l"
+	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
+	if err != nil {
+		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
 	}
+	framework.Logf("Number of log lines: %#v", output)
+
+	// Convert the returned string line count to an int64
+	words := strings.Trim(output, "\n")
+	count, err := strconv.ParseInt(words, 10, 64)
+	framework.ExpectNoError(err)
+	return count
+}
+
+// Creates a pod in the appropriate namespace and then run a kubectl exec command on that pod
+func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
+	f.PodClient().Create(cmdTestContainerPod)
+	defer func() {
+		// Clean up the pod
+		f.PodClient().Delete(cmdTestContainerPod.Name, metav1.NewDeleteOptions(0))
+		err := framework.WaitForPodToDisappear(f.ClientSet, f.Namespace.Name, cmdTestContainerPod.Name, labelutils.Everything(), time.Second, wait.ForeverTestTimeout)
+		if err != nil {
+			framework.Failf("Failed to delete %s pod: %v", cmdTestContainerPod.Name, err)
+		}
+	}()
+	if err := f.WaitForPodRunning(cmdTestContainerPod.Name); err != nil {
+		return "", err
+	}
+
+	_, err := f.PodClient().Get(cmdTestContainerPod.Name, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("Failed to retrieve %s pod: %v", cmdTestContainerPod.Name, err)
+	}
+
+	stdout, err := framework.RunHostCmd(f.Namespace.Name, cmdTestContainerPod.Name, cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, cmdTestContainerPod.Name, err)
+	}
+	return stdout, err
+}
+
+func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
+	podName := "logging-" + string(uuid.NewUUID())
+
+	volumes := []v1.Volume{}
+	volumes = append(volumes,
+		v1.Volume{
+			Name: "journald-run-log",
+			VolumeSource: v1.VolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: "/run/log",
+				},
+			},
+		},
+		v1.Volume{
+			Name: "journald-var-log",
+			VolumeSource: v1.VolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: "/var/log",
+				},
+			},
+		})
+
+	volumeMounts := []v1.VolumeMount{}
+	volumeMounts = append(volumeMounts,
+		v1.VolumeMount{
+			Name:      "journald-run-log",
+			MountPath: "/run/log",
+		},
+		v1.VolumeMount{
+			Name:      "journald-var-log",
+			MountPath: "/var/log",
+		})
+
+	containers := []v1.Container{}
+	containers = append(containers, v1.Container{
+		Name:         fmt.Sprintf("%s-container", podName),
+		Image:        "ubuntu:16.04",
+		VolumeMounts: volumeMounts,
+		Command:      []string{"/bin/bash"},
+		Args:         []string{"-c", "sleep 360000"},
+	})
+
+	By(fmt.Sprintf("Creating a logging pod %s in namespace %s", podName, f.Namespace.Name))
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: f.Namespace.Name,
+			Labels: map[string]string{
+				"pod-name":               podName,
+				"kubernetes.io/hostname": node.Spec.ExternalID,
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers:    containers,
+			Volumes:       volumes,
+			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector: map[string]string{
+				"kubernetes.io/hostname": node.Spec.ExternalID,
+			},
+		},
+	}
+	pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
+	if err != nil {
+		return pod, err
+	}
+	framework.Logf("Created logging pod %v", pod.ObjectMeta.Name)
+
+	err = f.WaitForPodRunning(pod.Name)
+	if err != nil {
+		return pod, err
+	}
+
+	// Get the pod again to get the assigned IP
+	pod, err = f.PodClient().Get(pod.Name, metav1.GetOptions{})
+	if err != nil {
+		framework.Logf("Failed to retrieve %s pod: %v", pod.Name, err)
+		return pod, err
+	}
+
+	return pod, nil
 }
 
 func commandExists(cmd string, node *v1.Node) bool {
@@ -88,26 +206,32 @@ func commandExists(cmd string, node *v1.Node) bool {
 	return true
 }
 
-func GetNewCalicoDropLogs(node *v1.Node, since int64, logPfx string) (logs []string) {
-	var cmd string
-	if commandExists("journalctl", node) {
-		cmd = fmt.Sprintf("journalctl --system | tail -n +%d | grep %s || true", since+1, logPfx)
-	} else {
-		cmd = fmt.Sprintf("tail -n +%d /var/log/syslog | grep %s || true", since+1, logPfx)
-	}
-	return getNewCalicoDropLogs(cmd, node)
-}
+func GetNewCalicoDropLogs(f *framework.Framework, node *v1.Node, since int64, logPfx string) (logs []string) {
+	pod, err := CreateLoggingPod(f, node)
+	defer func() {
+		By(fmt.Sprintf("Cleaning up the logging pod serving %s log lines.", logPfx))
+		if err := f.ClientSet.CoreV1().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
+			framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
+		}
+		/*
+			// TODO: Commented this out because logging pods do not terminate quickly enough for this to pass
+			err := framework.WaitForPodToDisappear(f.ClientSet, f.Namespace.Name, pod.Name, labelutils.Everything(), time.Second, wait.ForeverTestTimeout)
+			if err != nil {
+				framework.Failf("Failed to delete %s pod: %v", pod.Name, err)
+			}
+		*/
+	}()
 
-func getNewCalicoDropLogs(cmd string, node *v1.Node) (logs []string) {
-	result, err := framework.IssueSSHCommandWithResult(
-		cmd,
-		framework.TestContext.Provider,
-		node)
-	framework.ExpectNoError(err)
-	if result.Stdout == "" {
+	By(fmt.Sprintf("Retrieving the %s log lines", logPfx))
+	cmd := fmt.Sprintf("journalctl --system | tail -n +%d | grep %s || true", since+1, logPfx)
+	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
+	if err != nil {
+		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
+	}
+	if output == "" {
 		logs = []string{}
 	} else {
-		logs = strings.Split(result.Stdout, "\n")
+		logs = strings.Split(output, "\n")
 	}
 	return
 }
