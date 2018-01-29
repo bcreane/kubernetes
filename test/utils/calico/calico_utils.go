@@ -117,9 +117,8 @@ func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	podName := "logging-" + string(uuid.NewUUID())
 
-	volumes := []v1.Volume{}
-	volumes = append(volumes,
-		v1.Volume{
+	volumes := []v1.Volume{
+		{
 			Name: "journald-run-log",
 			VolumeSource: v1.VolumeSource{
 				HostPath: &v1.HostPathVolumeSource{
@@ -127,34 +126,36 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 				},
 			},
 		},
-		v1.Volume{
+		{
 			Name: "journald-var-log",
 			VolumeSource: v1.VolumeSource{
 				HostPath: &v1.HostPathVolumeSource{
 					Path: "/var/log",
 				},
 			},
-		})
+		},
+	}
 
-	volumeMounts := []v1.VolumeMount{}
-	volumeMounts = append(volumeMounts,
-		v1.VolumeMount{
+	volumeMounts := []v1.VolumeMount{
+		{
 			Name:      "journald-run-log",
 			MountPath: "/run/log",
 		},
-		v1.VolumeMount{
+		{
 			Name:      "journald-var-log",
 			MountPath: "/var/log",
-		})
+		},
+	}
 
-	containers := []v1.Container{}
-	containers = append(containers, v1.Container{
-		Name:         fmt.Sprintf("%s-container", podName),
-		Image:        "ubuntu:16.04",
-		VolumeMounts: volumeMounts,
-		Command:      []string{"/bin/bash"},
-		Args:         []string{"-c", "sleep 360000"},
-	})
+	containers := []v1.Container{
+		{
+			Name:         fmt.Sprintf("%s-container", podName),
+			Image:        "ubuntu:16.04",
+			VolumeMounts: volumeMounts,
+			Command:      []string{"/bin/bash"},
+			Args:         []string{"-c", "sleep 360000"},
+		},
+	}
 
 	By(fmt.Sprintf("Creating a logging pod %s in namespace %s", podName, f.Namespace.Name))
 	pod := &v1.Pod{
