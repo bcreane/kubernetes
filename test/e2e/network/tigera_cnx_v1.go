@@ -5,7 +5,6 @@ package network
 import (
 	"bufio"
 	"io/ioutil"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -232,8 +231,8 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 				}
 
 				time.Sleep(3 * time.Second)
-				initPackets := sumCalicoDeniedPackets(serverPodNow.Status.HostIP)
-				serverSyslogCount := calico.CountSyslogLines(serverNode)
+				initPackets := sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)
+				serverSyslogCount := calico.CountSyslogLines(f, serverNode)
 
 				By("Creating client-a that tries to connect on port 80")
 				switch dropActionOverride {
@@ -249,12 +248,12 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 
 				// Regardless of DropActionOverride, there should always be an
 				// increase in the calico_denied_packets metric.
-				nowPackets := sumCalicoDeniedPackets(serverPodNow.Status.HostIP)
+				nowPackets := sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)
 				Expect(nowPackets).To(BeNumerically(">", initPackets))
 
 				// When DropActionOverride begins with "LOG-", there should be new
 				// syslogs for the packets to port 80.
-				newDropLogs := calico.GetNewCalicoDropLogs(serverNode, serverSyslogCount, "calico-drop")
+				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-drop")
 				framework.Logf("New drop logs: %#v", newDropLogs)
 				if strings.HasPrefix(dropActionOverride, "LOG-") {
 					if len(newDropLogs) >= 0 {
@@ -338,23 +337,16 @@ var _ = framework.KubeDescribe("[Product: CNX] CalicoQ", func() {
 	})
 })
 
-func getFelixMetrics(felixIP, name string) (metrics []string, err error) {
-	var resp *http.Response
-	for retry := 0; retry < 5; retry++ {
-		resp, err = http.Get("http://" + felixIP + ":9081/metrics")
-		if err == nil {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
+func getFelixMetrics(f *framework.Framework, felixIP, name string) (metrics []string, err error) {
+	By("Getting metrics through kubectl exec curl")
+	output, err := calico.ExecuteCmdInPod(f, "curl http://"+felixIP+":9081/metrics")
 	if err != nil {
 		return
 	}
-	framework.Logf("Metric response %#v", resp)
-	defer resp.Body.Close()
+	framework.Logf("Curl Metric response %#v", output)
 
 	metrics = []string{}
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()
 		framework.Logf("Line: %v", line)
@@ -366,8 +358,8 @@ func getFelixMetrics(felixIP, name string) (metrics []string, err error) {
 	return
 }
 
-func sumCalicoDeniedPackets(felixIP string) (sum int64) {
-	metrics, err := getFelixMetrics(felixIP, "calico_denied_packets")
+func sumCalicoDeniedPackets(f *framework.Framework, felixIP string) (sum int64) {
+	metrics, err := getFelixMetrics(f, felixIP, "calico_denied_packets")
 	Expect(err).NotTo(HaveOccurred())
 	sum = 0
 	for _, metric := range metrics {

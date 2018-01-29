@@ -1020,7 +1020,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 		serverNode, err := f.ClientSet.Core().Nodes().Get(serverNodeName, metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
 		framework.Logf("Server is running on %v", serverNodeName)
-		serverSyslogCount := calico.CountSyslogLines(serverNode)
+		serverSyslogCount := calico.CountSyslogLines(f, serverNode)
 
 		By("Applying a policy that logs traffic from client then drops the same traffic.")
 		calico.CalicoctlApply(
@@ -1053,7 +1053,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
 
-		newDropLogs := calico.GetNewCalicoDropLogs(serverNode, serverSyslogCount, "calico-packet")
+		newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-packet")
 		framework.Logf("New drop logs: %#v", newDropLogs)
 		Expect(len(newDropLogs)).NotTo(BeZero())
 	})
