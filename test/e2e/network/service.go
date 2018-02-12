@@ -254,7 +254,7 @@ var _ = SIGDescribe("Services", func() {
 
 		By("Creating a webserver pod be part of the TCP service which echoes back source ip")
 		serverPodName := "echoserver-sourceip"
-		jig.LaunchEchoserverPodOnNode(f, node1.Name, serverPodName)
+		jig.LaunchEchoserverPodOnNode(f, node1.Name, serverPodName, false)
 		defer func() {
 			framework.Logf("Cleaning up the echo server pod")
 			err := cs.CoreV1().Pods(ns).Delete(serverPodName, nil)

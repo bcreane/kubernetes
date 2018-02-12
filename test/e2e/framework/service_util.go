@@ -791,14 +791,24 @@ func (j *ServiceTestJig) LaunchNetexecPodOnNode(f *Framework, nodeName, podName 
 }
 
 // newEchoServerPodSpec returns the pod spec of echo server pod
-func newEchoServerPodSpec(podName string) *v1.Pod {
-	port := 8080
+func newEchoServerPodSpec(podName string, hostNetwork bool) *v1.Pod {
+	port := 8091
+	one := int64(1)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
+			Labels: map[string]string{"pod-name": podName},
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
+				// Include a busybox container in the echo server.  This is useful for doing loopback tests, where
+				// a service pod accesses itself via the service cluster IP, for example.  We make it the first
+				// container so `kubectl exec` will choose it by default.
+				{
+					Name:  "exec",
+					Image: "busybox",
+					Command: []string{"sh", "-c", "trap \"echo Stopped; exit 0\" INT TERM EXIT; sleep 1000000"},
+				},
 				{
 					Name:  "echoserver",
 					Image: "gcr.io/google_containers/echoserver:1.6",
@@ -806,24 +816,31 @@ func newEchoServerPodSpec(podName string) *v1.Pod {
 				},
 			},
 			RestartPolicy: v1.RestartPolicyNever,
+			HostNetwork:   hostNetwork,
+			TerminationGracePeriodSeconds: &one, // Speed up pod termination.
 		},
 	}
 	return pod
 }
 
-// LaunchEchoserverPodOnNode launches a pod serving http on port 8080 to act
+// LaunchEchoserverPodOnNode launches a pod serving http on port 8091 to act
 // as the target for source IP preservation test. The client's source ip would
 // be echoed back by the web server.
-func (j *ServiceTestJig) LaunchEchoserverPodOnNode(f *Framework, nodeName, podName string) {
+func (j *ServiceTestJig) LaunchEchoserverPodOnNode(f *Framework, nodeName, podName string, hostNetwork bool) *v1.Pod {
 	Logf("Creating echo server pod %q in namespace %q", podName, f.Namespace.Name)
-	pod := newEchoServerPodSpec(podName)
+	pod := newEchoServerPodSpec(podName, hostNetwork)
 	pod.Spec.NodeName = nodeName
-	pod.ObjectMeta.Labels = j.Labels
+	for k, v := range j.Labels {
+		pod.ObjectMeta.Labels[k] = v
+	}
 	podClient := f.ClientSet.Core().Pods(f.Namespace.Name)
 	_, err := podClient.Create(pod)
 	ExpectNoError(err)
 	ExpectNoError(f.WaitForPodRunning(podName))
 	Logf("Echo server pod %q in namespace %q running", pod.Name, f.Namespace.Name)
+	pod, err = f.ClientSet.Core().Pods(f.Namespace.Name).Get(podName, metav1.GetOptions{})
+	ExpectNoError(err)
+	return pod
 }
 
 func (j *ServiceTestJig) TestReachableHTTP(host string, port int, timeout time.Duration) {
