@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -844,4 +845,14 @@ func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
 func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) {
 	podNow := GetPodNow(f, podName)
 	LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
+}
+
+func MaybeWaitForInvestigation() {
+	if os.Getenv("CALICO_DEBUG") != "true" {
+		return
+	}
+	fmt.Println("Pausing to allow investigation.  Press Enter to continue.")
+	var input string
+	fmt.Scanln(&input)
+	fmt.Println("Now continuing test")
 }
