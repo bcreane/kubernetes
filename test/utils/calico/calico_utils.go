@@ -804,7 +804,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		}
 	}()
 
-	err = framework.WaitForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
+	err = framework.WaitTimeoutForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name, 6*time.Minute)
 	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
 
 	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
