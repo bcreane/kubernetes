@@ -134,14 +134,20 @@ var _ = SIGDescribe("IPVSEgress", func() {
 				target      string
 				applyLabels map[string]string
 				expectSNAT  bool
+				reachability string
 			)
 
 			expectAccessAllowed := func() {
-				testConnection(f, client, target, expectSNAT, true)
+				if expectSNAT {
+					reachability = reachableWithSNAT
+				} else {
+					reachability = reachableWithoutSNAT
+				}
+				testConnection(f, client, target, reachability)
 			}
 
 			expectAccessDenied := func() {
-				testConnection(f, client, target, expectSNAT, false)
+				testConnection(f, client, target, notReachable)
 			}
 
 			BeforeEach(func() {
@@ -381,8 +387,18 @@ var _ = SIGDescribe("IPVSAccess", func() {
 	//                                               (d3) client node != server node and
 	//                                                    client node != NodePort node
 
-	const noSnat = true // An indication that packets are going from a client pod to a server pod without SNAT.
 	var jig *framework.ServiceTestJig
+	const (
+		// With no SNAT, we expect networkpolicy to just work.
+		expectNoSnat              = iota
+
+		// With SNAT, and we expect networkpolicy to just work.
+		expectSnatWorkingPolicy   = iota
+
+		// With SNAT, and we do NOT expect networkpolicy to just work.
+		// Cases with this are bugs that we need to fix, either in k8s or calico, because we want policy everywhere!
+		expectSnatNoWorkingPolicy = iota
+	)
 
 	// The ipvs test requires three schedulable nodes. Back end server pod is running on node3.
 	type IPVSTestConfig struct {
@@ -438,14 +454,19 @@ var _ = SIGDescribe("IPVSAccess", func() {
 			cleanupPodService(f, jig)
 		})
 
-		testIngressPolicy := func(srcNode string, srcHostNetworked bool, destIP string, destPort int, expectSNAT bool) {
+		testIngressPolicy := func(srcNode string, srcHostNetworked bool, destIP string, destPort int, expectation int) {
 			target := fmt.Sprintf("%v:%v", destIP, destPort)
 			clientA := &source{srcNode, "client-a", srcHostNetworked}
 			clientB := &source{srcNode, "client-b", srcHostNetworked}
 
 			By("Traffic is allowed from pod 'client-a' and 'client-b'.")
-			testConnection(f, clientA, target, expectSNAT, true)
-			testConnection(f, clientB, target, expectSNAT, true)
+			if expectation == expectNoSnat {
+				testConnection(f, clientA, target, reachableWithoutSNAT)
+				testConnection(f, clientB, target, reachableWithoutSNAT)
+			} else {
+				testConnection(f, clientA, target, reachableWithSNAT)
+				testConnection(f, clientB, target, reachableWithSNAT)
+			}
 
 			By("Creating a network policy for the server which allows traffic from pod 'client-b'.")
 			policy := &networkingv1.NetworkPolicy{
@@ -475,88 +496,78 @@ var _ = SIGDescribe("IPVSAccess", func() {
 			defer cleanupNetworkPolicy(f, policy)
 
 			By("Traffic is not allowed from pod 'client-a'.")
-			testConnection(f, clientA, target, true, false)
-			if !srcHostNetworked {
-				if !expectSNAT {
-					By("Non host network pods and no snat. Traffic is allowed from pod 'client-b'.")
-					testConnection(f, clientB, target, false, true)
-				} else {
-					// SNAT: There will be couple of cases that a packet could be SNATed, for instance,
-					// the node port cases if the node port node is different from both the server node
-					// and the client node. When there is an SNAT, it means that the NetworkPolicy that we
-					// configure in this test will not be effective in allowing client-b to access the
-					// server, because the source IP seen on the server node is not the same as the source
-					// IP that the NetworkPolicy allows.
-					By("Non host network pods with snat. Traffic is not allowed from pod 'client-b'.")
-					testConnection(f, clientB, target, true, false)
-				}
-			} else {
-				// Host-networked client: If the client is host-networked, the source IP
-				// for an attempted connection to the server will not be the client's pod
-				// IP, so again the NetworkPolicy will be ineffective.
-				By("Host network pods. Traffic is not allowed from both 'client-a' and 'client-b'.")
-				testConnection(f, clientB, target, true, false)
+			testConnection(f, clientA, target, notReachable)
+			switch expectation {
+			case expectNoSnat:
+				By("Not expecting SNAT. Traffic is allowed from pod 'client-b'.")
+				testConnection(f, clientB, target, reachableWithoutSNAT)
+			case expectSnatWorkingPolicy:
+				By("Expecting SNAT, and policy working. Traffic is allowed from pod 'client-b'.")
+				testConnection(f, clientB, target, reachableWithSNAT)
+			case expectSnatNoWorkingPolicy:
+				By("Expecting SNAT, and policy not working: Traffic is not allowed from pod 'client-b'.")
+				// Network policy is not working for these, do NOT expect the allow policy to work, so connection fails
+				testConnection(f, clientB, target, notReachable)
 			}
-
 		}
 
-		It("Test accessing service ip from a pod on the same node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
-			testIngressPolicy(ipvsTC.svcNodeName, false, ipvsTC.svcClusterIP, ipvsTC.svcPort, false)
+		It("1 Test accessing service ip from a pod on the same node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+			testIngressPolicy(ipvsTC.svcNodeName, false, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectNoSnat)
 		})
 
-		It("Test accessing service ip from a pod running host network on the same node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
-			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, false)
+		It("2 Test accessing service ip from a pod running host network on the same node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing service ip from a pod on a different node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
-			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.svcClusterIP, ipvsTC.svcPort, false)
+		It("3 Test accessing service ip from a pod on a different node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectNoSnat)
 		})
 
-		It("Test accessing service ip from a pod running host network on a different node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
-			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, false)
+		It("4 Test accessing service ip from a pod running host network on a different node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing NodePort (Node running server pod) from a pod on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.svcNodeName, false, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, false)
+		It("5 Test accessing NodePort (Node running server pod) from a pod on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.svcNodeName, false, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatWorkingPolicy)
+		})
+		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
+		It("6 Test accessing NodePort (Node running server pod) from a pod running host network on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing NodePort (Node running server pod) from a pod running host network on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, false)
+		It("7 Test accessing NodePort (Node running server pod) from a pod on a different node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing NodePort (Node running server pod) from a pod on a different node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, true)
+		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
+		It("8 Test accessing NodePort (Node running server pod) from a pod running host network on a different node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing NodePort (Node running server pod) from a pod running host network on a different node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, false)
+		It("9 Test accessing NodePort (Node not running server pod) from a pod on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing NodePort (Node not running server pod) from a pod on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.node1Name, ipvsTC.svcNodePort, false)
+		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
+		It("10 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("Test accessing NodePort (Node not running server pod) from a pod running host network on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, false)
+		It("11 Test accessing NodePort (Node not running server pod) from a pod on a third node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.node0Name, false, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		/* The following test cases won't work because of kubernetes ipvs issue https://github.com/kubernetes/kubernetes/issues/53393
-		It("Test accessing NodePort (Node not running server pod) from a pod on a third node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node0Name, false, ipvsTC.node1Name, ipvsTC.svcNodePort, noSnat)
+		It("12 Test accessing NodePort (Node not running server pod) from a pod running host network on a third node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.node0Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
-
-		It("Test accessing NodePort (Node not running server pod) from a pod running host network on a third node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node0Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, noSnat)
-		})
-		*/
 
 	})
 
 })
 
 func getNodesInfo(nodes *v1.NodeList) ([]string, []string) {
-	nodeNames := []string{}
-	nodeIPs := []string{}
+	var nodeNames []string
+	var nodeIPs []string
 	for _, node := range nodes.Items {
 		nodeNames = append(nodeNames, node.Name)
 		addrs := framework.GetNodeAddresses(&node, v1.NodeInternalIP)
@@ -574,12 +585,18 @@ type source struct {
 	hostNetworked bool
 }
 
-func testConnection(f *framework.Framework, client interface{}, target string, expectSNAT bool, expectConnection bool) {
+const (
+	notReachable = "unreachable"
+	reachableWithoutSNAT = "reachable without SNAT"
+	reachableWithSNAT = "reachable with SNAT"
+)
+
+func testConnection(f *framework.Framework, client interface{}, target string, reachability string) {
 	var execPod *v1.Pod
 	switch src := client.(type) {
 	case *source:
 		// Create a scratch pod to test the connection.
-		framework.Logf("Creating an exec pod %s on node %s, expect can connect to be %t", src.label, src.node, expectConnection)
+		framework.Logf("Creating an exec pod %s on node %s, expect pod to be %s", src.label, src.node, reachability)
 		execPodName := framework.CreateExecPodOrFail(f.ClientSet, f.Namespace.Name, fmt.Sprintf("execpod-sourceip-%s", src.node), func(pod *v1.Pod) {
 			pod.ObjectMeta.Labels = map[string]string{"pod-name": src.label}
 			pod.Spec.NodeName = src.node
@@ -588,11 +605,11 @@ func testConnection(f *framework.Framework, client interface{}, target string, e
 
 		defer func() {
 			framework.Logf("Cleaning up the exec pod")
-			err := f.ClientSet.Core().Pods(f.Namespace.Name).Delete(execPodName, nil)
+			err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Delete(execPodName, nil)
 			Expect(err).NotTo(HaveOccurred())
 		}()
 		var err error
-		execPod, err = f.ClientSet.Core().Pods(f.Namespace.Name).Get(execPodName, metav1.GetOptions{})
+		execPod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(execPodName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 	case *v1.Pod:
 		// Use the pod that the caller has given us.
@@ -622,7 +639,7 @@ func testConnection(f *framework.Framework, client interface{}, target string, e
 		completedAttempts++
 
 		// Then, figure out what the result means...
-		if expectConnection {
+		if reachability != notReachable {
 			if err != nil {
 				// Expected a connection but it failed.
 				reason = "Failure: Connection unexpectedly failed."
@@ -637,7 +654,7 @@ func testConnection(f *framework.Framework, client interface{}, target string, e
 				framework.Logf(reason)
 				continue
 			}
-			if !execPod.Spec.HostNetwork && !expectSNAT {
+			if !execPod.Spec.HostNetwork && reachability == reachableWithoutSNAT {
 				// Verify observed source IP if exec pod is not running in host network namespace
 				// and we don't expect any SNAT in the data path.  With exec pod running in host
 				// network namespace and the destination IP is a virtual IP (service IP), the source
@@ -701,8 +718,8 @@ func setupPodServiceOnNode(f *framework.Framework, jig *framework.ServiceTestJig
 
 func cleanupPodService(f *framework.Framework, jig *framework.ServiceTestJig) {
 	By("Cleaning up echo service and backend pod.")
-	err := f.ClientSet.Core().Services(f.Namespace.Name).Delete(jig.Name, nil)
+	err := f.ClientSet.CoreV1().Services(f.Namespace.Name).Delete(jig.Name, nil)
 	Expect(err).NotTo(HaveOccurred())
-	err = f.ClientSet.Core().Pods(f.Namespace.Name).Delete(jig.Name, nil)
+	err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Delete(jig.Name, nil)
 	Expect(err).NotTo(HaveOccurred())
 }
