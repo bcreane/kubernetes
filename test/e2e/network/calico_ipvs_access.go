@@ -16,7 +16,6 @@ package network
 import (
 	"fmt"
 	"strings"
-
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -130,10 +129,10 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	describeEgressTest := func(c egressTest) func() {
 		return func() {
 			var (
-				client      interface{}
-				target      string
-				applyLabels map[string]string
-				expectSNAT  bool
+				client       interface{}
+				target       string
+				applyLabels  map[string]string
+				expectSNAT   bool
 				reachability string
 			)
 
@@ -368,6 +367,460 @@ var _ = SIGDescribe("IPVSEgress", func() {
 
 })
 
+var _ = SIGDescribe("IPVSHostEndpoint", func() {
+
+	// Test that Calico host endpoint policy still takes effect when kube-proxy is using IPVS
+	// to implement k8s Service semantics.  We set up the following pods on two nodes:
+	//
+	// +-------------------+ +------------------+
+	// |       node0       | |       node1      |
+	// | +------+ +------+ | | +--------------+ |
+	// | | pod0* || pod1 | | | | pod2 || pod3*| |
+	// | +------+ +------+ | | +--------------+ |
+	// +-------------------+ +------------------+
+	// pod0 and pod3 are host networked pods.
+	// Setup host endpoint "node0.eth0" for eth0 interface of node0.
+	//
+	// We set up services for all pods. Such service can be accessed via its clusterIP,
+	// or its NodePort, or its externalIP.
+	//
+	// Host endpoint ingress policy test              AOF=false                 AOF=true
+	// pod3* --> pod0* (local process)              policy apply              policy apply
+	// pod2  --> clusterIP for service(pod0*)       policy apply              policy apply
+	//       --> pod1 (local pod)                   policy not apply          policy apply
+	//       --> node0 NodePort for service(pod1)   policy not apply          policy apply
+	//       --> node0 NodePort for service(pod2)   policy not apply          policy apply
+	//
+	// Host endpoint egress policy test
+	// pod1  --> pod2                               policy not apply          poicy apply
+	//       --> clusterIP for service(pod2)        policy not apply          poicy apply
+	//       --> node0 NodePort for service(pod2)   policy not apply          poicy apply
+	//       --> external ip for service(pod2)      policy not apply          policy apply
+	//
+	// pod0*  --> pod2                              policy apply              poicy apply
+	//       --> clusterIP for service(pod2)        policy apply              poicy apply
+	//       --> node0 NodePort for service(pod2)   policy apply              poicy apply
+	//       --> clusterIP for service(pod3*)       policy apply              poicy apply
+	//       --> node0 NodePort for service(pod3*)  policy apply              poicy apply
+	//
+	// pod2  --> node0 NodePort for service(pod2)   policy not apply          policy apply
+	//       --> node0 NodePort for service(pod1)   policy not apply          policy not apply
+	//
+	// For each pattern we follow the test procedure:
+	//
+	// - With no node0.eth0 host endpoint, target is accessible.
+	//
+	// - Create host endpoint for node0.eth0.
+	//   Target is not accessible if destination pod is host networked for an ingress test.
+	//   Target is not accessible if source pod is host networked for an egress test.
+	//   Target is still accessible if none of above condition is met.
+	//
+	// - Add policy that applies to host endpoint to allow ingress or egress for access port.
+	//   Target is accessible.
+	//
+	// - Add policy with lower order to deny ingress or egress for access port.
+	//   Target is not accessible if "policy apply".
+	//   Target is still accessible if "policy not apply".
+	//
+	// - Remove policies and host endpoint.
+
+	f := framework.NewDefaultFramework("ipvs-hep")
+	var (
+		jig         *framework.ServiceTestJig
+		nodeNames   []string
+		nodeIPs     []string
+		hepNodeName string
+		hepNodeIP   string
+		nodeNameMap map[int]string
+		policyNames []string
+	)
+
+	type hepTestConfig struct {
+		// Any tweak needed to the target Service definition.
+		svcTweak func(svc *v1.Service)
+		// srcPod is the number of the destination pod, as per the diagram above.
+		srcPod int
+		// True if the destination pod should be host-networked.
+		srcHostNetworked bool
+		// dstPod is the number of the destination pod, as per the diagram above.
+		dstPod int
+		// True if the destination pod should be host-networked.
+		dstHostNetworked bool
+		// How to access the Service.
+		accessType string
+		// expect SNAT
+		expectSNAT bool
+	}
+
+	type hepPolicyConfig struct {
+		// Flag to indicate ingress or egress policy
+		actionType string
+		// Apply on forward flag.
+		applyOnForward bool
+		// Flag to indicate if policy applies to test setup.
+		policyApply bool
+	}
+
+	var calicoctl *calico.Calicoctl
+
+	addExternalIPClusterWide := func(svc *v1.Service) {
+		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
+	}
+
+	Context("IPVS Host Endpoint test", func() {
+
+		BeforeEach(func() {
+			/*
+			   The following code tries to get config information for calicoctl from k8s ConfigMap.
+			   A framework clientset is needed to access k8s configmap but it will only be created in the context of BeforeEach or IT.
+			   Current solution is to use BeforeEach because this function is not a test case.
+			   This will avoid complexity of creating a client by ourself.
+			*/
+			calicoctl = calico.ConfigureCalicoctl(f)
+
+		})
+
+		BeforeEach(func() {
+			framework.Logf("BeforeEach for IPVS HostEndpoint")
+			jig = framework.NewServiceTestJig(f.ClientSet, "ipvs-hep")
+			nodes := jig.GetNodes(3)
+			if len(nodes.Items) == 0 {
+				framework.Skipf("No nodes exist, can't continue test.")
+			}
+			if len(nodes.Items) < 2 {
+				framework.Skipf("Less than two schedulable nodes exist, can't continue test.")
+			}
+
+			nodeNames, nodeIPs = getNodesInfo(nodes)
+
+			Expect(len(nodeNames)).Should(BeNumerically(">=", 2))
+			Expect(len(nodeIPs)).Should(BeNumerically(">=", 2))
+
+			nodeNameMap = map[int]string{0: nodeNames[0], 1: nodeNames[0], 2: nodeNames[1], 3: nodeNames[1]}
+
+			// Host endpoint will set to node 0
+			hepNodeName = nodeNames[0]
+			hepNodeIP = nodeIPs[0]
+			framework.Logf("hep node0 (%s %s), node1 (%s %s)", nodeNames[0], nodeIPs[0], nodeNames[1], nodeIPs[1])
+
+			// Log the server node's IP addresses.
+			node, err := f.ClientSet.CoreV1().Nodes().Get(hepNodeName, metav1.GetOptions{})
+			framework.ExpectNoError(err)
+			for _, address := range node.Status.Addresses {
+				framework.Logf("Host endpoint test node address: %#v", address)
+			}
+
+			// Prepare a policy names slice
+			policyNames = []string{}
+		})
+
+		describeEgressTest := func(c hepTestConfig, policyConfigs []hepPolicyConfig) func() {
+			return func() {
+				var (
+					client       *v1.Pod
+					target       string
+					action       string
+					expectSNAT   bool
+					reachability string
+				)
+
+				expectAccessAllowed := func() {
+					if expectSNAT {
+						reachability = reachableWithSNAT
+					} else {
+						reachability = reachableWithoutSNAT
+					}
+					testConnection(f, client, target, reachability)
+				}
+
+				expectAccessDenied := func() {
+					testConnection(f, client, target, notReachable)
+				}
+
+				if c.srcPod > 3 {
+					panic("srcpod id bigger than 3")
+				}
+				if c.dstPod > 3 {
+					panic("dstpod id bigger than 3")
+				}
+
+				getPolicyAction := func(p hepPolicyConfig, allowOrDeny string) string {
+					if p.actionType == "ingress" {
+						action = `
+  ingress:
+  - action: %s
+    protocol: TCP
+    destination:
+      ports:
+      - 8080
+  egress:
+  - action: Allow`
+					} else if p.actionType == "egress" {
+						action = `
+  ingress:
+  - action: Allow
+  egress:
+  - action: %s
+    protocol: TCP
+    destination:
+      ports:
+      - 8080`
+					} else {
+						panic("Unhandled actionType: " + p.actionType)
+					}
+
+					return strings.Trim(fmt.Sprintf(action, allowOrDeny), "\n")
+				}
+
+				BeforeEach(func() {
+					// Setup destination service and pod.
+					svcPort := 8080
+					svcClusterIP, svcNodePort, dstPod := setupPodServiceOnNode(f, jig, nodeNameMap[c.dstPod], svcPort, c.svcTweak, c.dstHostNetworked)
+
+					// Setup source client.
+					src := &source{nodeNameMap[c.srcPod], "ipvs-hep-source", c.srcHostNetworked}
+					client = createExecPodOrFail(f, src)
+
+					// Figure out the correct target to pass to wget, depending on the destination and type of test.
+					// We may also flip the expectSNAT flag here if the scenario requires it.
+					if c.accessType == "cluster IP" {
+						target = fmt.Sprintf("%v:%v", svcClusterIP, svcPort)
+						if c.dstHostNetworked {
+							// TODO If the destination pod is host networked, then, by the time Calico
+							// decides whether to do "NAT-outgoing", we'll see the destination as
+							// outside the cluster.
+							expectSNAT = true
+						}
+					} else if c.accessType == "NodePort" {
+						expectSNAT = true
+						target = fmt.Sprintf("%v:%v", hepNodeIP, svcNodePort)
+					} else if c.accessType == "external IP" {
+						expectSNAT = true
+						target = fmt.Sprintf("%v:%v", hepNodeIP, svcPort)
+					} else if c.accessType == "pod IP" {
+						expectSNAT = false
+						target = fmt.Sprintf("%v:%s", dstPod.Status.PodIP, "8080")
+					} else {
+						panic("Unhandled accessType: " + c.accessType)
+					}
+				})
+
+				AfterEach(func() {
+					By("Cleaning up policies and host endpoint")
+					for _, name := range policyNames {
+						calicoctl.DeleteGNP(name)
+					}
+					calicoctl.DeleteHE("host-ep")
+					calicoctl.Cleanup()
+
+					cleanupExecPodOrFail(f, client)
+				})
+
+				// Test each policy config
+				for _, p := range policyConfigs {
+					policy := p // make sure policy get correct value for IT.
+					It("should correctly implement Host Endpoint NetworkPolicy", func() {
+						if policy.applyOnForward {
+							By("Start testing with ApplyOnForward=true")
+						} else {
+							By("Start testing with ApplyOnForward=false")
+						}
+
+						By("allowing connection with no HostEndpoint and NetworkPolicy")
+						expectAccessAllowed()
+
+						By("test connection by creating a HostEndpoint")
+						hostEpStr := fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: HostEndpoint
+metadata:
+  name: host-ep
+  labels:
+    hep: node0
+spec:
+  node: %s
+  expectedIPs:
+  - %s
+`,
+							hepNodeName, hepNodeIP)
+						calicoctl.Apply(hostEpStr)
+
+						// If source pod is on node0 which got an host endpoint setup,
+						// we need allow communications to kubelet 10250 to execute command 'kubectl exec'.
+						if nodeNameMap[c.srcPod] == hepNodeName {
+							By("client pod is on test node. allowing connection to kubelet port 10250 for kubectl exec")
+							policyStr := fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-kubectl-800
+spec:
+  applyOnForward: false
+  selector: hep == "node0"
+  order: 800
+  ingress:
+  - action: Allow
+    protocol: TCP
+    destination:
+      ports:
+      - %s
+  egress:
+  - action: Allow
+    protocol: TCP
+    source:
+      ports:
+      - %s
+`,
+								"10250", "10250")
+							calicoctl.Apply(policyStr)
+							policyNames = append(policyNames, "allow-kubectl-800")
+						}
+
+						if (c.dstHostNetworked && policy.actionType == "ingress") ||
+							(c.srcHostNetworked && policy.actionType == "egress") {
+							By("default deny by creating a HostEndpoint onto local host")
+							expectAccessDenied()
+						} else {
+							By("no default deny by creating a HostEndpoint for forwarded traffic")
+							expectAccessAllowed()
+						}
+
+						By("allowing traffic after installing a host endpoint allow policy")
+						policyStr := fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-500
+spec:
+  applyOnForward: %t
+  selector: hep == "node0"
+  order: 500
+%s
+`,
+							policy.applyOnForward, getPolicyAction(policy, "Allow"))
+						calicoctl.Apply(policyStr)
+						policyNames = append(policyNames, "allow-500")
+
+						expectAccessAllowed()
+
+						By("testing connection after installing a host endpoint deny policy with lower order")
+						policyStr = fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: deny-200
+spec:
+  applyOnForward: %t
+  selector: hep == "node0"
+  order: 200
+%s
+`,
+							policy.applyOnForward, getPolicyAction(policy, "Deny"))
+						calicoctl.Apply(policyStr)
+						policyNames = append(policyNames, "deny-200")
+
+						if policy.policyApply {
+							By("policy apply. denying connection after installing a host endpoint deny policy with lower order")
+							expectAccessDenied()
+						} else {
+							By("policy not apply. allowing connection after installing a host endpoint deny policy with lower order")
+							expectAccessAllowed()
+						}
+					})
+				}
+			}
+		}
+
+		// ===== host endpoint ingress test =====
+		// Needs `iptables -P FORWARD ACCEPT`
+
+		Context("ingress-3-0: pod3 -> Pod IP -> pod0 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 3, srcHostNetworked: true, dstPod: 0, dstHostNetworked: true, accessType: "pod IP"},
+				[]hepPolicyConfig{{actionType: "ingress", applyOnForward: false, policyApply: true},
+					{actionType: "ingress", applyOnForward: true, policyApply: true}}))
+
+		Context("ingress-2C0: pod2 -> ClusterIP -> pod0 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 2, dstPod: 0, dstHostNetworked: true, accessType: "cluster IP"},
+				[]hepPolicyConfig{{actionType: "ingress", applyOnForward: false, policyApply: true},
+					{actionType: "ingress", applyOnForward: true, policyApply: true}}))
+
+		Context("ingress-2-1 : pod2 -> Pod IP -> pod1 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 2, dstPod: 1, accessType: "pod IP"},
+				[]hepPolicyConfig{{actionType: "ingress", applyOnForward: false, policyApply: false},
+					{actionType: "ingress", applyOnForward: true, policyApply: true}}))
+
+		Context("ingress-2N1 : pod2 -> NodePort -> pod1 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 2, dstPod: 1, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "ingress", applyOnForward: false, policyApply: false},
+					{actionType: "ingress", applyOnForward: true, policyApply: true}}))
+
+		Context("ingress-2N2 : pod2 -> NodePort -> pod2 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 2, dstPod: 2, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "ingress", applyOnForward: false, policyApply: false},
+					{actionType: "ingress", applyOnForward: true, policyApply: true}}))
+
+		// ===== host endpoint egress test =====
+		// Needs `iptables -P FORWARD ACCEPT`
+
+		Context("egress-1-2: pod1 -> Pod IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 1, dstPod: 2, accessType: "pod IP"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-1C2: pod1 -> ClusterIP IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 1, dstPod: 2, accessType: "cluster IP"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-1N2: pod1 -> NodePort IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 1, dstPod: 2, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		// external ip currently not working.
+		Context("NotWorking egress-1E2: pod1 -> external IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 1, dstPod: 2, accessType: "external IP", svcTweak: addExternalIPClusterWide},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-0-2: pod0 -> Pod IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 0, srcHostNetworked: true, dstPod: 2, accessType: "pod IP"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: true},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-0C2: pod0 -> ClusterIP IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 0, srcHostNetworked: true, dstPod: 2, accessType: "cluster IP"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: true},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-0N2: pod0 -> NodePort IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 0, srcHostNetworked: true, dstPod: 2, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: true},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-0C3: pod0 -> ClusterIP IP -> pod3 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 0, srcHostNetworked: true, dstPod: 3, dstHostNetworked: true, accessType: "cluster IP"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: true},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-0N3: pod0 -> NodePort IP -> pod3 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+			describeEgressTest(hepTestConfig{srcPod: 0, srcHostNetworked: true, dstPod: 3, dstHostNetworked: true, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: true},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-2N2 : pod2 -> NodePort -> pod2 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 2, dstPod: 2, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
+					{actionType: "egress", applyOnForward: true, policyApply: true}}))
+
+		Context("egress-2N1 : pod2 -> NodePort -> pod1 [Feature:IPVSHep][Feature:IPVSHepIngress]",
+			describeEgressTest(hepTestConfig{srcPod: 2, dstPod: 1, accessType: "NodePort"},
+				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
+					{actionType: "egress", applyOnForward: true, policyApply: false}}))
+	})
+})
+
 var _ = SIGDescribe("IPVSAccess", func() {
 
 	// Test different access patterns from a pod to a service.
@@ -390,10 +843,10 @@ var _ = SIGDescribe("IPVSAccess", func() {
 	var jig *framework.ServiceTestJig
 	const (
 		// With no SNAT, we expect networkpolicy to just work.
-		expectNoSnat              = iota
+		expectNoSnat = iota
 
 		// With SNAT, and we expect networkpolicy to just work.
-		expectSnatWorkingPolicy   = iota
+		expectSnatWorkingPolicy = iota
 
 		// With SNAT, and we do NOT expect networkpolicy to just work.
 		// Cases with this are bugs that we need to fix, either in k8s or calico, because we want policy everywhere!
@@ -586,31 +1039,42 @@ type source struct {
 }
 
 const (
-	notReachable = "unreachable"
+	notReachable         = "unreachable"
 	reachableWithoutSNAT = "reachable without SNAT"
-	reachableWithSNAT = "reachable with SNAT"
+	reachableWithSNAT    = "reachable with SNAT"
 )
+
+func createExecPodOrFail(f *framework.Framework, src *source) *v1.Pod {
+	// Create a scratch pod to test the connection.
+	framework.Logf("Creating an exec pod %s on node %s", src.label, src.node)
+	execPodName := framework.CreateExecPodOrFail(f.ClientSet, f.Namespace.Name, src.label, func(pod *v1.Pod) {
+		pod.ObjectMeta.Labels = map[string]string{"pod-name": src.label}
+		pod.Spec.NodeName = src.node
+		pod.Spec.HostNetwork = src.hostNetworked
+	})
+
+	var err error
+	execPod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(execPodName, metav1.GetOptions{})
+	framework.ExpectNoError(err)
+
+	return execPod
+
+}
+
+func cleanupExecPodOrFail(f *framework.Framework, pod *v1.Pod) {
+	framework.Logf("Cleaning up the exec pod")
+	err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Delete(pod.Name, nil)
+	Expect(err).NotTo(HaveOccurred())
+}
 
 func testConnection(f *framework.Framework, client interface{}, target string, reachability string) {
 	var execPod *v1.Pod
 	switch src := client.(type) {
 	case *source:
 		// Create a scratch pod to test the connection.
-		framework.Logf("Creating an exec pod %s on node %s, expect pod to be %s", src.label, src.node, reachability)
-		execPodName := framework.CreateExecPodOrFail(f.ClientSet, f.Namespace.Name, fmt.Sprintf("execpod-sourceip-%s", src.node), func(pod *v1.Pod) {
-			pod.ObjectMeta.Labels = map[string]string{"pod-name": src.label}
-			pod.Spec.NodeName = src.node
-			pod.Spec.HostNetwork = src.hostNetworked
-		})
+		execPod = createExecPodOrFail(f, src)
+		defer cleanupExecPodOrFail(f, execPod)
 
-		defer func() {
-			framework.Logf("Cleaning up the exec pod")
-			err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Delete(execPodName, nil)
-			Expect(err).NotTo(HaveOccurred())
-		}()
-		var err error
-		execPod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(execPodName, metav1.GetOptions{})
-		framework.ExpectNoError(err)
 	case *v1.Pod:
 		// Use the pod that the caller has given us.
 		execPod = src
