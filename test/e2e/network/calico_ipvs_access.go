@@ -821,7 +821,7 @@ spec:
 	})
 })
 
-var _ = SIGDescribe("IPVSAccess", func() {
+var _ = SIGDescribe("IPVSIngress", func() {
 
 	// Test different access patterns from a pod to a service.
 	//  +--------+     +------------+     +--------+
@@ -846,11 +846,14 @@ var _ = SIGDescribe("IPVSAccess", func() {
 		expectNoSnat = iota
 
 		// With SNAT, and we expect networkpolicy to just work.
-		expectSnatWorkingPolicy = iota
+		expectSnatWorkingPolicy
 
 		// With SNAT, and we do NOT expect networkpolicy to just work.
 		// Cases with this are bugs that we need to fix, either in k8s or calico, because we want policy everywhere!
-		expectSnatNoWorkingPolicy = iota
+		expectSnatNoWorkingPolicy
+
+		// For host -> local pod, we always expect the conntection to succeed.
+		expectAlwaysAllowed
 	)
 
 	// The ipvs test requires three schedulable nodes. Back end server pod is running on node3.
@@ -867,12 +870,12 @@ var _ = SIGDescribe("IPVSAccess", func() {
 	}
 	var ipvsTC IPVSTestConfig
 
-	f := framework.NewDefaultFramework("ipvs-access")
+	f := framework.NewDefaultFramework("ipvs-ingress")
 
 	Context("Workload ingress test", func() {
 
 		BeforeEach(func() {
-			jig = framework.NewServiceTestJig(f.ClientSet, "ipvs-access")
+			jig = framework.NewServiceTestJig(f.ClientSet, "ipvs-ingress")
 			nodes := jig.GetNodes(3)
 			if len(nodes.Items) == 0 {
 				framework.Skipf("No nodes exist, can't continue test.")
@@ -948,6 +951,13 @@ var _ = SIGDescribe("IPVSAccess", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer cleanupNetworkPolicy(f, policy)
 
+			if expectation == expectAlwaysAllowed {
+				By("Always allowing traffic from both clients")
+				testConnection(f, clientA, target, reachableWithSNAT)
+				testConnection(f, clientB, target, reachableWithSNAT)
+				return
+			}
+
 			By("Traffic is not allowed from pod 'client-a'.")
 			testConnection(f, clientA, target, notReachable)
 			switch expectation {
@@ -964,53 +974,53 @@ var _ = SIGDescribe("IPVSAccess", func() {
 			}
 		}
 
-		It("1 Test accessing service ip from a pod on the same node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+		It("1 Test accessing service ip from a pod on the same node with server pod [Feature:IPVSIngress][Feature:IPVSServiceIP]", func() {
 			testIngressPolicy(ipvsTC.svcNodeName, false, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectNoSnat)
 		})
 
-		It("2 Test accessing service ip from a pod running host network on the same node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
-			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectSnatNoWorkingPolicy)
+		It("2 Test accessing service ip from a pod running host network on the same node with server pod [Feature:IPVSIngress][Feature:IPVSServiceIP]", func() {
+			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectAlwaysAllowed)
 		})
 
-		It("3 Test accessing service ip from a pod on a different node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+		It("3 Test accessing service ip from a pod on a different node with server pod [Feature:IPVSIngress][Feature:IPVSServiceIP]", func() {
 			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectNoSnat)
 		})
 
-		It("4 Test accessing service ip from a pod running host network on a different node with server pod [Feature:IPVSAccess][Feature:IPVSServiceIP]", func() {
+		It("4 Test accessing service ip from a pod running host network on a different node with server pod [Feature:IPVSIngress][Feature:IPVSServiceIP]", func() {
 			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.svcClusterIP, ipvsTC.svcPort, expectSnatNoWorkingPolicy)
 		})
 
-		It("5 Test accessing NodePort (Node running server pod) from a pod on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("5 Test accessing NodePort (Node running server pod) from a pod on the same node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.svcNodeName, false, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatWorkingPolicy)
 		})
 		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
-		It("6 Test accessing NodePort (Node running server pod) from a pod running host network on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
+		It("6 Test accessing NodePort (Node running server pod) from a pod running host network on the same node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
+			testIngressPolicy(ipvsTC.svcNodeName, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectAlwaysAllowed)
 		})
 
-		It("7 Test accessing NodePort (Node running server pod) from a pod on a different node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("7 Test accessing NodePort (Node running server pod) from a pod on a different node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
 		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
-		It("8 Test accessing NodePort (Node running server pod) from a pod running host network on a different node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("8 Test accessing NodePort (Node running server pod) from a pod running host network on a different node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.svcNodeIP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("9 Test accessing NodePort (Node not running server pod) from a pod on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("9 Test accessing NodePort (Node not running server pod) from a pod on the same node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.node1Name, false, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
 		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
-		It("10 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("10 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("11 Test accessing NodePort (Node not running server pod) from a pod on a third node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("11 Test accessing NodePort (Node not running server pod) from a pod on a third node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.node0Name, false, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
-		It("12 Test accessing NodePort (Node not running server pod) from a pod running host network on a third node [Feature:IPVSAccess][Feature:IPVSNodePort]", func() {
+		It("12 Test accessing NodePort (Node not running server pod) from a pod running host network on a third node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
 			testIngressPolicy(ipvsTC.node0Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
