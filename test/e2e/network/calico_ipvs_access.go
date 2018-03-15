@@ -778,8 +778,9 @@ spec:
 				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
 					{actionType: "egress", applyOnForward: true, policyApply: true}}))
 
-		// external ip currently not working.
-		Context("NotWorking egress-1E2: pod1 -> external IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
+		// external ip currently not working because of issue https://github.com/projectcalico/felix/issues/1697
+		// Disable external ip tests for now till we got this issue fixed.
+		PContext("NotWorking egress-1E2: pod1 -> external IP -> pod2 [Feature:IPVSHep][Feature:IPVSHepEgress]",
 			describeEgressTest(hepTestConfig{srcPod: 1, dstPod: 2, accessType: "external IP", svcTweak: addExternalIPClusterWide},
 				[]hepPolicyConfig{{actionType: "egress", applyOnForward: false, policyApply: false},
 					{actionType: "egress", applyOnForward: true, policyApply: true}}))
