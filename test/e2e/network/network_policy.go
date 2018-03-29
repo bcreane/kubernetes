@@ -462,14 +462,14 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 // Will also assign a pod label with key: "pod-name" and label set to the given podname for later use by the network
 // policy.
 func createServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
-	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {})
+	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {}, func(_ *v1.Service){})
 }
 func createHostNetworkedServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
 	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {
 		pod.Spec.HostNetwork = true
-	})
+	}, func(_ *v1.Service){})
 }
-func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod)) (*v1.Pod, *v1.Service) {
+func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod), serviceCustomizer func(svc *v1.Service)) (*v1.Pod, *v1.Service) {
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
 	// and ServicePorts.for our Service.
 	containers := []v1.Container{}
@@ -533,7 +533,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 
 	svcName := fmt.Sprintf("svc-%s", podName)
 	By(fmt.Sprintf("Creating a service %s for pod %s in namespace %s", svcName, podName, namespace.Name))
-	svc, err := f.ClientSet.CoreV1().Services(namespace.Name).Create(&v1.Service{
+	svc := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: svcName,
 		},
@@ -543,7 +543,9 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 				"pod-name": podName,
 			},
 		},
-	})
+	}
+	serviceCustomizer(svc)
+	svc, err = f.ClientSet.CoreV1().Services(namespace.Name).Create(svc)
 	Expect(err).NotTo(HaveOccurred())
 	framework.Logf("Created service %s", svc.Name)
 
