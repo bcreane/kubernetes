@@ -183,55 +183,10 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 	err := WaitForContainerSuccess(f.ClientSet, podClient, containerName)
 	if err != nil {
 		framework.Logf("Client container was not successful %v", err)
-		// Get logs from the target, both Dikastes and the proxy (Envoy)
-		dikastesLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, DikastesContainerName)
-		if logErr != nil {
-			framework.Logf("Error getting dikastes container logs: %s", logErr)
-		}
-		proxyLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, ProxyContainerName)
-		if logErr != nil {
-			framework.Logf("Error getting dikastes container logs: %s", logErr)
-		}
-		logs, logErr := framework.GetPreviousPodLogs(f.ClientSet, ns.Name, podName, containerName)
-		if logErr != nil {
-			framework.Logf("Error getting probe container logs: %s", logErr)
-		}
+		diags := getProbeAndTargetDiags(f, targetPod, ns, podName, containerName)
 
-
-		// Collect current NetworkPolicies applied in the test namespace.
-		policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
-		if err != nil {
-			framework.Logf("error getting current NetworkPolicies for %s namespace: %s", f.Namespace.Name, err)
-		}
-
-		// Collect the list of pods running in the test namespace.
-		podsInNS, err := framework.GetPodsInNamespace(f.ClientSet, f.Namespace.Name, map[string]string{})
-		if err != nil {
-			framework.Logf("error getting pods for %s namespace: %s", f.Namespace.Name, err)
-		}
-
-		pods := []string{}
-		for _, p := range podsInNS {
-			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
-		}
-
-		framework.Failf(`Pod %s should be able to connect to service %s, but was not able to connect.
-Probe Logs:
-%s
-
-Target Dikastes Logs:
-%s
-
-Target Proxy Logs:
-%s
-
-Current NetworkPolicies:
-	%v
-
-Pods:
-	%v
-
-`, podName, service.Name, logs, dikastesLogs, proxyLogs, policies.Items, pods)
+		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.%s",
+			podName, service.Name, diags)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -271,54 +226,10 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 	// Dump debug information if the error was nil.
 	if err == nil {
 		// Get logs from the target, both Dikastes and the proxy (Envoy)
-		dikastesLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, DikastesContainerName)
-		if logErr != nil {
-			framework.Logf("Error getting dikastes container logs: %s", logErr)
-		}
-		proxyLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, ProxyContainerName)
-		if logErr != nil {
-			framework.Logf("Error getting proxy container logs: %s", logErr)
-		}
-		logs, logErr := framework.GetPreviousPodLogs(f.ClientSet, ns.Name, podName, containerName)
-		if logErr != nil {
-			framework.Logf("Error getting probe container logs: %s", logErr)
-		}
+		diags := getProbeAndTargetDiags(f, targetPod, ns, podName, containerName)
 
-
-		// Collect current NetworkPolicies applied in the test namespace.
-		policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
-		if err != nil {
-			framework.Logf("error getting current NetworkPolicies for %s namespace: %s", f.Namespace.Name, err)
-		}
-
-		// Collect the list of pods running in the test namespace.
-		podsInNS, err := framework.GetPodsInNamespace(f.ClientSet, f.Namespace.Name, map[string]string{})
-		if err != nil {
-			framework.Logf("error getting pods for %s namespace: %s", f.Namespace.Name, err)
-		}
-
-		pods := []string{}
-		for _, p := range podsInNS {
-			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
-		}
-
-		framework.Failf(`Pod %s should not be able to connect to service %s, but was able to connect.
-Probe Logs:
-%s
-
-Target Dikastes Logs:
-%s
-
-Target Proxy Logs:
-%s
-
-Current NetworkPolicies:
-	%v
-
-Pods:
-	%v
-
-`, podName, service.Name, logs, dikastesLogs, proxyLogs, policies.Items, pods)
+		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.%s",
+			podName, service.Name, diags)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -355,6 +266,54 @@ func containerSuccess(c clientset.Interface, podName, namespace, containerName s
 		}
 		return false, nil
 	}
+}
+
+func getProbeAndTargetDiags(f *framework.Framework, targetPod *v1.Pod, ns *v1.Namespace, podName string, containerName string) (string) {
+	// Get logs from the target, both Dikastes and the proxy (Envoy)
+	dikastesLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, DikastesContainerName)
+	if logErr != nil {
+		framework.Logf("Error getting dikastes container logs: %s", logErr)
+	}
+	proxyLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, ProxyContainerName)
+	if logErr != nil {
+		framework.Logf("Error getting dikastes container logs: %s", logErr)
+	}
+	logs, logErr := framework.GetPreviousPodLogs(f.ClientSet, ns.Name, podName, containerName)
+	if logErr != nil {
+		framework.Logf("Error getting probe container logs: %s", logErr)
+	}
+	// Collect current NetworkPolicies applied in the test namespace.
+	policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
+	if err != nil {
+		framework.Logf("error getting current NetworkPolicies for %s namespace: %s", f.Namespace.Name, err)
+	}
+	// Collect the list of pods running in the test namespace.
+	podsInNS, err := framework.GetPodsInNamespace(f.ClientSet, f.Namespace.Name, map[string]string{})
+	if err != nil {
+		framework.Logf("error getting pods for %s namespace: %s", f.Namespace.Name, err)
+	}
+	pods := []string{}
+	for _, p := range podsInNS {
+		pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
+	}
+
+	return fmt.Sprintf(`
+Probe Logs:
+%s
+
+Target Dikastes Logs:
+%s
+
+Target Proxy Logs:
+%s
+
+Current NetworkPolicies:
+	%v
+
+Pods:
+	%v
+
+`, logs, dikastesLogs, proxyLogs, policies.Items, pods)
 }
 
 func createServiceAccount(f *framework.Framework, name, namespace string, labels map[string]string) *v1.ServiceAccount {
