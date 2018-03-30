@@ -586,10 +586,12 @@ type Calicoctl struct {
 	serviceAccount *v1.ServiceAccount
 	role           *rbacv1.ClusterRole
 	roleBinding    *rbacv1.ClusterRoleBinding
+	env map[string]string
 }
 
 func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
 	var ctl Calicoctl
+	ctl.env = make(map[string]string)
 	ctl.framework = f
 	ctl.datastore = "kubernetes"
 	ctl.endPoints = "unused"
@@ -766,10 +768,21 @@ func (c *Calicoctl) actionCtl(resYaml string, action string) {
 	}
 }
 
+func (c *Calicoctl) SetEnv(name, value string) {
+	c.env[name] = value
+}
+
 func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error) {
 	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
 
 	f := c.framework
+	env := []v1.EnvVar{
+		{Name: "DATASTORE_TYPE", Value: c.datastore},
+		{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
+	}
+	for name, value := range c.env {
+		env = append(env, v1.EnvVar{Name: name, Value: value})
+	}
 	podClient, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "calicoctl",
@@ -787,10 +800,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 					Image:   framework.TestContext.CalicoCtlImage,
 					Command: []string{cmd},
 					Args:    args,
-					Env: []v1.EnvVar{
-						{Name: "DATASTORE_TYPE", Value: c.datastore},
-						{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
-					},
+					Env: env,
 				},
 			},
 			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,

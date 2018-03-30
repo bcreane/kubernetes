@@ -690,7 +690,7 @@ func kubectlLogPod(c clientset.Interface, pod v1.Pod, containerNameSubstr string
 			// Contains() matches all strings if substr is empty
 			logs, err := GetPodLogs(c, pod.Namespace, pod.Name, container.Name)
 			if err != nil {
-				logs, err = getPreviousPodLogs(c, pod.Namespace, pod.Name, container.Name)
+				logs, err = GetPreviousPodLogs(c, pod.Namespace, pod.Name, container.Name)
 				if err != nil {
 					logFunc("Failed to get logs of pod %v, container %v, err: %v", pod.Name, container.Name, err)
 				}
@@ -4267,7 +4267,7 @@ func GetPodLogs(c clientset.Interface, namespace, podName, containerName string)
 	return getPodLogsInternal(c, namespace, podName, containerName, false)
 }
 
-func getPreviousPodLogs(c clientset.Interface, namespace, podName, containerName string) (string, error) {
+func GetPreviousPodLogs(c clientset.Interface, namespace, podName, containerName string) (string, error) {
 	return getPodLogsInternal(c, namespace, podName, containerName, true)
 }
 
