@@ -18,6 +18,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
@@ -167,7 +168,8 @@ func testIstioCanConnect(f *framework.Framework, ns *v1.Namespace, podName strin
 // testIstioCanConnectX works like testCanConnectX(), but has Istio specific tweaks and diagnostics.
 func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, targetPod *v1.Pod, podCustomizer func(pod *v1.Pod)) {
 	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
+	pc := wrapPodCustomizerIncreaseRetries(podCustomizer)
+	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, pc)
 	containerName := podClient.Spec.Containers[0].Name
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
@@ -207,7 +209,8 @@ func testIstioCannotConnect(f *framework.Framework, ns *v1.Namespace, podName st
 // testIstioCannotConnectX works like testCannotConnectX(), but has Istio specific tweaks.
 func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, targetPod *v1.Pod, podCustomizer func(pod *v1.Pod)) {
 	By(fmt.Sprintf("Creating client pod %s that should not be able to connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
+	pc := wrapPodCustomizerIncreaseRetries(podCustomizer)
+	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, pc)
 	containerName := podClient.Spec.Containers[0].Name
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
@@ -276,12 +279,17 @@ func getProbeAndTargetDiags(f *framework.Framework, targetPod *v1.Pod, ns *v1.Na
 	}
 	proxyLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, ProxyContainerName)
 	if logErr != nil {
-		framework.Logf("Error getting dikastes container logs: %s", logErr)
+		framework.Logf("Error getting target proxy container logs: %s", logErr)
 	}
-	logs, logErr := framework.GetPreviousPodLogs(f.ClientSet, ns.Name, podName, containerName)
+	probeLogs, logErr := framework.GetPreviousPodLogs(f.ClientSet, ns.Name, podName, containerName)
 	if logErr != nil {
 		framework.Logf("Error getting probe container logs: %s", logErr)
 	}
+	probeProxyLogs, logErr := framework.GetPodLogs(f.ClientSet, ns.Name, podName, ProxyContainerName)
+	if logErr != nil {
+		framework.Logf("Error getting probe proxy container logs: %s", logErr)
+	}
+
 	// Collect current NetworkPolicies applied in the test namespace.
 	policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
 	if err != nil {
@@ -301,6 +309,9 @@ func getProbeAndTargetDiags(f *framework.Framework, targetPod *v1.Pod, ns *v1.Na
 Probe Logs:
 %s
 
+Probe Proxy Logs:
+%s
+
 Target Dikastes Logs:
 %s
 
@@ -313,7 +324,15 @@ Current NetworkPolicies:
 Pods:
 	%v
 
-`, logs, dikastesLogs, proxyLogs, policies.Items, pods)
+`, probeLogs, probeProxyLogs, dikastesLogs, proxyLogs, policies.Items, pods)
+}
+
+func wrapPodCustomizerIncreaseRetries(podCustomizer func(pod *v1.Pod)) func(pod *v1.Pod) {
+	return func(pod *v1.Pod) {
+		podCustomizer(pod)
+		// Increase retries because Istio pods can sometimes take a while to connect to services
+		pod.Spec.Containers[0].Args[2] = strings.Replace(pod.Spec.Containers[0].Args[2], "$(seq 1 5)", "$(seq 1 50)", 1)
+	}
 }
 
 func createServiceAccount(f *framework.Framework, name, namespace string, labels map[string]string) *v1.ServiceAccount {
