@@ -21,9 +21,10 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/kubernetes/test/e2e/framework"
-	imageutils "k8s.io/kubernetes/test/utils/image"
 	utilversion "k8s.io/kubernetes/pkg/util/version"
+	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/utils/calico"
+	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"fmt"
 
@@ -379,6 +380,12 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
 	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
 	if err != nil {
+		// Collect/log Calico diags.
+		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
+		if logErr != nil {
+			framework.Logf("Error getting Calico diags: %v", logErr)
+		}
+
 		// Collect pod logs when we see a failure.
 		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podName, fmt.Sprintf("%s-container", podName))
 		if logErr != nil {

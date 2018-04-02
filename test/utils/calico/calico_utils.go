@@ -829,19 +829,57 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	return logs, exeErr
 }
 
-func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) {
-	node, err := f.ClientSet.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
-	framework.ExpectNoError(err)
+func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
+	// Find the calico-node pod on the target node.
+	calicoNodePodList, err := f.ClientSet.CoreV1().Pods("kube-system").List(metav1.ListOptions{
+		LabelSelector: "k8s-app=calico-node",
+	})
+	if err != nil {
+		return err
+	}
+	for _, calicoNodePod := range calicoNodePodList.Items {
+		if calicoNodePod.Spec.NodeName == nodeName {
+			// Get some diags from the calico-node pod and log them out directly here.
+			for _, cmd := range []string{
+				"ip route",
+				"ipset save",
+				"iptables-save -c",
+				"/sbin/versions",
+			} {
+				out, err := framework.RunHostCmd("kube-system", calicoNodePod.Name, cmd)
+				framework.Logf("err %v out:\n%v", err, out)
+			}
 
-	// For the following operations to work, you need to run the e2e.test binary with
-	// '--provider local', and to have an unencrypted SSH key in ~/.ssh/id_rsa on the
-	// machine/account where you are running that binary, that is able to access the other nodes
-	// in the cluster.
-	//
-	// (Probably other provider setups would work too, but I have not researched those.)
-	framework.IssueSSHCommand("sudo ip route", framework.TestContext.Provider, node)
-	framework.IssueSSHCommand("sudo ipset save", framework.TestContext.Provider, node)
-	framework.IssueSSHCommand("sudo iptables-save -c -t filter", framework.TestContext.Provider, node)
+			// Also get the calico-node container logs.  These will be big, so we write
+			// them to a uniquely named file.
+			fileName := "./" + calicoNodePod.Name + "_" + time.Now().Format(time.RFC850)
+			outFile, err := os.Create(fileName)
+			if err != nil {
+				return err
+			}
+			defer outFile.Close()
+
+			logCmd := framework.KubectlCmd(
+				"logs",
+				"-n",
+				"kube-system",
+				"-c",
+				"calico-node",
+				calicoNodePod.Name,
+			)
+			logCmd.Stdout = outFile
+			err = logCmd.Start()
+			if err != nil {
+				return err
+			}
+			err = logCmd.Wait()
+			if err != nil {
+				return err
+			}
+			framework.Logf("calico-node diags saved to %v", fileName)
+		}
+	}
+	return nil
 }
 
 func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
@@ -852,9 +890,9 @@ func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
 	return podNow
 }
 
-func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) {
+func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) error {
 	podNow := GetPodNow(f, podName)
-	LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
+	return LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
 }
 
 func MaybeWaitForInvestigation() {
