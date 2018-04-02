@@ -848,11 +848,8 @@ func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
 				return err
 			}
 			defer outFile.Close()
-			kubectlArgs := []string{}
-			if framework.TestContext.KubeConfig != "" {
-				kubectlArgs = append(kubectlArgs, "--kubeconfig="+framework.TestContext.KubeConfig)
-			}
-			kubectlArgs = append(kubectlArgs,
+
+			logCmd := framework.KubectlCmd(
 				"logs",
 				"-n",
 				"kube-system",
@@ -860,7 +857,6 @@ func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
 				"calico-node",
 				calicoNodePod.Name,
 			)
-			logCmd := exec.Command("kubectl", kubectlArgs...)
 			logCmd.Stdout = outFile
 			err = logCmd.Start()
 			if err != nil {
