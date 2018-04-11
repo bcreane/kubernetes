@@ -44,6 +44,9 @@ var _ = framework.KubeDescribe("[Feature:CNX-v3][Serial] tiers", func() {
 			// This will avoid complexity of creating a client by yourself.
 			calicoctl = calico.ConfigureCalicoctl(f)
 
+			By("Applying a test CNX license.")
+			calicoctl.ApplyCNXLicense()
+
 			// Create a default-deny policy. We don't bother to explicitly delete this after since it will get wiped when the
 			// namespace is deleted.
 			By("Creating a default-deny policy.")
