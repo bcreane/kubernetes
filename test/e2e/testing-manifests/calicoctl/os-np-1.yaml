@@ -1,0 +1,19 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{.Name}}
+spec:
+  selector: role == 'database'
+  types:
+  - Ingress
+  - Egress
+  egress:
+  - action: Allow
+    protocol: TCP
+    source:
+      selector: role == 'frontend'
+    destination:
+      ports:
+      - 6379
+  ingress:
+  - action: Deny

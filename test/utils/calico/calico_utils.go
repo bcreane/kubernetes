@@ -24,8 +24,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"k8s.io/api/core/v1"
@@ -37,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/generated"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	. "github.com/onsi/ginkgo"
@@ -45,6 +48,7 @@ import (
 
 const (
 	cmdTestPodName = "cmd-test-container-pod"
+	calicoctlManifestPath      = "test/e2e/testing-manifests/calicoctl"
 )
 
 var (
@@ -55,6 +59,21 @@ var (
 	serviceCmd              = "/bin/sh -c 'while /bin/true; do echo foo | nc -l %d; done'"
 	serverPort1             = 80
 )
+
+func ReadTestFileOrDie(file string, config ...interface{}) string {
+	v := string(generated.ReadOrDie(path.Join(calicoctlManifestPath, file)))
+	if len(config) == 1 {
+		// A config object has been supplied. We can use this to substitute configuration into the file using
+		// go templates.
+		tmpl, err := template.New("temp").Parse(v)
+		Expect(err).NotTo(HaveOccurred())
+		substituted := new(bytes.Buffer)
+		err = tmpl.Execute(substituted, config[0])
+		Expect(err).NotTo(HaveOccurred())
+		v = substituted.String()
+	}
+	return v
+}
 
 func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
 	pod, err := CreateLoggingPod(f, node)
@@ -579,7 +598,12 @@ func GetCalicoConfigMapData(f *framework.Framework, cfgNames []string) (*map[str
 
 }
 
+type CalicoctlOptions struct {
+	Image string
+}
+
 type Calicoctl struct {
+	opts           CalicoctlOptions
 	datastore      string
 	endPoints      string
 	framework      *framework.Framework
@@ -589,12 +613,15 @@ type Calicoctl struct {
 	env            map[string]string
 }
 
-func ConfigureCalicoctl(f *framework.Framework) *Calicoctl {
+func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calicoctl {
 	var ctl Calicoctl
 	ctl.env = make(map[string]string)
 	ctl.framework = f
 	ctl.datastore = "kubernetes"
 	ctl.endPoints = "unused"
+	if len(opts) == 1 {
+		ctl.opts = opts[0]
+	}
 	cfg, err := GetCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
 	Expect(err).NotTo(HaveOccurred(), "Unable to get config map: %v", err)
 	if v, ok := (*cfg)["etcd_endpoints"]; ok {
@@ -704,20 +731,35 @@ func (c *Calicoctl) DatastoreType() string {
 	return c.datastore
 }
 
-func (c *Calicoctl) Apply(yaml string, args ...interface{}) {
-	c.actionCtl(fmt.Sprintf(yaml, args...), "apply")
+func (c *Calicoctl) Apply(yaml string, args ...string) {
+	c.actionCtl(yaml, "apply", args...)
 }
 
-func (c *Calicoctl) Create(yaml string, args ...interface{}) {
-	c.actionCtl(fmt.Sprintf(yaml, args...), "create")
+func (c *Calicoctl) ApplyWithError(yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(yaml, "apply", args...)
+	return err
 }
 
-func (c *Calicoctl) Delete(yaml string, args ...interface{}) {
-	c.actionCtl(fmt.Sprintf(yaml, args...), "delete")
+func (c *Calicoctl) Create(yaml string, args ...string) {
+	c.actionCtl(yaml, "create", args...)
 }
 
-func (c *Calicoctl) Replace(yaml string, args ...interface{}) {
-	c.actionCtl(fmt.Sprintf(yaml, args...), "replace")
+func (c *Calicoctl) CreateWithError(yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(yaml, "create", args...)
+	return err
+}
+
+func (c *Calicoctl) Delete(yaml string, args ...string) {
+	c.actionCtl(yaml, "delete", args...)
+}
+
+func (c *Calicoctl) Replace(yaml string, args ...string) {
+	c.actionCtl(yaml, "replace", args...)
+}
+
+func (c *Calicoctl) ReplaceWithError(yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(yaml, "replace", args...)
+	return err
 }
 
 func (c *Calicoctl) Get(args ...string) string {
@@ -760,12 +802,24 @@ func (c *Calicoctl) execReturnError(args ...string) (string, error) {
 	return result, err
 }
 
-func (c *Calicoctl) actionCtl(resYaml string, action string) {
-	resourceArgs := fmt.Sprintf("echo '%s' | tee /$HOME/e2e-test-resource.yaml ; /calicoctl %s -f /$HOME/e2e-test-resource.yaml", resYaml, action)
-	logs, err := c.executeCalicoctl("/bin/sh", "-c", resourceArgs)
+func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
+	logs, err := c.actionCtlWithError(resYaml, action, args...)
 	if err != nil {
 		framework.Failf("Error '%s'-ing calico resource: %s", action, logs)
 	}
+}
+
+func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
+	By("Setting args: " + strings.Join(args, " "))
+	cmdString := fmt.Sprintf(
+		"cat <<EOF > /$HOME/e2e-test-resource.yaml; " +
+			"/calicoctl %s %s --file=/$HOME/e2e-test-resource.yaml\n" +
+			"%s\n" +
+			"EOF\n",
+		action, strings.Join(args, " "), resYaml,
+	)
+	logs, err := c.executeCalicoctl("/bin/sh", "-c", cmdString)
+	return logs, err
 }
 
 func (c *Calicoctl) SetEnv(name, value string) {
@@ -821,6 +875,12 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
 
 	f := c.framework
+	// By default, use the calicoctl image supplied through the command line args. If overridden in the
+	// calicoctl configuration then use that.
+	image := framework.TestContext.CalicoCtlImage
+	if c.opts.Image != "" {
+		image = c.opts.Image
+	}
 	env := []v1.EnvVar{
 		{Name: "DATASTORE_TYPE", Value: c.datastore},
 		{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
@@ -842,7 +902,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			Containers: []v1.Container{
 				{
 					Name:    "calicoctl-container",
-					Image:   framework.TestContext.CalicoCtlImage,
+					Image:   image,
 					Command: []string{cmd},
 					Args:    args,
 					Env:     env,

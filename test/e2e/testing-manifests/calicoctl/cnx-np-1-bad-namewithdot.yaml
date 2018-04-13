@@ -1,0 +1,21 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: bad.name
+spec:
+  tier: {{.TierName}}
+  selector: role == 'database'
+  order: 123.5
+  ingress:
+  - action: Deny
+  egress:
+  - action: Allow
+    protocol: TCP
+    source:
+      selector: role == 'frontend'
+    destination:
+      ports:
+      - 6379
+  types:
+  - Ingress
+  - Egress

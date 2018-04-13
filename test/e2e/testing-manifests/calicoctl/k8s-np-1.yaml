@@ -1,0 +1,15 @@
+apiVersion: extensions/v1beta1
+kind: NetworkPolicy
+metadata:
+  name: {{.Name}}
+spec:
+  ingress:
+  - ports:
+    - port: 12345
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      foo: bar
+      bar: baz
+  policyTypes:
+  - Ingress

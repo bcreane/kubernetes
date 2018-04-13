@@ -114,6 +114,7 @@ type TestContextType struct {
 
 	// Calico Settings
 	CalicoCtlImage string
+	CalicoCtlOpenSourceImage string   // Only used in CNX tests to test OS-CNX compatibility
 
 	// Viper-only parameters.  These will in time replace all flags.
 
@@ -213,6 +214,7 @@ func RegisterCommonFlags() {
 	flag.StringVar(&TestContext.KubernetesAnywherePath, "kubernetes-anywhere-path", "/workspace/kubernetes-anywhere", "Which directory kubernetes-anywhere is installed to.")
 
 	flag.StringVar(&TestContext.CalicoCtlImage, "calicoctl-image", "calico/ctl:latest", "Docker image for calicoctl.")
+	flag.StringVar(&TestContext.CalicoCtlOpenSourceImage, "calicoctl-opensource-image", "calico/ctl:latest", "Docker image for the Open Source calicoctl used in CNX specific tests.")
 }
 
 // Register flags specific to the cluster e2e test suite.

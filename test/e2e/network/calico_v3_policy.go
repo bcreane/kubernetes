@@ -810,7 +810,7 @@ spec:
 
 		By("Applying a policy that drops traffic from client.")
 		calicoctl.Apply(
-			`
+			fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
@@ -826,8 +826,8 @@ spec:
         destination:
           ports: [%d]
     selector: pod-name=="%s"
-`,
-			ns.Name, serverPort1, serverPod.Name)
+`, ns.Name, serverPort1, serverPod.Name),
+		)
 		defer func() {
 			calicoctl.Exec("delete", "-n", ns.Name, "policy", "client-policy")
 		}()
@@ -836,7 +836,7 @@ spec:
 
 		By("Updating the policy with a allow rule before the drop rule in the same policy.")
 		calicoctl.Apply(
-			`
+			fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
@@ -858,8 +858,8 @@ spec:
         destination:
           ports: [%d]
     selector: pod-name=="%s"
-`,
-			ns.Name, serverPort1, serverPort1, serverPod.Name)
+`, ns.Name, serverPort1, serverPort1, serverPod.Name),
+		)
 
 		By("Creating a client which should be able to connect to the server since there is a allow rule.")
 		testCanConnect(f, ns, "client", service, serverPort1)
@@ -883,7 +883,7 @@ spec:
 
 		By("Applying a policy that drops traffic from client.")
 		calicoctl.Apply(
-			`
+			fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
@@ -899,8 +899,8 @@ spec:
         destination:
           ports: [%d]
     selector: pod-name=="%s"
-`,
-			policyName, ns.Name, serverPort1, serverPod1.Name)
+`, policyName, ns.Name, serverPort1, serverPod1.Name),
+		)
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
 
@@ -910,7 +910,7 @@ spec:
 		// TODO(doublek): Consider if combining this with the logging test makes sense.
 		By("Replace a policy that allows traffic from client.")
 		calicoctl.Replace(
-			`
+			fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
@@ -926,8 +926,8 @@ spec:
         destination:
           ports: [%d]
     selector: pod-name=="%s"
-`,
-			policyName, ns.Name, serverPort1, serverPod1.Name)
+`, policyName, ns.Name, serverPort1, serverPod1.Name),
+		)
 		By("Creating a client that can connect to the server")
 		testCanConnect(f, ns, "client", service, serverPort1)
 
@@ -964,7 +964,7 @@ spec:
 	//
 	//		By("Applying a policy that logs traffic from client then drops the same traffic.")
 	//		calico.CalicoctlApply(
-	//			`
+	//			fmt.Sprintf(`
 	//- apiVersion: projectcalico.org/v3
 	//  kind: NetworkPolicy
 	//  metadata:
@@ -986,8 +986,8 @@ spec:
 	//        destination:
 	//          ports: [%d]
 	//    selector: pod-name=="%s"
-	//`,
-	//			ns.Name, serverPort1, serverPort1, serverPod.Name)
+	//`, ns.Name, serverPort1, serverPort1, serverPod.Name),
+	//	)
 	//		defer func() {
 	//			calico.Calicoctl("delete", "-n", ns.Name, "policy", "policy-log-then-deny")
 	//		}()
@@ -1057,7 +1057,7 @@ spec:
 
 		By("Applying a policy that logs traffic from client then drops the same traffic.")
 		calicoctl.Apply(
-			`
+			fmt.Sprintf(`
 - apiVersion: projectcalico.org/v3
   kind: NetworkPolicy
   metadata:
@@ -1083,7 +1083,7 @@ spec:
       - action: Allow
     order: 50
     selector: role != "server"
-`, ns.Name, ns.Name,
+`, ns.Name, ns.Name),
 		)
 		defer func() {
 			calicoctl.Exec("delete", "-n", ns.Name, "policy", "allow-icmp-access")
