@@ -25,6 +25,13 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 			// Test setting the Felix config using the environment variables
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_PROMETHEUSREPORTERENABLED", "true")
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_PROMETHEUSREPORTERPORT", "9081")
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_LICENSEPOLLINGINTERVALSECS", "2")
+
+			// Create a CNX license
+			calicoctl := calico.ConfigureCalicoctl(f)
+			calicoctl.ApplyCNXLicense()
+			calicoctl.Cleanup()
+
 			calico.RestartCalicoNodePods(f.ClientSet, "")
 			felixConfigNeeded = false
 		}
@@ -47,7 +54,6 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				calicoctl := calico.ConfigureCalicoctl(f)
-				calicoctl.ApplyCNXLicense()
 				defer calicoctl.Cleanup()
 
 				switch dropType {
