@@ -630,27 +630,12 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 						By("allowing connection with no HostEndpoint and NetworkPolicy")
 						expectAccessAllowed()
 
-						By("test connection by creating a HostEndpoint")
-						hostEpStr := fmt.Sprintf(`
-apiVersion: projectcalico.org/v3
-kind: HostEndpoint
-metadata:
-  name: host-ep
-  labels:
-    hep: node0
-spec:
-  node: %s
-  expectedIPs:
-  - %s
-`,
-							hepNodeName, hepNodeIP)
-						calicoctl.Apply(hostEpStr)
-
-						// If source pod is on node0 which got an host endpoint setup,
-						// we need allow communications to kubelet 10250 to execute command 'kubectl exec'.
-						if nodeNameMap[c.srcPod] == hepNodeName {
-							By("client pod is on test node. allowing connection to kubelet port 10250 for kubectl exec")
-							policyStr := fmt.Sprintf(`
+						// We need allow following communications to kubelet port 10250.
+						// -- "kubectl exec" if source pod is running on the node with a host endpoint policy.
+						// -- "kubectl log" if calicoctl pod is running on the node with a host endpoint policy.
+						// This policy should set before the creation of a host endpoint policy.
+						By("allowing connection to kubelet port 10250 for kubectl exec/log")
+						policyStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
 metadata:
@@ -672,10 +657,25 @@ spec:
       ports:
       - %s
 `,
-								"10250", "10250")
-							calicoctl.Apply(policyStr)
-							policyNames = append(policyNames, "allow-kubectl-800")
-						}
+							"10250", "10250")
+						calicoctl.Apply(policyStr)
+						policyNames = append(policyNames, "allow-kubectl-800")
+
+						By("test connection by creating a HostEndpoint")
+						hostEpStr := fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: HostEndpoint
+metadata:
+  name: host-ep
+  labels:
+    hep: node0
+spec:
+  node: %s
+  expectedIPs:
+  - %s
+`,
+							hepNodeName, hepNodeIP)
+						calicoctl.Apply(hostEpStr)
 
 						if (c.dstHostNetworked && policy.actionType == "ingress") ||
 							(c.srcHostNetworked && policy.actionType == "egress") {
@@ -687,7 +687,7 @@ spec:
 						}
 
 						By("allowing traffic after installing a host endpoint allow policy")
-						policyStr := fmt.Sprintf(`
+						policyStr = fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: GlobalNetworkPolicy
 metadata:
