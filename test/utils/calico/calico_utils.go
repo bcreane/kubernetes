@@ -107,10 +107,10 @@ func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
 	return count
 }
 
-// Creates a pod in the appropriate namespace and then run a kubectl exec command on that pod
+// Creates a host networked hostexec pod in the appropriate namespace and then run a kubectl exec command on that pod
+// Cleanup exec pod.
 func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
-	f.PodClient().Create(cmdTestContainerPod)
 	defer func() {
 		// Clean up the pod
 		f.PodClient().Delete(cmdTestContainerPod.Name, metav1.NewDeleteOptions(0))
@@ -119,20 +119,38 @@ func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 			framework.Failf("Failed to delete %s pod: %v", cmdTestContainerPod.Name, err)
 		}
 	}()
+    _, stdout, err := executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, func(pod *v1.Pod) {})
+    return stdout, err
+}
+
+// Creates a hostexec pod in the appropriate namespace with customizer and then run a kubectl exec command on that pod
+// Do not cleanup exec pod, we may need to collect logs for it.
+func ExecuteCmdInPodX(f *framework.Framework, cmd string, podCustomizer func(pod *v1.Pod)) (*v1.Pod, string, error) {
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
+	return executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, podCustomizer)
+}
+
+// Customize and create a pod in the appropriate namespace and then run a kubectl exec command on that pod.
+// Note this function does not cleanup the pod.
+func executeCmdInPodWithCustomizer(f *framework.Framework, cmd string, cmdTestContainerPod *v1.Pod, podCustomizer func(pod *v1.Pod)) (*v1.Pod, string, error) {
+	podCustomizer(cmdTestContainerPod)
+	f.PodClient().Create(cmdTestContainerPod)
+
 	if err := f.WaitForPodRunning(cmdTestContainerPod.Name); err != nil {
-		return "", err
+		return nil, "", err
 	}
 
-	_, err := f.PodClient().Get(cmdTestContainerPod.Name, metav1.GetOptions{})
+	pod, err := f.PodClient().Get(cmdTestContainerPod.Name, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("Failed to retrieve %s pod: %v", cmdTestContainerPod.Name, err)
+		return nil, "", fmt.Errorf("Failed to retrieve %s pod: %v", cmdTestContainerPod.Name, err)
 	}
+	framework.Logf("Created hostexec pod %s", pod.Name)
 
 	stdout, err := framework.RunHostCmd(f.Namespace.Name, cmdTestContainerPod.Name, cmd)
 	if err != nil {
-		return "", fmt.Errorf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, cmdTestContainerPod.Name, err)
+		return pod, "", fmt.Errorf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, cmdTestContainerPod.Name, err)
 	}
-	return stdout, err
+	return pod, stdout, err
 }
 
 func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {

@@ -18,13 +18,18 @@ package network
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
-	"k8s.io/kubernetes/test/e2e/framework"
-	"k8s.io/kubernetes/test/utils/calico"
-	"k8s.io/kubernetes/test/utils/alp"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	labelutils "k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/utils/alp"
+	"k8s.io/kubernetes/test/utils/calico"
 
 	"k8s.io/api/core/v1"
 
@@ -85,7 +90,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 
 			It("should allow pod with default service account to connect", func() {
 				By("Creating client which will be able to contact the server since no policies are present.")
-				testIstioCanConnect(f, f.Namespace, "default-can-connect", service, 80, podServer,  nil)
+				testIstioCanConnect(f, f.Namespace, "default-can-connect", service, 80, podServer, nil)
 			})
 		})
 
@@ -134,6 +139,147 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 		})
 	})
 
+	Describe("ALP http-method test", func() {
+		var service *v1.Service
+		var podServer *v1.Pod
+
+		BeforeEach(func() {
+			// Create Server with Service
+			By("Creating a server support GET/PUT.")
+			podServer, service = createIstioGetPutPodAndService(f, f.Namespace, "server", 2379, nil)
+			framework.Logf("Waiting for Server to come up.")
+			err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating client which will be able to GET/PUT the server since no policies are present.")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
+
+		})
+
+		AfterEach(func() {
+			cleanupServerPodAndService(f, podServer, service)
+			calicoctl.Cleanup()
+		})
+
+		It("should enforce policy with http method rule", func() {
+			By("creating policy which allow GET")
+			gnp := `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: http-method
+  spec:
+    selector: pod-name == "server"
+    ingress:
+      - action: Allow
+        http:
+          methods: ["GET"]
+    egress:
+      - action: Allow
+`
+			calicoctl.Apply(gnp)
+			defer calicoctl.DeleteGNP("http-method")
+
+			By("testing http method with pod using default service account, allow Get")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
+
+			By("testing http method with pod using default service account, deny Put")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
+
+			By("modifying policy which allow PUT")
+			gnp = `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: http-method
+  spec:
+    selector: pod-name == "server"
+    ingress:
+      - action: Allow
+        http:
+          methods: ["PUT"]
+    egress:
+      - action: Allow
+`
+			calicoctl.Apply(gnp)
+
+			By("testing http method with pod using default service account, deny Get")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
+
+			By("testing http method with pod using default service account, allow Put")
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
+		})
+
+		It("should enforce policy with both http method and service account rule", func() {
+			By("creating \"sa-first\" and \"sa-second\" service account")
+			saFirst := alp.CreateServiceAccount(f, "sa-first", f.Namespace.Name, map[string]string{"sa-first": "true"})
+			defer alp.DeleteServiceAccount(f, saFirst)
+			saSecond := alp.CreateServiceAccount(f, "sa-second", f.Namespace.Name, map[string]string{"sa-second": "true"})
+			defer alp.DeleteServiceAccount(f, saSecond)
+
+			By("creating policy which allow GET with service account \"sa-first\"")
+			gnp := `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: http-sa
+  spec:
+    selector: pod-name == "server"
+    ingress:
+      - action: Allow
+        http:
+          methods: ["GET"]
+        source:
+          serviceAccounts:
+            names: ["sa-first"]
+    egress:
+      - action: Allow
+`
+			calicoctl.Apply(gnp)
+			defer calicoctl.DeleteGNP("http-sa")
+
+			By("allow client with service account \"sa-first\" to GET")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, saFirst)
+			By("deny client with service account \"sa-first\" to PUT")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, saFirst)
+			By("deny client with service account \"sa-second\" to GET")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, saSecond)
+			By("deny client with service account \"sa-second\" to PUT")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, saSecond)
+
+			By("modifying policy which allow PUT with service account \"sa-second\" ")
+			gnp = `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: http-sa
+  spec:
+    selector: pod-name == "server"
+    ingress:
+      - action: Allow
+        http:
+          methods: ["PUT"]
+        source:
+          serviceAccounts:
+            names: ["sa-second"]
+    egress:
+      - action: Allow
+`
+			calicoctl.Apply(gnp)
+
+			By("deny client with service account \"sa-first\" to GET")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, saFirst)
+			By("deny client with service account \"sa-first\" to PUT")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, saFirst)
+			By("deny client with service account \"sa-second\" to GET")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, saSecond)
+			By("allow client with service account \"sa-second\" to PUT")
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, saSecond)
+		})
+
+	})
+
 	Describe("calico network policy test", func() {
 		// The tests in this context is for testing standard calico network policy without ALP special selectors.
 		// The test cases are copied over from standard network policy e2e with some ALP tweaks.
@@ -142,7 +288,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 		// -- Use testIstioCanConnect/testIstioCannotConnect to test connection.
 		// -- Add egress allow rule to istio pilot http discovery port 15003 for any egress test.
 
-		Describe("lable selector test", func() {
+		Describe("ALP lable selector test", func() {
 			var service *v1.Service
 			var podServer *v1.Pod
 
@@ -373,8 +519,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 					"    protocol: UDP\n"+
 					"    destination:\n"+
 					"      selector: projectcalico.org/namespace == \"kube-system\" && k8s-app == \"kube-dns\"\n"+
-					"      ports: [53]\n" +
-					"  - action: Allow\n"+   // Istio special: allow egress to Pilot http discovery.
+					"      ports: [53]\n"+
+					"  - action: Allow\n"+ // Istio special: allow egress to Pilot http discovery.
 					"    protocol: TCP\n"+
 					"    destination:\n"+
 					"      selector: projectcalico.org/namespace == \"%s\" && istio == \"pilot\"\n"+
@@ -425,7 +571,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 
 		})
 
-		Describe("named port test", func() {
+		Describe("ALP named port test", func() {
 			var service *v1.Service
 			var podServer *v1.Pod
 
@@ -550,10 +696,55 @@ func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namesp
 			}
 		},
 		func(svc *v1.Service) {
-			for _, port := range svc.Spec.Ports {
+			oldPorts := svc.Spec.Ports
+			svc.Spec.Ports = []v1.ServicePort{}
+			for _, port := range oldPorts {
 				// Istio requires service ports to be named <protocol>[-<suffix>]
 				port.Name = fmt.Sprintf("http-%d", port.Port)
+				svc.Spec.Ports = append(svc.Spec.Ports, port)
 			}
+		},
+	)
+
+	alp.VerifyContainersForPod(pod)
+
+	return pod, service
+}
+
+// createIstioGetPutPodAndService works just like createServerPodAndService(), but with some Istio specific tweaks.
+func createIstioGetPutPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, port int, labels map[string]string) (*v1.Pod, *v1.Service) {
+	pod, service := createServerPodAndServiceX(f, namespace, podName, []int{port},
+		func(pod *v1.Pod) {
+			// Apply labels.
+			for k, v := range labels {
+				pod.Labels[k] = v
+			}
+
+			oldContainers := pod.Spec.Containers
+			pod.Spec.Containers = []v1.Container{}
+			for _, container := range oldContainers {
+				// Strip out readiness probe because Istio doesn't support HTTP health probes when in mTLS mode.
+				container.ReadinessProbe = nil
+				container.Image = "quay.io/coreos/etcd:v2.2.0"
+				container.Args = []string{
+					"-advertise-client-urls",
+					fmt.Sprintf("http://svc-get-put:%d", port),
+					"-listen-client-urls",
+					fmt.Sprintf("http://0.0.0.0:%d", port),
+				}
+
+				pod.Spec.Containers = append(pod.Spec.Containers, container)
+			}
+		},
+		func(svc *v1.Service) {
+			oldPorts := svc.Spec.Ports
+			svc.Spec.Ports = []v1.ServicePort{}
+			for _, port := range oldPorts {
+				// Istio requires service ports to be named <protocol>[-<suffix>]
+				port.Name = fmt.Sprintf("http-%d", port.Port)
+				svc.Spec.Ports = append(svc.Spec.Ports, port)
+			}
+			svc.Name = "svc-get-put"
 		},
 	)
 
@@ -564,8 +755,8 @@ func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namesp
 
 // testIstioCanConnect works like testCanConnect(), but takes the target Pod for diagnostics, and an optional Service
 // Account for the probe pod.
-func testIstioCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, targetPod *v1.Pod, account *v1.ServiceAccount, ) {
-	testIstioCanConnectX(f, ns, podName, service, targetPort, targetPod, func(pod *v1.Pod){
+func testIstioCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, targetPod *v1.Pod, account *v1.ServiceAccount) {
+	testIstioCanConnectX(f, ns, podName, service, targetPort, targetPod, func(pod *v1.Pod) {
 		if account != nil {
 			pod.Spec.ServiceAccountName = account.Name
 		}
@@ -601,7 +792,7 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 		}
 	}()
 
-    alp.VerifyContainersForPod(podClient)
+	alp.VerifyContainersForPod(podClient)
 
 	// Istio injects proxy sidecars into the pod, and these sidecars do not exit when the main probe container finishes.
 	// So, we can't use WaitForPodSuccessInNamespace to wait for the probe to finish. Instead, we use
@@ -685,5 +876,109 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
+	}
+}
+
+func testIstioGetPutCmd(service *v1.Service, method string) (string, string) {
+	var cmd string
+	var expect string
+	port := service.Spec.Ports[0].Port
+
+	// Setup retry. Each retry max timeout 5 seconds. Total timeout 50 seconds.
+	retryArgs := fmt.Sprintf("--connect-timeout 3 --max-time 5 --retry %d --retry-delay 0 --retry-max-time 50",
+		alp.NumberOfRetries)
+
+	switch method {
+	case http.MethodGet:
+		cmd = fmt.Sprintf("curl %s -v http://%s:%d/v2/keys?recursive=true", retryArgs, service.Name, port)
+		expect = `"action":"get"`
+	case http.MethodPut:
+		cmd = fmt.Sprintf("curl %s -k -v http://%s:%d/v2/keys/accounts/519940/balance -d value='20000.00' -XPUT",
+			retryArgs, service.Name, port)
+		expect = `"action":"set"`
+
+	default:
+		framework.Failf("Unknown http method <%s>", method)
+		return "", ""
+	}
+
+	return cmd, expect
+}
+
+func testIstioCanGetPut(f *framework.Framework, ns *v1.Namespace, method string, service *v1.Service, targetPod *v1.Pod, account *v1.ServiceAccount) {
+	cmd, expect := testIstioGetPutCmd(service, method)
+
+	clientPod, output, err := calico.ExecuteCmdInPodX(f, cmd, func(pod *v1.Pod) {
+		pod.Spec.HostNetwork = false
+		if account != nil {
+			pod.Spec.ServiceAccountName = account.Name
+		}
+	})
+	Expect(clientPod).NotTo(BeNil())
+
+	defer func() {
+		// Clean up the pod
+		f.PodClient().Delete(clientPod.Name, metav1.NewDeleteOptions(0))
+		err := framework.WaitForPodToDisappear(f.ClientSet, f.Namespace.Name, clientPod.Name, labelutils.Everything(), time.Second, wait.ForeverTestTimeout)
+		if err != nil {
+			framework.Failf("Failed to delete %s pod: %v", clientPod.Name, err)
+		}
+	}()
+
+	if err != nil || !strings.Contains(output, expect) {
+
+		framework.Logf("Execution of cmd <%s> was not successful. response: %s, error: %v", cmd, output, err)
+
+		containerName := clientPod.Spec.Containers[0].Name
+		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, targetPod.Name, containerName)
+
+		calico.MaybeWaitForInvestigation()
+
+		framework.Failf("Pod %s should be able to http <%s> service %s, but was not able to connect.%s",
+			clientPod.Name, method, service.Name, diags)
+
+		// Dump debug information for the test namespace.
+		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
+		return
+	}
+	framework.Logf("Curl cmd <%s> returns successfully with response %#v", cmd, output)
+}
+
+func testIstioCannotGetPut(f *framework.Framework, ns *v1.Namespace, method string, service *v1.Service, targetPod *v1.Pod, account *v1.ServiceAccount) {
+	cmd, expect := testIstioGetPutCmd(service, method)
+
+	clientPod, output, err := calico.ExecuteCmdInPodX(f, cmd, func(pod *v1.Pod) {
+		pod.Spec.HostNetwork = false
+		if account != nil {
+			pod.Spec.ServiceAccountName = account.Name
+		}
+	})
+	Expect(clientPod).NotTo(BeNil())
+
+	defer func() {
+		// Clean up the pod
+		f.PodClient().Delete(clientPod.Name, metav1.NewDeleteOptions(0))
+		err := framework.WaitForPodToDisappear(f.ClientSet, f.Namespace.Name, clientPod.Name, labelutils.Everything(), time.Second, wait.ForeverTestTimeout)
+		if err != nil {
+			framework.Failf("Failed to delete %s pod: %v", clientPod.Name, err)
+		}
+	}()
+
+	// We are testing CannotGetPut. Execution of command should get no error but without a valid response.
+	// Log error if not.
+	if err != nil || strings.Contains(output, expect) {
+		framework.Logf("Execution of cmd <%s> was successful. response: %s, error: %v", cmd, output, err)
+
+		containerName := clientPod.Spec.Containers[0].Name
+		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, targetPod.Name, containerName)
+
+		calico.MaybeWaitForInvestigation()
+
+		framework.Failf("Pod %s should not be able to http <%s> service %s, but was able to connect.%s",
+			clientPod.Name, method, service.Name, diags)
+
+		// Dump debug information for the test namespace.
+		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
+		return
 	}
 }
