@@ -117,7 +117,7 @@ func WrapPodCustomizerIncreaseRetries(podCustomizer func(pod *v1.Pod)) func(pod 
 	return func(pod *v1.Pod) {
 		podCustomizer(pod)
 		// Increase retries because Istio pods can sometimes take a while to connect to services
-		pod.Spec.Containers[0].Args[2] = strings.Replace(pod.Spec.Containers[0].Args[2], "$(seq 1 5)", "$(seq 1 20)", 1)
+		pod.Spec.Containers[0].Args[2] = strings.Replace(pod.Spec.Containers[0].Args[2], "$(seq 1 5)", "$(seq 1 50)", 1)
 	}
 }
 
