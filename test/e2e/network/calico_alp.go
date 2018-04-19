@@ -612,11 +612,12 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 		framework.Logf("Client container was not successful %v", err)
 
 		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, podName, containerName)
+		istioDiags := alp.GetIstioDiags(f)
 
 		calico.MaybeWaitForInvestigation()
 
-		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.%s",
-			podName, service.Name, diags)
+		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.%s\n\n%s",
+			podName, service.Name, diags, istioDiags)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -675,11 +676,12 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 	if err == nil {
 		// Get logs from the target, both Dikastes and the proxy (Envoy)
 		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, podName, containerName)
+		istioDiags := alp.GetIstioDiags(f)
 
 		calico.MaybeWaitForInvestigation()
 
-		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.%s",
-			podName, service.Name, diags)
+		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.%s\n\n%s",
+			podName, service.Name, diags, istioDiags)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
