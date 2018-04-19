@@ -118,6 +118,49 @@ Pods:
 `, probeLogs, probeProxyLogs, dikastesLogs, proxyLogs, policies.Items, pods)
 }
 
+
+func GetIstioDiags(f *framework.Framework) string {
+	istioPods, err := f.ClientSet.CoreV1().Pods(IstioNamespace).List(metav1.ListOptions{})
+	if err != nil {
+		framework.Logf("error getting pods for %s namespace: %s", f.Namespace.Name, err)
+	}
+	cOut := []string{}
+	out := []string{"istio-system status:"}
+	for _, p := range istioPods.Items {
+		out = append(out, fmt.Sprintf("%-40s  %-8s", p.Name, p.Status.Phase))
+		for _, ics := range p.Status.InitContainerStatuses {
+			out = append(out, fmt.Sprintf("  init  %-40s  %s", ics.Name, containerStateString(&ics.State)))
+			l, err := framework.GetPodLogs(f.ClientSet, IstioNamespace, p.Name, ics.Name )
+			if err != nil {
+				framework.Logf("Error getting %s %s logs: %s", p.Name, ics.Name, err)
+			}
+			cOut = append(cOut, fmt.Sprintf("%s/%s logs:\n%s\n\n", p.Name, ics.Name, l))
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			out = append(out, fmt.Sprintf("        %-40s  %s", cs.Name, containerStateString(&cs.State)))
+			l, err := framework.GetPodLogs(f.ClientSet, IstioNamespace, p.Name, cs.Name )
+			if err != nil {
+				framework.Logf("Error getting %s %s logs: %s", p.Name, cs.Name, err)
+			}
+			cOut = append(cOut, fmt.Sprintf("%s/%s logs:\n%s", p.Name, cs.Name, l))
+		}
+	}
+	return strings.Join(out, "\n") + "\n\n" + strings.Join(cOut, "\n\n")
+}
+
+func containerStateString(state *v1.ContainerState) string {
+	if state.Waiting != nil {
+		return "Waiting - " + state.Waiting.Reason
+	}
+	if state.Running != nil {
+		return "Running"
+	}
+	if state.Terminated != nil {
+		return fmt.Sprintf("Terminated(%d)", state.Terminated.ExitCode)
+	}
+	return "UNKNOWN"
+}
+
 func WrapPodCustomizerIncreaseRetries(podCustomizer func(pod *v1.Pod)) func(pod *v1.Pod) {
 	return func(pod *v1.Pod) {
 		podCustomizer(pod)
@@ -155,7 +198,7 @@ func WaitForPodNotFoundInNamespace(f *framework.Framework, ns *v1.Namespace, pod
 // WaitForContainerSuccess waits for a container in a pod to terminate successfully (Exit code 0), and returns an error
 // if the container terminates unsuccessfully.
 func WaitForContainerSuccess(c clientset.Interface, p *v1.Pod, containerName string) error {
-	return wait.PollImmediate(framework.Poll, framework.DefaultPodDeletionTimeout, containerSuccess(c, p.Name, p.Namespace, containerName))
+	return wait.PollImmediate(framework.Poll, 10*time.Minute, containerSuccess(c, p.Name, p.Namespace, containerName))
 }
 
 // containerSuccess constructs a wait.ConditionFunc that checks if a container in a pod has terminated successfully
