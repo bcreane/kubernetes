@@ -1,0 +1,31 @@
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: {{.Name}}
+spec:
+  tier: {{.TierName}}
+  selector: role == 'database'
+  types:
+  - Ingress
+  ingress:
+  - action: Allow
+    ipVersion: 4
+    protocol: UDP
+    source:
+      selector: role == 'frontend'
+      nets:
+      - 10.20.30.0/24
+      namespaceSelector: role == 'database'
+      ports:
+      - 123
+      - port1
+      - 400:500
+      notNets:
+      - 20.30.40.0/31
+      notPorts:
+      - 450
+    destination:
+      ports:
+      - 6379
+  preDNAT: true
+  applyOnForward: true

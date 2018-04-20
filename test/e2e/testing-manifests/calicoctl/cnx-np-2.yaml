@@ -1,0 +1,25 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: {{.Name}}
+spec:
+  tier: {{.TierName}}
+  selector: role == 'database'
+  types:
+  - Ingress
+  ingress:
+  - action: Allow
+    ipVersion: 4
+    protocol: ICMP
+    icmp:
+      type: 20
+      code: 25
+    source:
+      selector: role == 'frontend'
+      nets:
+      - 10.20.30.0/24
+      namespaceSelector: role == 'database'
+      notNets:
+      - 20.30.40.0/31
+    destination:
+      selector: otherrole == 'frontend'
