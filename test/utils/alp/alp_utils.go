@@ -33,11 +33,11 @@ import (
 )
 
 const (
-    DikastesContainerName = "dikastes"
-    ProxyContainerName = "istio-proxy"
-    IstioNamespace = "istio-system"
-    PilotDiscoveryPort = 15003
-    NumberOfRetries = 50
+	DikastesContainerName = "dikastes"
+	ProxyContainerName    = "istio-proxy"
+	IstioNamespace        = "istio-system"
+	PilotDiscoveryPort    = 15003
+	NumberOfRetries       = 50
 )
 
 func CheckIstioInstall(f *framework.Framework) (bool, error) {
@@ -57,6 +57,35 @@ func EnableIstioInjectionForNamespace(f *framework.Framework, ns *v1.Namespace) 
 	ns.Labels["istio-injection"] = "enabled"
 	_, err := f.ClientSet.CoreV1().Namespaces().Update(ns)
 	Expect(err).ToNot(HaveOccurred())
+
+	// Wait until injection took place
+	framework.Logf("Verifying istio injector is working.")
+	checkPodFunc := func(f *framework.Framework, ns *v1.Namespace) bool {
+		execPodName := framework.CreateExecPodOrFail(f.ClientSet, ns.Name, "alpexec-", nil)
+		pod, err := f.ClientSet.CoreV1().Pods(ns.Name).Get(execPodName, metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		defer func() {
+			framework.DeletePodOrFail(f.ClientSet, ns.Name, execPodName)
+			WaitForPodNotFoundInNamespace(f, ns, execPodName)
+		}()
+
+		return checkPodSideCars(pod)
+	}
+
+	startTime := time.Now()
+	for time.Since(startTime) < 30*time.Second {
+		if checkPodFunc(f, ns) {
+			return
+		}
+
+		framework.Logf("Retrying sidecar validation check...")
+		time.Sleep(2 * time.Second)
+
+	}
+
+	// pod injection failed.
+	framework.Failf("istio sidecars failed to be injected for namespace %s", ns.Name)
 }
 
 func GetProbeAndTargetDiags(f *framework.Framework, targetPod *v1.Pod, ns *v1.Namespace, podName string, containerName string) string {
@@ -119,7 +148,6 @@ Pods:
 `, probeLogs, probeProxyLogs, dikastesLogs, proxyLogs, policies.Items, pods)
 }
 
-
 func GetIstioDiags(f *framework.Framework) string {
 	istioPods, err := f.ClientSet.CoreV1().Pods(IstioNamespace).List(metav1.ListOptions{})
 	if err != nil {
@@ -131,7 +159,7 @@ func GetIstioDiags(f *framework.Framework) string {
 		out = append(out, fmt.Sprintf("%-40s  %-8s", p.Name, p.Status.Phase))
 		for _, ics := range p.Status.InitContainerStatuses {
 			out = append(out, fmt.Sprintf("  init  %-40s  %s", ics.Name, containerStateString(&ics.State)))
-			l, err := framework.GetPodLogs(f.ClientSet, IstioNamespace, p.Name, ics.Name )
+			l, err := framework.GetPodLogs(f.ClientSet, IstioNamespace, p.Name, ics.Name)
 			if err != nil {
 				framework.Logf("Error getting %s %s logs: %s", p.Name, ics.Name, err)
 			}
@@ -139,7 +167,7 @@ func GetIstioDiags(f *framework.Framework) string {
 		}
 		for _, cs := range p.Status.ContainerStatuses {
 			out = append(out, fmt.Sprintf("        %-40s  %s", cs.Name, containerStateString(&cs.State)))
-			l, err := framework.GetPodLogs(f.ClientSet, IstioNamespace, p.Name, cs.Name )
+			l, err := framework.GetPodLogs(f.ClientSet, IstioNamespace, p.Name, cs.Name)
 			if err != nil {
 				framework.Logf("Error getting %s %s logs: %s", p.Name, cs.Name, err)
 			}
@@ -230,6 +258,12 @@ func containerSuccess(c clientset.Interface, podName, namespace, containerName s
 }
 
 func VerifyContainersForPod(pod *v1.Pod) {
+	if !checkPodSideCars(pod) {
+		framework.Failf("Pod does not have valid istio side cars")
+	}
+}
+
+func checkPodSideCars(pod *v1.Pod) bool {
 	initContainers := ""
 	for _, c := range pod.Spec.InitContainers {
 		initContainers += c.Name + " "
@@ -242,7 +276,8 @@ func VerifyContainersForPod(pod *v1.Pod) {
 	framework.Logf("pod <%s> got init containers <%s>, containers <%s>.", pod.Name, initContainers, containers)
 
 	if !strings.Contains(containers, ProxyContainerName) || !strings.Contains(containers, DikastesContainerName) {
-		framework.Failf("Pod does not have valid istio side cars")
+		return false
 	}
 
+	return true
 }
