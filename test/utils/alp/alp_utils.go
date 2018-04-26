@@ -88,13 +88,12 @@ func EnableIstioInjectionForNamespace(f *framework.Framework, ns *v1.Namespace) 
 	framework.Failf("istio sidecars failed to be injected for namespace %s", ns.Name)
 }
 
-func GetProbeAndTargetDiags(f *framework.Framework, targetPod *v1.Pod, ns *v1.Namespace, podName string, containerName string) string {
-	// Get logs from the target, both Dikastes and the proxy (Envoy)
+func GetProbeAndTargetDiags(f *framework.Framework, probePod, targetPod *v1.Pod, probeContainerName string) string {
 	dikastesLogs, logErr := framework.GetPodLogs(f.ClientSet, targetPod.Namespace, targetPod.Name, DikastesContainerName)
 	if logErr != nil {
 		framework.Logf("Error getting dikastes container logs: %s", logErr)
 	}
-	probeLogs, logErr := framework.GetPreviousPodLogs(f.ClientSet, ns.Name, podName, containerName)
+	probeLogs, logErr := framework.GetPreviousPodLogs(f.ClientSet, probePod.Namespace, probePod.Name, probeContainerName)
 	if logErr != nil {
 		framework.Logf("Error getting probe container logs: %s", logErr)
 	}
@@ -106,7 +105,7 @@ func GetProbeAndTargetDiags(f *framework.Framework, targetPod *v1.Pod, ns *v1.Na
 	if logErr != nil {
 		framework.Logf("Error getting target proxy container logs: %s", logErr)
 	}
-	probeProxyLogs, logErr := framework.GetPodLogs(f.ClientSet, ns.Name, podName, ProxyContainerName)
+	probeProxyLogs, logErr := framework.GetPodLogs(f.ClientSet, probePod.Namespace, probePod.Name, ProxyContainerName)
 	if logErr != nil {
 		framework.Logf("Error getting probe proxy container logs: %s", logErr)
 	}

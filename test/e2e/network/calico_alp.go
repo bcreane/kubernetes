@@ -802,7 +802,7 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 	if err != nil {
 		framework.Logf("Client container was not successful %v", err)
 
-		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, podName, containerName)
+		diags := alp.GetProbeAndTargetDiags(f, podClient, targetPod, containerName)
 		istioDiags := alp.GetIstioDiags(f)
 
 		calico.MaybeWaitForInvestigation()
@@ -866,7 +866,7 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 	// Dump debug information if the error was nil.
 	if err == nil {
 		// Get logs from the target, both Dikastes and the proxy (Envoy)
-		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, podName, containerName)
+		diags := alp.GetProbeAndTargetDiags(f, podClient, targetPod, containerName)
 		istioDiags := alp.GetIstioDiags(f)
 
 		calico.MaybeWaitForInvestigation()
@@ -930,7 +930,7 @@ func testIstioCanGetPut(f *framework.Framework, ns *v1.Namespace, method string,
 		framework.Logf("Execution of cmd <%s> was not successful. response: %s, error: %v", cmd, output, err)
 
 		containerName := clientPod.Spec.Containers[0].Name
-		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, targetPod.Name, containerName)
+		diags := alp.GetProbeAndTargetDiags(f, clientPod, targetPod, containerName)
 
 		calico.MaybeWaitForInvestigation()
 
@@ -970,7 +970,7 @@ func testIstioCannotGetPut(f *framework.Framework, ns *v1.Namespace, method stri
 		framework.Logf("Execution of cmd <%s> was successful. response: %s, error: %v", cmd, output, err)
 
 		containerName := clientPod.Spec.Containers[0].Name
-		diags := alp.GetProbeAndTargetDiags(f, targetPod, ns, targetPod.Name, containerName)
+		diags := alp.GetProbeAndTargetDiags(f, clientPod, targetPod, containerName)
 
 		calico.MaybeWaitForInvestigation()
 
