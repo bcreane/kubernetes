@@ -21,6 +21,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -496,6 +498,13 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 
 			Expect(len(nodeNames)).Should(BeNumerically(">=", 2))
 			Expect(len(nodeIPs)).Should(BeNumerically(">=", 2))
+
+			// Needs `iptables -P FORWARD ACCEPT`
+			for _, node := range nodeNames {
+				if ! checkForwardAccept(f, node) {
+					framework.Failf("FORWARD DROP, can't continue test. Please check your cluster setup.")
+				}
+			}
 
 			nodeNameMap = map[int]string{0: nodeNames[0], 1: nodeNames[0], 2: nodeNames[1], 3: nodeNames[1]}
 
@@ -1197,4 +1206,26 @@ func cleanupPodService(f *framework.Framework, jig *framework.ServiceTestJig) {
 	Expect(err).NotTo(HaveOccurred())
 	err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Delete(jig.Name, nil)
 	Expect(err).NotTo(HaveOccurred())
+}
+
+func checkForwardAccept(f *framework.Framework, nodeName string) bool {
+	// Get calico-node pod on the node.
+	labelSelector := labels.SelectorFromSet(labels.Set(map[string]string{"k8s-app": "calico-node"}))
+	fieldSelector := fields.SelectorFromSet(fields.Set{"spec.nodeName": nodeName})
+	options := metav1.ListOptions{LabelSelector: labelSelector.String(), FieldSelector: fieldSelector.String()}
+
+	pods, err := f.ClientSet.Core().Pods("kube-system").List(options)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(pods.Items).To(HaveLen(1), fmt.Sprintf("Failed to find calico/node pod on node %v when trying to check iptables policy", nodeName))
+	pod := &pods.Items[0]
+
+	// Check iptables rules
+	framework.Logf("Run iptables command with pod %s on node %s", pod.Name, nodeName)
+
+	cmd := "iptables -L | grep 'Chain FORWARD (policy'"
+	out, err := framework.RunHostCmd("kube-system", pod.Name, cmd)
+	Expect(err).NotTo(HaveOccurred())
+	framework.Logf("Check FORWARD Chain. err %v out: %v", err, out)
+
+	return !strings.Contains(out, "DROP")
 }
