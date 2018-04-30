@@ -47,8 +47,9 @@ import (
 )
 
 const (
-	cmdTestPodName = "cmd-test-container-pod"
-	calicoctlManifestPath      = "test/e2e/testing-manifests/calicoctl"
+	cmdTestPodName        = "cmd-test-container-pod"
+	calicoctlManifestPath = "test/e2e/testing-manifests/calicoctl"
+	pauseFilePath         = "/report/pause"
 )
 
 var (
@@ -119,8 +120,8 @@ func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 			framework.Failf("Failed to delete %s pod: %v", cmdTestContainerPod.Name, err)
 		}
 	}()
-    _, stdout, err := executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, func(pod *v1.Pod) {})
-    return stdout, err
+	_, stdout, err := executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, func(pod *v1.Pod) {})
+	return stdout, err
 }
 
 // Creates a hostexec pod in the appropriate namespace with customizer and then run a kubectl exec command on that pod
@@ -629,6 +630,7 @@ type Calicoctl struct {
 	role           *rbacv1.ClusterRole
 	roleBinding    *rbacv1.ClusterRoleBinding
 	env            map[string]string
+	node           string
 }
 
 func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calicoctl {
@@ -830,9 +832,9 @@ func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
 func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
-		"cat <<EOF > /$HOME/e2e-test-resource.yaml; " +
-			"/calicoctl %s %s --file=/$HOME/e2e-test-resource.yaml\n" +
-			"%s\n" +
+		"cat <<EOF > /$HOME/e2e-test-resource.yaml; "+
+			"/calicoctl %s %s --file=/$HOME/e2e-test-resource.yaml\n"+
+			"%s\n"+
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
 	)
@@ -842,6 +844,10 @@ func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...st
 
 func (c *Calicoctl) SetEnv(name, value string) {
 	c.env[name] = value
+}
+
+func (c *Calicoctl) SetNodeToRun(nodeName string) {
+	c.node = nodeName
 }
 
 func (c *Calicoctl) ApplyCNXLicense() {
@@ -906,7 +912,8 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	for name, value := range c.env {
 		env = append(env, v1.EnvVar{Name: name, Value: value})
 	}
-	podClient, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(&v1.Pod{
+
+	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "calicoctl",
 			Labels: map[string]string{
@@ -928,8 +935,14 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			},
 			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
 		},
-	})
+	}
 
+	if c.node != "" {
+		framework.Logf("calicoctl will be running on node %s.", c.node)
+		pod.Spec.NodeName = c.node
+	}
+
+	podClient, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
 	Expect(err).NotTo(HaveOccurred())
 	defer func() {
 		if err := f.ClientSet.CoreV1().Pods(podClient.Namespace).Delete(podClient.Name, nil); err != nil {
@@ -938,6 +951,10 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	}()
 
 	err = framework.WaitTimeoutForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name, 6*time.Minute)
+	if err != nil {
+		framework.Logf("calicoctl pod %v got error %v, %#", podClient, err)
+		MaybeWaitForInvestigation()
+	}
 	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
 
 	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
@@ -1019,6 +1036,23 @@ func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) error {
 }
 
 func MaybeWaitForInvestigation() {
+	// If pause file exist, stop for investigation.
+	count := 0
+	for {
+		if _, err := os.Stat(pauseFilePath); os.IsNotExist(err) {
+			break
+		}
+		time.Sleep(5 * time.Second)
+		if count == 0 {
+			fmt.Println("Pausing to allow investigation by pause file.")
+		}
+		count++
+	}
+	if count > 0 {
+		fmt.Println("Now continuing test")
+	}
+
+	// If env is set, stop for investigation.
 	if os.Getenv("CALICO_DEBUG") != "true" {
 		return
 	}

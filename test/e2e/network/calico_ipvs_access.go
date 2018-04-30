@@ -18,15 +18,16 @@ import (
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 )
 
 var _ = SIGDescribe("IPVSEgress", func() {
@@ -112,7 +113,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 		if len(nodes.Items) < 2 {
 			framework.Skipf("Less than two schedulable nodes exist, can't continue test.")
 		}
-		nodeNames, nodeIPs = getNodesInfo(nodes)
+		nodeNames, nodeIPs = getNodesInfo(f, nodes, true)
 		Expect(len(nodeNames)).To(Equal(2))
 		Expect(len(nodeIPs)).To(Equal(2))
 	})
@@ -494,14 +495,15 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 				framework.Skipf("Less than two schedulable nodes exist, can't continue test.")
 			}
 
-			nodeNames, nodeIPs = getNodesInfo(nodes)
+			// Need to avoid using master node to set up a host endpoint.
+			nodeNames, nodeIPs = getNodesInfo(f, nodes, false)
 
 			Expect(len(nodeNames)).Should(BeNumerically(">=", 2))
 			Expect(len(nodeIPs)).Should(BeNumerically(">=", 2))
 
 			// Needs `iptables -P FORWARD ACCEPT`
 			for _, node := range nodeNames {
-				if ! checkForwardAccept(f, node) {
+				if !checkForwardAccept(f, node) {
 					framework.Failf("FORWARD DROP, can't continue test. Please check your cluster setup.")
 				}
 			}
@@ -512,6 +514,9 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 			hepNodeName = nodeNames[0]
 			hepNodeIP = nodeIPs[0]
 			framework.Logf("hep node0 (%s %s), node1 (%s %s)", nodeNames[0], nodeIPs[0], nodeNames[1], nodeIPs[1])
+
+			// Avoid using hepNode as calicoctl node.
+			calicoctl.SetNodeToRun(nodeNames[1])
 
 			// Log the server node's IP addresses.
 			node, err := f.ClientSet.CoreV1().Nodes().Get(hepNodeName, metav1.GetOptions{})
@@ -893,7 +898,7 @@ var _ = SIGDescribe("IPVSIngress", func() {
 			if len(nodes.Items) < 3 {
 				framework.Skipf("Less than three schedulable nodes exist, can't continue test.")
 			}
-			nodeNames, nodeIPs := getNodesInfo(nodes)
+			nodeNames, nodeIPs := getNodesInfo(f, nodes, true)
 			Expect(len(nodeNames)).To(Equal(3))
 			Expect(len(nodeIPs)).To(Equal(3))
 
@@ -1038,15 +1043,20 @@ var _ = SIGDescribe("IPVSIngress", func() {
 
 })
 
-func getNodesInfo(nodes *v1.NodeList) ([]string, []string) {
+func getNodesInfo(f *framework.Framework, nodes *v1.NodeList, masterOK bool) ([]string, []string) {
 	var nodeNames []string
 	var nodeIPs []string
 	for _, node := range nodes.Items {
-		nodeNames = append(nodeNames, node.Name)
 		addrs := framework.GetNodeAddresses(&node, v1.NodeInternalIP)
 		if len(addrs) == 0 {
 			framework.Failf("node %s failed to report a valid ip address\n", node.Name)
 		}
+
+		if !masterOK && checkNodeIsMaster(f, addrs) {
+			framework.Logf("Skip using master node %s", node.Name)
+			continue
+		}
+		nodeNames = append(nodeNames, node.Name)
 		nodeIPs = append(nodeIPs, addrs[0])
 	}
 	return nodeNames, nodeIPs
@@ -1167,7 +1177,9 @@ func testConnection(f *framework.Framework, client interface{}, target string, r
 			return // Success!
 		}
 	}
+
 	calico.MaybeWaitForInvestigation()
+
 	Fail("Failed to establish expected connectivity after retries: " + reason)
 }
 
@@ -1228,4 +1240,33 @@ func checkForwardAccept(f *framework.Framework, nodeName string) bool {
 	framework.Logf("Check FORWARD Chain. err %v out: %v", err, out)
 
 	return !strings.Contains(out, "DROP")
+}
+
+func checkNodeIsMaster(f *framework.Framework, ips []string) bool {
+	endpoints, err := f.ClientSet.Core().Endpoints("default").Get("kubernetes", metav1.GetOptions{})
+	if err != nil {
+		framework.Failf("Get endpoints for service kubernetes failed (%s)", err)
+	}
+	if len(endpoints.Subsets) == 0 {
+		framework.Failf("Endpoint has no subsets, cannot determine node addresses.")
+	}
+
+	hasIP := func(endpointIP string) bool {
+		for _, ip := range ips {
+			if ip == endpointIP {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, ss := range endpoints.Subsets {
+		for _, e := range ss.Addresses {
+			if hasIP(e.IP) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
