@@ -25,6 +25,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -909,7 +910,12 @@ func testIstioCanGetPut(f *framework.Framework, ns *v1.Namespace, method string,
 	cmd, expect := testIstioGetPutCmd(service, method)
 
 	clientPod, output, err := calico.ExecuteCmdInPodX(f, cmd, func(pod *v1.Pod) {
+		// Do not use same pod name for hostexec pod.
+		// This is to work around cni-plugin issue https://github.com/projectcalico/cni-plugin/issues/515
+		pod.Name = fmt.Sprintf("%s%s", "getput-", utilrand.String(5))
 		pod.Spec.HostNetwork = false
+		pod.Spec.RestartPolicy = v1.RestartPolicyNever
+
 		if account != nil {
 			pod.Spec.ServiceAccountName = account.Name
 		}
@@ -948,7 +954,10 @@ func testIstioCannotGetPut(f *framework.Framework, ns *v1.Namespace, method stri
 	cmd, expect := testIstioGetPutCmd(service, method)
 
 	clientPod, output, err := calico.ExecuteCmdInPodX(f, cmd, func(pod *v1.Pod) {
+		pod.Name = fmt.Sprintf("%s%s", "getput-", utilrand.String(5))
 		pod.Spec.HostNetwork = false
+		pod.Spec.RestartPolicy = v1.RestartPolicyNever
+
 		if account != nil {
 			pod.Spec.ServiceAccountName = account.Name
 		}
