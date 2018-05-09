@@ -24,7 +24,7 @@ function focus_calico {
 }
 
 function focus_cnx {
-  CNX_FOCUS_REGEX="\[Feature:CNX-${CNX_VER}\]|\[Feature:CNX\]|[Feature:CNX-${CNX_VER}\-RBAC\]"
+  CNX_FOCUS_REGEX="\[Feature:CNX-${CNX_VER}\]|\[Feature:CNX\]|\[Feature:CNX-${CNX_VER}-RBAC\]"
 }
 
 function focus_combined {
