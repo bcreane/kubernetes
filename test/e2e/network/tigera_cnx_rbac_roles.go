@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
+	"strings"
 )
 
 type clusterRoleBindConfigStruct struct {
@@ -305,11 +306,6 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 							case "delete":
 								value = false
 							}
-						}
-						// To work around a bug: CNX-2590
-						// TODO remove this when CNX-2590 is fixed.
-						if action == "watch" {
-							value = false
 						}
 						oracle[oracleKey{action, object, tier}] = value
 					}
@@ -724,6 +720,13 @@ func (k *testKubectlCNXRBAC) get(kind, ns, name string, user string, label strin
 	}
 	if watch {
 		options = append(options, "--watch")
+		_, err := framework.NewKubectlCommand(options...).WithTimeout(time.After(3 * time.Second)).Exec()
+		// Filter out timeout errors - we expect those because we deliberately timeout this command after 3 secs
+		// (or else it would watch forever)
+		if strings.HasPrefix(err.Error(), "timed out waiting for command"){
+			return nil
+		}
+		return err
 	}
 	_, err := framework.NewKubectlCommand(options...).Exec()
 	return err
