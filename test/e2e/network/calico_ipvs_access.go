@@ -113,7 +113,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 		if len(nodes.Items) < 2 {
 			framework.Skipf("Less than two schedulable nodes exist, can't continue test.")
 		}
-		nodeNames, nodeIPs = getNodesInfo(f, nodes, true)
+		nodeNames, nodeIPs, _ = getNodesInfo(f, nodes, true)
 		Expect(len(nodeNames)).To(Equal(2))
 		Expect(len(nodeIPs)).To(Equal(2))
 	})
@@ -429,13 +429,15 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 
 	f := framework.NewDefaultFramework("ipvs-hep")
 	var (
-		jig         *framework.ServiceTestJig
-		nodeNames   []string
-		nodeIPs     []string
-		hepNodeName string
-		hepNodeIP   string
-		nodeNameMap map[int]string
-		policyNames []string
+		jig               *framework.ServiceTestJig
+		nodeNames         []string
+		nodeIPs           []string
+		calicoNodeNames   []string
+		hepNodeName       string
+		hepCalicoNodeName string
+		hepNodeIP         string
+		nodeNameMap       map[int]string
+		policyNames       []string
 	)
 
 	type hepTestConfig struct {
@@ -496,7 +498,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 			}
 
 			// Need to avoid using master node to set up a host endpoint.
-			nodeNames, nodeIPs = getNodesInfo(f, nodes, false)
+			nodeNames, nodeIPs, calicoNodeNames = getNodesInfo(f, nodes, false)
 
 			Expect(len(nodeNames)).Should(BeNumerically(">=", 2))
 			Expect(len(nodeIPs)).Should(BeNumerically(">=", 2))
@@ -512,6 +514,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 
 			// Host endpoint will set to node 0
 			hepNodeName = nodeNames[0]
+			hepCalicoNodeName = calicoNodeNames[0]
 			hepNodeIP = nodeIPs[0]
 			framework.Logf("hep node0 (%s %s), node1 (%s %s)", nodeNames[0], nodeIPs[0], nodeNames[1], nodeIPs[1])
 
@@ -688,7 +691,7 @@ spec:
   expectedIPs:
   - %s
 `,
-							hepNodeName, hepNodeIP)
+							hepCalicoNodeName, hepNodeIP)
 						calicoctl.Apply(hostEpStr)
 
 						if (c.dstHostNetworked && policy.actionType == "ingress") ||
@@ -898,7 +901,7 @@ var _ = SIGDescribe("IPVSIngress", func() {
 			if len(nodes.Items) < 3 {
 				framework.Skipf("Less than three schedulable nodes exist, can't continue test.")
 			}
-			nodeNames, nodeIPs := getNodesInfo(f, nodes, true)
+			nodeNames, nodeIPs, _ := getNodesInfo(f, nodes, true)
 			Expect(len(nodeNames)).To(Equal(3))
 			Expect(len(nodeIPs)).To(Equal(3))
 
@@ -1043,9 +1046,10 @@ var _ = SIGDescribe("IPVSIngress", func() {
 
 })
 
-func getNodesInfo(f *framework.Framework, nodes *v1.NodeList, masterOK bool) ([]string, []string) {
-	var nodeNames []string
-	var nodeIPs []string
+func getNodesInfo(f *framework.Framework, nodes *v1.NodeList, masterOK bool) ([]string, []string, []string) {
+	// By default, Calico node name is host name, e.g. ip-10-0-0-108.
+	// Kubernetes node name could be different (ip-10-0-0-108.us-west-2.compute.internal) if cloud provider is aws.
+	var nodeNames, nodeIPs, calicoNodeNames []string
 	for _, node := range nodes.Items {
 		addrs := framework.GetNodeAddresses(&node, v1.NodeInternalIP)
 		if len(addrs) == 0 {
@@ -1056,10 +1060,17 @@ func getNodesInfo(f *framework.Framework, nodes *v1.NodeList, masterOK bool) ([]
 			framework.Logf("Skip using master node %s", node.Name)
 			continue
 		}
+
+		hostNames := framework.GetNodeAddresses(&node, v1.NodeHostName)
+		if len(hostNames) == 0 {
+			framework.Failf("node %s failed to report a valid host name\n", node.Name)
+		}
+
 		nodeNames = append(nodeNames, node.Name)
 		nodeIPs = append(nodeIPs, addrs[0])
+		calicoNodeNames = append(calicoNodeNames, hostNames[0])
 	}
-	return nodeNames, nodeIPs
+	return nodeNames, nodeIPs, calicoNodeNames
 }
 
 type source struct {
