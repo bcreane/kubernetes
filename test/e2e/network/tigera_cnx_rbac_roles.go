@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"strings"
+
 	"github.com/ghodss/yaml"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -11,7 +13,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-	"strings"
 )
 
 type clusterRoleBindConfigStruct struct {
@@ -33,7 +34,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		var (
 			clusterRoleBindConfig                                      *clusterRoleBindConfigStruct
 			tierConfig, gnpConfig, npConfig, npDefConfig, gnpDefConfig *yamlConfig
-			testNameSpace string
+			testNameSpace                                              string
 		)
 
 		BeforeEach(func() {
@@ -86,7 +87,6 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			}
 			gnp = calico.ReadTestFileOrDie("cnx-gnp-1.yaml", gnpConfig)
 			kubectl.apply(gnp, "", "")
-
 
 		})
 
@@ -371,9 +371,9 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpConfig.TierName:    gnpConfig.Name,
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
-			oracle := map[oracleKey]bool {
-				oracleKey{"list", "np", "default"}: true,
-				oracleKey{"get", "np", "default"}: true,
+			oracle := map[oracleKey]bool{
+				oracleKey{"list", "np", "default"}:  true,
+				oracleKey{"get", "np", "default"}:   true,
 				oracleKey{"get", "tier", "default"}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -411,11 +411,11 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
 			oracle := map[oracleKey]bool{
-				oracleKey{"get", "tier", tierConfig.Name}: true,
-				oracleKey{"get", "np", tierConfig.Name}: true,
+				oracleKey{"get", "tier", tierConfig.Name}:  true,
+				oracleKey{"get", "np", tierConfig.Name}:    true,
 				oracleKey{"update", "np", tierConfig.Name}: true,
 				oracleKey{"create", "np", tierConfig.Name}: true,
-				oracleKey{"patch", "np", tierConfig.Name}: true,
+				oracleKey{"patch", "np", tierConfig.Name}:  true,
 				oracleKey{"delete", "np", tierConfig.Name}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -453,11 +453,11 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
 			oracle := map[oracleKey]bool{
-				oracleKey{"get", "tier", "default"}: true,
-				oracleKey{"get", "np", "default"}: true,
+				oracleKey{"get", "tier", "default"}:  true,
+				oracleKey{"get", "np", "default"}:    true,
 				oracleKey{"update", "np", "default"}: true,
 				oracleKey{"create", "np", "default"}: true,
-				oracleKey{"patch", "np", "default"}: true,
+				oracleKey{"patch", "np", "default"}:  true,
 				oracleKey{"delete", "np", "default"}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -497,7 +497,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			}
 			oracle := map[oracleKey]bool{
 				oracleKey{"list", "gnp", "default"}: true,
-				oracleKey{"get", "gnp", "default"}: true,
+				oracleKey{"get", "gnp", "default"}:  true,
 				oracleKey{"get", "tier", "default"}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -536,11 +536,11 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
 			oracle := map[oracleKey]bool{
-				oracleKey{"get", "tier", tierConfig.Name}: true,
-				oracleKey{"get", "gnp", tierConfig.Name}: true,
+				oracleKey{"get", "tier", tierConfig.Name}:   true,
+				oracleKey{"get", "gnp", tierConfig.Name}:    true,
 				oracleKey{"update", "gnp", tierConfig.Name}: true,
 				oracleKey{"create", "gnp", tierConfig.Name}: true,
-				oracleKey{"patch", "gnp", tierConfig.Name}: true,
+				oracleKey{"patch", "gnp", tierConfig.Name}:  true,
 				oracleKey{"delete", "gnp", tierConfig.Name}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -579,11 +579,11 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
 			oracle := map[oracleKey]bool{
-				oracleKey{"get", "tier", "default"}: true,
-				oracleKey{"get", "gnp", "default"}: true,
+				oracleKey{"get", "tier", "default"}:   true,
+				oracleKey{"get", "gnp", "default"}:    true,
 				oracleKey{"update", "gnp", "default"}: true,
 				oracleKey{"create", "gnp", "default"}: true,
-				oracleKey{"patch", "gnp", "default"}: true,
+				oracleKey{"patch", "gnp", "default"}:  true,
 				oracleKey{"delete", "gnp", "default"}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -616,9 +616,9 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
 			oracle := map[oracleKey]bool{
-				oracleKey{"get", "tier", "default"}: true,
-				oracleKey{"list", "tier", "default"}: true,
-				oracleKey{"get", "tier", tierConfig.Name}: true,
+				oracleKey{"get", "tier", "default"}:        true,
+				oracleKey{"list", "tier", "default"}:       true,
+				oracleKey{"get", "tier", tierConfig.Name}:  true,
 				oracleKey{"list", "tier", tierConfig.Name}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -651,13 +651,13 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				gnpDefConfig.TierName: gnpDefConfig.Name,
 			}
 			oracle := map[oracleKey]bool{
-				oracleKey{"get", "tier", "default"}: true,
+				oracleKey{"get", "tier", "default"}:    true,
 				oracleKey{"create", "tier", "default"}: true,
 				// You can't edit default tier, so no expectation of that working.
-				oracleKey{"get", "tier", tierConfig.Name}: true,
+				oracleKey{"get", "tier", tierConfig.Name}:    true,
 				oracleKey{"update", "tier", tierConfig.Name}: true,
 				oracleKey{"create", "tier", tierConfig.Name}: true,
-				oracleKey{"patch", "tier", tierConfig.Name}: true,
+				oracleKey{"patch", "tier", tierConfig.Name}:  true,
 				oracleKey{"delete", "tier", tierConfig.Name}: true,
 			}
 			testCNXRBAC(clusterRoleStruct, "testuser", tiers, np, gnp, oracle)
@@ -721,12 +721,13 @@ func (k *testKubectlCNXRBAC) get(kind, ns, name string, user string, label strin
 	if watch {
 		options = append(options, "--watch")
 		_, err := framework.NewKubectlCommand(options...).WithTimeout(time.After(3 * time.Second)).Exec()
-		// Filter out timeout errors - we expect those because we deliberately timeout this command after 3 secs
-		// (or else it would watch forever)
-		if strings.HasPrefix(err.Error(), "timed out waiting for command"){
-			return nil
+		// Filter out all errors (timeout, single instance kdd watch error, etc.) except "Forbidden"
+		// Example: $ kubectl get po --as=nouser
+		// Error from server (Forbidden): pods is forbidden: User "nouser" cannot list pods in the namespace "default"
+		if strings.Contains(err.Error(), "Forbidden") {
+			return err
 		}
-		return err
+		return nil
 	}
 	_, err := framework.NewKubectlCommand(options...).Exec()
 	return err
