@@ -8,7 +8,7 @@ CNX_FOCUS_REGEX=""
 EXT_NETWORKING=true
 EXT_CONFORMANCE=false
 FOCUS=""
-SKIPS="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy"
+SKIPS="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy|Downward API volume"
 
 function combine_regex {
   local IFS="$1"
@@ -18,7 +18,7 @@ function combine_regex {
 
 function focus_calico {
   CALICO_FOCUS_REGEX="\[Feature:CalicoPolicy-${CALICO_VER}\]"
-  if [ "$CALICO_VER" == "v2" ]; then
+  if [ "$CALICO_VER" == "v1" ]; then
     SKIPS=$(combine_regex "|" "named port" "$SKIPS")
   fi
 }
@@ -63,7 +63,7 @@ Usage: $0 \
   docker run --net=host -v \$KUBECONFIG:/root/kubeconfig gcr.io/unique-caldron-775/k8s-e2e ARGS...
 
 Arguments:
-  --calico-version (v2|v3)              Run calico tests. [default: none]
+  --calico-version (v1|v3)              Run calico tests. [default: none]
   --cnx v3                              Run CNX tests. [default: none]
   --extended-networking (true|false)    Run extended networking tests. [default: true]
   --extended-conformance (true|false)   Run extended conformance tests. [default: true]
