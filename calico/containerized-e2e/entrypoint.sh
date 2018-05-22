@@ -8,7 +8,7 @@ CNX_FOCUS_REGEX=""
 EXT_NETWORKING=true
 EXT_CONFORMANCE=false
 FOCUS=""
-SKIPS="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy"
+SKIPS="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy|Pods Set QOS Class"
 
 function combine_regex {
   local IFS="$1"
