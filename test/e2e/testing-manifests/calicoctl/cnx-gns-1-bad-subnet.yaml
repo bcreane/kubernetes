@@ -1,0 +1,8 @@
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkSet
+metadata:
+  name: {{.Name}}
+spec:
+  nets:
+  - 198.51.100.0/28
+  - 203.0.113.
