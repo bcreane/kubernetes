@@ -10,9 +10,10 @@ import (
 	"github.com/ghodss/yaml"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"k8s.io/kubernetes/staging/src/k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-	"k8s.io/kubernetes/staging/src/k8s.io/apimachinery/pkg/util/rand"
 )
 
 // TODO (rlb):
@@ -24,7 +25,7 @@ import (
 
 // yamlConfig contains fields that these tests substitute into the manifest files.
 type yamlConfig struct {
-	Name string
+	Name     string
 	TierName string
 }
 
@@ -42,7 +43,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 	f := framework.NewDefaultFramework("calicoctl-kubectl")
 	var (
 		osCalicoctl, cnxCalicoctl, cnxKubectl testCLI
-		testNamespace string
+		testNamespace                         string
 	)
 
 	Context("Compatibility of Open source manifests with CNX", func() {
@@ -183,7 +184,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 
 			// Create a tier which will be substituted into the policy specific yaml tests.
 			By("Creating testing-tier")
-			tierConfig = &yamlConfig {
+			tierConfig = &yamlConfig{
 				Name: createName("e2e-test-tier"),
 			}
 			tier := calico.ReadTestFileOrDie("cnx-tier-1.yaml", tierConfig)
@@ -218,13 +219,16 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 				case "Tier":
 					name = createName("e2e-tier")
 					resource = kind + "(" + name + ")"
+				case "GlobalNetworkSet":
+					name = createName("e2e-globalnetworkset")
+					resource = kind + "(" + name + ")"
 				default:
 					panic("These tests are for CNX configuration only")
 				}
 
 				// Read in the supplied manifest substiuting the name and tier name as appropriate.
 				resourceConfig := &yamlConfig{
-					Name: name,
+					Name:     name,
 					TierName: tierConfig.Name,
 				}
 				manifest := calico.ReadTestFileOrDie(manifestName, resourceConfig)
@@ -299,6 +303,9 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 		It("Checking NetworkPolicy can be managed with cnx-np-2.yaml", testCNXCLIs(
 			"NetworkPolicy", "cnx-np-2.yaml",
 		))
+		It("Checking GlobalNetworkSet can be managed with cnx-gns-1.yaml", testCNXCLIs(
+			"GlobalNetworkSet", "cnx-gns-1.yaml",
+		))
 	})
 
 	Context("Kubernetes policy is read-only through calicoctl and kubectl", func() {
@@ -320,7 +327,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 
 			By("Creating Kubernetes NetworkPolicy(" + testNamespace + "/" + k8sPolicyName + ")")
 			cnxKubectl.create(manifest, testNamespace)
-			
+
 			// Wait for the policy to appear in calicoctl
 			By("Waiting for Calico NetworkPolicy(" + testNamespace + "/" + calicoPolicyName + ") to be created")
 			Eventually(func() bool {
@@ -373,7 +380,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 
 		It("Verify kubectl can create and replace a NetworkPolicy with non-'knp.' prefix", func() {
 			config := yamlConfig{
-				Name: createName("default.foobarbaz"),
+				Name:     createName("default.foobarbaz"),
 				TierName: "default",
 			}
 			manifest := calico.ReadTestFileOrDie("cnx-np-1.yaml", config)
@@ -386,7 +393,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 
 		It("Verify kubectl cannot create a NetworkPolicy with 'knp.' prefix", func() {
 			config := yamlConfig{
-				Name: createName("knp.default.foobarbaz"),
+				Name:     createName("knp.default.foobarbaz"),
 				TierName: "default",
 			}
 			manifest := calico.ReadTestFileOrDie("cnx-np-1.yaml", config)
@@ -419,6 +426,8 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 					name = "default." + createName(strings.ToLower(kind))
 				case "Tier":
 					name = createName("e2e-tier")
+				case "GlobalNetworkSet":
+					name = createName("e2e-globalnetworkset")
 				default:
 					panic("These tests are for CNX configuration only")
 				}
@@ -469,6 +478,9 @@ var _ = SIGDescribe("[Feature:CNX-v3-calicoctl] calicoctl and kubectl are compat
 		))
 		It("Invalid GlobalNetworkPolicy: invalid types field", testInvalid(
 			"GlobalNetworkPolicy", "cnx-gnp-1-bad-invalidtypes.yaml",
+		))
+		It("Invalid GlobalNetworkSet: invalid subnet", testInvalid(
+			"GlobalNetworkSet", "cnx-gns-1-bad-subnet.yaml",
 		))
 	})
 })
@@ -649,7 +661,7 @@ type testCalicoctlOS struct {
 // CNX and kubectl simpler.
 func (c *testCalicoctlOS) get(kind, namespace, name string) ResourceData {
 	res := c.testCalicoctlCNX.get(kind, namespace, name)
-	if kind == "GlobalNetworkPolicy" || kind == "NetworkPolicy"{
+	if kind == "GlobalNetworkPolicy" || kind == "NetworkPolicy" {
 		meta := res.Metadata()
 		spec := res.Spec()
 
@@ -677,7 +689,7 @@ func (c *testCalicoctlOS) name() string {
 
 // testKubectlCNX implements the testCLI interface for CNX kubectl (actually it is the same kubectl, but
 // it assumes the deployment has a CNX AAPIS running which can handle Calico specific resources).
-type testKubectlCNX struct {}
+type testKubectlCNX struct{}
 
 func (k *testKubectlCNX) create(yaml string, ns string) {
 	if ns == "" {
