@@ -101,9 +101,18 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		}
 	}
 
+	logServerDiags := func() {
+		// Collect/log Calico diags for the server node.
+		logErr := calico.LogCalicoDiagsForNode(f, serverNodeName)
+		if logErr != nil {
+			framework.Logf("Error getting Calico diags: %v", logErr)
+		}
+
+	}
+
 	expectConnection := func() {
 		if hostNetworkedServer {
-			testCanConnectX(f, f.Namespace, "client-can-connect", service, 80, setNodeAffinity)
+			testCanConnectX(f, f.Namespace, "client-can-connect", service, 80, setNodeAffinity, logServerDiags)
 		} else {
 			testCanConnect(f, f.Namespace, "client-can-connect", service, 80)
 		}

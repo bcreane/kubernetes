@@ -361,9 +361,9 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 })
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {})
+	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {}, func() {})
 }
-func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) {
+func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod), onFailure func()) {
 	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
 	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
 	defer func() {
@@ -380,6 +380,9 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
 	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
 	if err != nil {
+		// Run caller's failure hook first.
+		onFailure()
+
 		// Collect/log Calico diags.
 		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
 		if logErr != nil {
