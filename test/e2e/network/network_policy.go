@@ -469,12 +469,12 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 // Will also assign a pod label with key: "pod-name" and label set to the given podname for later use by the network
 // policy.
 func createServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
-	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {}, func(_ *v1.Service){})
+	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {}, func(_ *v1.Service) {})
 }
 func createHostNetworkedServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
 	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {
 		pod.Spec.HostNetwork = true
-	}, func(_ *v1.Service){})
+	}, func(_ *v1.Service) {})
 }
 func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod), serviceCustomizer func(svc *v1.Service)) (*v1.Pod, *v1.Service) {
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
@@ -593,7 +593,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; exit 1",
+						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
 							targetService.Name, targetService.Namespace, targetPort),
 					},
 				},
