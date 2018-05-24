@@ -740,6 +740,21 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	return &ctl
 }
 
+// Use AvoidNode when calicoctl would not work if its pod was scheduled on some particular
+// node.
+//
+// For example, if a test case has a HostEndpoint on a particular node, and the default
+// policy that applies to that HostEndpoint is to deny outbound traffic, then:
+//
+// - The calicoctl _binary_ might still work if it was run directly on that node, because
+//   we normally have a failsafe port open for outbound traffic to the etcd cluster.
+//
+// - However, running calicoctl _in a pod_ on that node will not work, because pod startup
+//   also requires communications between kubelet on that node and the k8s API server, and
+//   we do not have an open failsafe port for that.
+//
+// Therefore, because this file runs calicoctl in a pod, some tests will need to ensure
+// that that pod is not on the node with the host endpoint.
 func (c *Calicoctl) AvoidNode(nodeName string) {
 	c.nodeToAvoid = nodeName
 }
