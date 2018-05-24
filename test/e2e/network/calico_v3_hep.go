@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
 
 	. "github.com/onsi/ginkgo"
@@ -52,8 +52,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 
 	// Applying a hep without any networkpolicy in place will block all inbound and outbound
 	// connectivity, including the kubelet's connection to the apiserver, which can
-    // disrupt core cluster functionality. This defaultAllow-egress policy
-    // simplifies the test by ensuring that outbound connections are allowed.
+	// disrupt core cluster functionality. This defaultAllow-egress policy
+	// simplifies the test by ensuring that outbound connections are allowed.
 	defaultAllow := strings.Join([]string{
 		"apiVersion: projectcalico.org/v3",
 		"kind: GlobalNetworkPolicy",
@@ -80,7 +80,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 									Values:   []string{hepNodeName},
 								},
 								{
-									Key: "node-role.kubernetes.io/master",
+									Key:      "node-role.kubernetes.io/master",
 									Operator: v1.NodeSelectorOpDoesNotExist,
 								},
 							},
@@ -138,8 +138,8 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 			ctl.Apply(policy)
 			defer ctl.Delete(policy)
 
-			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer)
-			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort2, avoidNodeCustomizer)
+			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer, func() {})
+			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort2, avoidNodeCustomizer, func() {})
 		})
 
 		It("should allow connections only to the specified named port", func() {
@@ -160,7 +160,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 			ctl.Apply(policy)
 			defer ctl.Delete(policy)
 
-			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer)
+			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer, func() {})
 			testCannotConnectX(f, f.Namespace, "client", hepSvc, hepPort2, avoidNodeCustomizer)
 		})
 
@@ -192,4 +192,3 @@ func setupHostEndPoint(ctl *calico.Calicoctl, nodeName string, port int, ip stri
 
 	ctl.Apply(hep)
 }
-

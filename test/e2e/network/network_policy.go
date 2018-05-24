@@ -361,9 +361,9 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 })
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {})
+	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {}, func() {})
 }
-func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) {
+func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod), onFailure func()) {
 	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
 	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
 	defer func() {
@@ -380,6 +380,9 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
 	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
 	if err != nil {
+		// Run caller's failure hook first.
+		onFailure()
+
 		// Collect/log Calico diags.
 		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
 		if logErr != nil {
@@ -469,12 +472,12 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 // Will also assign a pod label with key: "pod-name" and label set to the given podname for later use by the network
 // policy.
 func createServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
-	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {}, func(_ *v1.Service){})
+	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {}, func(_ *v1.Service) {})
 }
 func createHostNetworkedServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int) (*v1.Pod, *v1.Service) {
 	return createServerPodAndServiceX(f, namespace, podName, ports, func(pod *v1.Pod) {
 		pod.Spec.HostNetwork = true
-	}, func(_ *v1.Service){})
+	}, func(_ *v1.Service) {})
 }
 func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod), serviceCustomizer func(svc *v1.Service)) (*v1.Pod, *v1.Service) {
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
@@ -593,7 +596,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; exit 1",
+						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
 							targetService.Name, targetService.Namespace, targetPort),
 					},
 				},
