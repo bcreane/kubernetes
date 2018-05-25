@@ -156,6 +156,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 			selector := `pod-name == "` + podServer.Name + `"`
 			if hostNetworkedServer {
 				selector = `police-me == "true"`
+				calicoctl.AvoidNode(serverNodeName)
 			}
 			for ii := range policies {
 				policyStr := fmt.Sprintf(`

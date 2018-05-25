@@ -631,6 +631,7 @@ type Calicoctl struct {
 	roleBinding    *rbacv1.ClusterRoleBinding
 	env            map[string]string
 	node           string
+	nodeToAvoid    string
 }
 
 func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calicoctl {
@@ -737,6 +738,25 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 
 	framework.Logf("Configured for datastoreType %s", ctl.datastore)
 	return &ctl
+}
+
+// Use AvoidNode when calicoctl would not work if its pod was scheduled on some particular
+// node.
+//
+// For example, if a test case has a HostEndpoint on a particular node, and the default
+// policy that applies to that HostEndpoint is to deny outbound traffic, then:
+//
+// - The calicoctl _binary_ might still work if it was run directly on that node, because
+//   we normally have a failsafe port open for outbound traffic to the etcd cluster.
+//
+// - However, running calicoctl _in a pod_ on that node will not work, because pod startup
+//   also requires communications between kubelet on that node and the k8s API server, and
+//   we do not have an open failsafe port for that.
+//
+// Therefore, because this file runs calicoctl in a pod, some tests will need to ensure
+// that that pod is not on the node with the host endpoint.
+func (c *Calicoctl) AvoidNode(nodeName string) {
+	c.nodeToAvoid = nodeName
 }
 
 func (c *Calicoctl) Cleanup() {
@@ -940,6 +960,27 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	if c.node != "" {
 		framework.Logf("calicoctl will be running on node %s.", c.node)
 		pod.Spec.NodeName = c.node
+	}
+
+	if c.nodeToAvoid != "" {
+		framework.Logf("calicoctl will avoid running on node %v", c.nodeToAvoid)
+		pod.Spec.Affinity = &v1.Affinity{
+			NodeAffinity: &v1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
+					NodeSelectorTerms: []v1.NodeSelectorTerm{
+						{
+							MatchExpressions: []v1.NodeSelectorRequirement{
+								{
+									Key:      "kubernetes.io/hostname",
+									Operator: v1.NodeSelectorOpNotIn,
+									Values:   []string{c.nodeToAvoid},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
 	}
 
 	podClient, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
