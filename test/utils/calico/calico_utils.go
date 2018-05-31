@@ -1093,8 +1093,8 @@ func MaybeWaitForInvestigation() {
 		fmt.Println("Now continuing test")
 	}
 
-	// If env is set, stop for investigation.
-	if os.Getenv("CALICO_DEBUG") != "true" {
+	// If env is set, stop for investigation.  Equalfold removes case from the match test.
+	if strings.EqualFold(os.Getenv("CALICO_DEBUG"), "true") {
 		return
 	}
 	fmt.Println("Pausing to allow investigation.  Press Enter to continue.")
