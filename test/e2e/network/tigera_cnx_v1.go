@@ -339,7 +339,7 @@ var _ = framework.KubeDescribe("[Product: CNX] CalicoQ", func() {
 
 func getFelixMetrics(f *framework.Framework, felixIP, name string) (metrics []string, err error) {
 	By("Getting metrics through kubectl exec curl")
-	output, err := calico.ExecuteCmdInPod(f, "curl http://"+felixIP+":9081/metrics")
+	output, err := calico.ExecuteCmdInPod(f, "curl http://"+felixIP+":9081/metrics --fail")
 	if err != nil {
 		return
 	}
