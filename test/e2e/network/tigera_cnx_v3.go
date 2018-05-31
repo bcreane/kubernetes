@@ -146,7 +146,7 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 				calicoctl.Get("profile", "-o", "yaml")
 
 				By("Creating client-a, which can connect on port 443")
-				testCanConnect(f, ns, "client-a", service, 443)
+				testCanConnect(f, ns, "client-a-443", service, 443)
 
 				By("Setting DropActionOverride")
 				serverPodNow, err := f.ClientSet.Core().Pods(ns.Name).Get(serverPod.Name, metav1.GetOptions{})
@@ -239,9 +239,9 @@ spec:
 				By("Creating client-a that tries to connect on port 80")
 				switch dropActionOverride {
 				case "Drop", "", "LogAndDrop":
-					testCannotConnect(f, ns, "client-a", service, 80)
+					testCannotConnect(f, ns, "client-a-80", service, 80)
 				case "Accept", "LogAndAccept":
-					testCanConnect(f, ns, "client-a", service, 80)
+					testCanConnect(f, ns, "client-a-80", service, 80)
 				default:
 					panic("Unhandled override setting")
 				}
