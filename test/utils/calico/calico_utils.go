@@ -400,6 +400,11 @@ retry:
 }
 
 func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
+	// Grab the number of pods in the kube-system namespace, so we know how many to expect.  Restarting
+	// should not alter the number of pods.
+	kubeSystemPodsList, err := clientset.CoreV1().Pods("kube-system").List(metav1.ListOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	numKubeSys := len(kubeSystemPodsList.Items)
 	calicoNodePodList, err := clientset.CoreV1().Pods("kube-system").List(metav1.ListOptions{
 		LabelSelector: "k8s-app=calico-node",
 	})
@@ -407,9 +412,9 @@ func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
 	for _, calicoNodePod := range calicoNodePodList.Items {
 		if specificNode == "" || calicoNodePod.Spec.NodeName == specificNode {
 			clientset.CoreV1().Pods("kube-system").Delete(calicoNodePod.ObjectMeta.Name, deleteImmediately)
-			framework.WaitForPodNameRunningInNamespace(clientset, calicoNodePod.Spec.NodeName, "kube-system")
 		}
 	}
+	framework.WaitForPodsRunningReady(clientset, "kube-system", int32(numKubeSys),0, 5*time.Minute, map[string]string{})
 }
 
 func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, labels map[string]string, port int) *v1.Pod {
