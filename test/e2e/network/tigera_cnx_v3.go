@@ -75,13 +75,13 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
       - action: Allow
         protocol: TCP
         source:
-          selector: pod-name == "client-a"
+          selector: pod-name == "client-a-443"
         destination:
           ports: [443]
       - action: Deny
         protocol: TCP
         source:
-          selector: pod-name == "client-a"
+          selector: pod-name == "client-a-80"
         destination:
           ports: [80]
     selector: pod-name == "%s"
@@ -107,12 +107,12 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 									"pod-name": serverPod.Name,
 								},
 							},
-							// Allow traffic only from client-a on port 443.
+							// Allow traffic only from client-a-443 on port 443.
 							Ingress: []networkingv1.NetworkPolicyIngressRule{{
 								From: []networkingv1.NetworkPolicyPeer{{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{
-											"pod-name": "client-a",
+											"pod-name": "client-a-443",
 										},
 									},
 								}},
@@ -145,7 +145,7 @@ var _ = SIGDescribe("[Feature:CNX-v3] Drop Action Override Tests", func() {
 				calicoctl.Get("globalnetworkpolicy", "-o", "yaml")
 				calicoctl.Get("profile", "-o", "yaml")
 
-				By("Creating client-a, which can connect on port 443")
+				By("Creating client-a-443, which can connect on port 443")
 				testCanConnect(f, ns, "client-a-443", service, 443)
 
 				By("Setting DropActionOverride")
@@ -236,7 +236,7 @@ spec:
 				initPackets := sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)
 				serverSyslogCount := calico.CountSyslogLines(f, serverNode)
 
-				By("Creating client-a that tries to connect on port 80")
+				By("Creating client-a-80 that tries to connect on port 80")
 				switch dropActionOverride {
 				case "Drop", "", "LogAndDrop":
 					testCannotConnect(f, ns, "client-a-80", service, 80)
@@ -268,7 +268,7 @@ spec:
 				}
 
 				// Run calicoq commands.
-				calico.Calicoq("eval", "pod-name=='client-a'")
+				calico.Calicoq("eval", "pod-name=='client-a-80'")
 				calico.Calicoq("policy", "policydeny")
 				calico.Calicoq("host", serverNodeName)
 				calico.Calicoq("endpoint", "client")
