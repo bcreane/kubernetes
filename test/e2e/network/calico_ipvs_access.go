@@ -1189,8 +1189,6 @@ func testConnection(f *framework.Framework, client interface{}, target string, r
 		}
 	}
 
-	calico.MaybeWaitForInvestigation()
-
 	Fail("Failed to establish expected connectivity after retries: " + reason)
 }
 
@@ -1237,7 +1235,7 @@ func checkForwardAccept(f *framework.Framework, nodeName string) bool {
 	fieldSelector := fields.SelectorFromSet(fields.Set{"spec.nodeName": nodeName})
 	options := metav1.ListOptions{LabelSelector: labelSelector.String(), FieldSelector: fieldSelector.String()}
 
-	pods, err := f.ClientSet.Core().Pods("kube-system").List(options)
+	pods, err := f.ClientSet.CoreV1().Pods("kube-system").List(options)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pods.Items).To(HaveLen(1), fmt.Sprintf("Failed to find calico/node pod on node %v when trying to check iptables policy", nodeName))
 	pod := &pods.Items[0]
@@ -1254,7 +1252,7 @@ func checkForwardAccept(f *framework.Framework, nodeName string) bool {
 }
 
 func checkNodeIsMaster(f *framework.Framework, ips []string) bool {
-	endpoints, err := f.ClientSet.Core().Endpoints("default").Get("kubernetes", metav1.GetOptions{})
+	endpoints, err := f.ClientSet.CoreV1().Endpoints("default").Get("kubernetes", metav1.GetOptions{})
 	if err != nil {
 		framework.Failf("Get endpoints for service kubernetes failed (%s)", err)
 	}

@@ -46,7 +46,6 @@ import (
 	"os"
 	"bytes"
 	"bufio"
-	"k8s.io/kubernetes/test/utils/calico"
 )
 
 const (
@@ -54,6 +53,7 @@ const (
 	// TODO(mikedanese): reset this to 5 minutes once #47135 is resolved.
 	// ref https://github.com/kubernetes/kubernetes/issues/47135
 	DefaultNamespaceDeletionTimeout = 10 * time.Minute
+	pauseFilePath         = "/report/pause"
 )
 
 // Framework supports common operations used by e2e tests; it will keep a client & a namespace for you.
@@ -256,7 +256,7 @@ func (f *Framework) JustBeforeEach() {
 
 func (f *Framework) JustAfterEach() {
 	// If we've created the debug file or env var, pause the test here
-	calico.MaybeWaitForInvestigation()
+	MaybeWaitForInvestigation()
 	// Grab calico diags if the test failed.
 	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
 		Logf("Collecting diags JustAfter failed test in %s", CurrentGinkgoTestDescription().TestText)
@@ -896,4 +896,31 @@ func GetLogToFileFunc(file *os.File) func(format string, args ...interface{}) {
 		}
 		writer.Flush()
 	}
+}
+
+func MaybeWaitForInvestigation() {
+	// If pause file exist, stop for investigation.
+	count := 0
+	for {
+		if _, err := os.Stat(pauseFilePath); os.IsNotExist(err) {
+			break
+		}
+		time.Sleep(5 * time.Second)
+		if count == 0 {
+			fmt.Println("Pausing to allow investigation by pause file.")
+		}
+		count++
+	}
+	if count > 0 {
+		fmt.Println("Now continuing test")
+	}
+
+	// If env is set, stop for investigation.  Equalfold removes case from the match test.
+	if strings.EqualFold(os.Getenv("CALICO_DEBUG"), "true") {
+		return
+	}
+	fmt.Println("Pausing to allow investigation.  Press Enter to continue.")
+	var input string
+	fmt.Scanln(&input)
+	fmt.Println("Now continuing test")
 }

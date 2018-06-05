@@ -806,8 +806,6 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 		diags := alp.GetProbeAndTargetDiags(f, podClient, targetPod, containerName)
 		istioDiags := alp.GetIstioDiags(f)
 
-		calico.MaybeWaitForInvestigation()
-
 		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.%s\n\n%s",
 			podName, service.Name, diags, istioDiags)
 
@@ -869,8 +867,6 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 		// Get logs from the target, both Dikastes and the proxy (Envoy)
 		diags := alp.GetProbeAndTargetDiags(f, podClient, targetPod, containerName)
 		istioDiags := alp.GetIstioDiags(f)
-
-		calico.MaybeWaitForInvestigation()
 
 		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.%s\n\n%s",
 			podName, service.Name, diags, istioDiags)
@@ -938,8 +934,6 @@ func testIstioCanGetPut(f *framework.Framework, ns *v1.Namespace, method string,
 		containerName := clientPod.Spec.Containers[0].Name
 		diags := alp.GetProbeAndTargetDiags(f, clientPod, targetPod, containerName)
 
-		calico.MaybeWaitForInvestigation()
-
 		framework.Failf("Pod %s should be able to http <%s> service %s, but was not able to connect.%s",
 			clientPod.Name, method, service.Name, diags)
 
@@ -980,8 +974,6 @@ func testIstioCannotGetPut(f *framework.Framework, ns *v1.Namespace, method stri
 
 		containerName := clientPod.Spec.Containers[0].Name
 		diags := alp.GetProbeAndTargetDiags(f, clientPod, targetPod, containerName)
-
-		calico.MaybeWaitForInvestigation()
 
 		framework.Failf("Pod %s should not be able to http <%s> service %s, but was able to connect.%s",
 			clientPod.Name, method, service.Name, diags)
