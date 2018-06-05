@@ -46,7 +46,7 @@
 		{
 			"ImportPath": "github.com/Azure/azure-sdk-for-go/arm/network",
 			"Comment": "v10.0.4-beta-1-g786cc84",
-			"Rev": "786cc84138518bf7fd6d60e92fad1ac9d1a11767b9df7f55fe1165fd9ad49aca7754cce01a42b8ad"
+			"Rev": "786cc84138518bf7fd6d60e92fad1ac9d1a117ad"
 		},
 		{
 			"ImportPath": "github.com/Azure/azure-sdk-for-go/arm/storage",

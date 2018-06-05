@@ -993,7 +993,6 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	err = framework.WaitTimeoutForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name, 6*time.Minute)
 	if err != nil {
 		framework.Logf("calicoctl pod %v got error %v, %#", podClient, err)
-		framework.MaybeWaitForInvestigation()
 	}
 	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
 

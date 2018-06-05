@@ -2,9 +2,10 @@ package network
 
 import (
 	"fmt"
+
+	"k8s.io/api/core/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-	"k8s.io/api/core/v1"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -25,7 +26,7 @@ var _ = SIGDescribe("[Feature:AlwaysFail]", func() {
 		calicoctl = calico.ConfigureCalicoctl(f)
 	})
 
-	Context("always-fail-context", func() {
+	PContext("always-fail-context", func() {
 		BeforeEach(func() {
 			// Create Server with Service
 			By("always-fail By 1")
@@ -33,7 +34,6 @@ var _ = SIGDescribe("[Feature:AlwaysFail]", func() {
 			framework.Logf("Waiting for Server to come up.")
 			err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
 			Expect(err).NotTo(HaveOccurred())
-
 
 			By("always-fail By 2")
 			testCanConnect(f, f.Namespace, "client-can-connect", service, 80)

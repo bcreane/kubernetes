@@ -17,6 +17,12 @@ limitations under the License.
 package framework
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"os"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,12 +46,6 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"fmt"
-	"strings"
-	"path"
-	"os"
-	"bytes"
-	"bufio"
 )
 
 const (
@@ -242,27 +242,18 @@ func (f *Framework) BeforeEach() {
 
 	}
 }
-/*
-var starttime string
-
-func (f *Framework) JustBeforeEach() {
-	// Note start time of test so we can only get logs since start of test
-	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
-		Logf("Noting start time before test run of: %s", CurrentGinkgoTestDescription().TestText)
-		starttime = time.RFC3339
-	}
-}
-*/
 
 func (f *Framework) JustAfterEach() {
-	// If we've created the debug file or env var, pause the test here
-	MaybeWaitForInvestigation()
 	// Grab calico diags if the test failed.
 	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
+		// If we've created the debug file or env var, pause the test here
+		MaybeWaitForInvestigation()
+
 		Logf("Collecting diags JustAfter failed test in %s", CurrentGinkgoTestDescription().TestText)
 		// TODO: figure out how to pass the 'since' parameter into the log getter, so that we only get logs from during this test
 		// Get logs, pod status, iptables, ipsets
 		// Logs:
+		Logf("Dumping logs from calico/node pods...")
 		logFunc := Logf
 		LogPodsWithLabels(f.ClientSet, "kube-system", map[string]string{"k8s-app": "calico-node"}, logFunc)
 
