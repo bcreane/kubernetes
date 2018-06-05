@@ -53,6 +53,7 @@ const (
 	// TODO(mikedanese): reset this to 5 minutes once #47135 is resolved.
 	// ref https://github.com/kubernetes/kubernetes/issues/47135
 	DefaultNamespaceDeletionTimeout = 10 * time.Minute
+	pauseFilePath         = "/report/pause"
 )
 
 // Framework supports common operations used by e2e tests; it will keep a client & a namespace for you.
@@ -131,6 +132,8 @@ func NewFramework(baseName string, options FrameworkOptions, client clientset.In
 	}
 
 	BeforeEach(f.BeforeEach)
+	// JustBeforeEach(f.JustBeforeEach)
+	JustAfterEach(f.JustAfterEach)
 	AfterEach(f.AfterEach)
 
 	return f
@@ -237,6 +240,72 @@ func (f *Framework) BeforeEach() {
 			}
 		}
 
+	}
+}
+
+func (f *Framework) JustAfterEach() {
+	// Grab calico diags if the test failed.
+	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
+		// If we've created the debug file or env var, pause the test here
+		MaybeWaitForInvestigation()
+
+		Logf("Collecting diags JustAfter failed test in %s", CurrentGinkgoTestDescription().TestText)
+		// TODO: figure out how to pass the 'since' parameter into the log getter, so that we only get logs from during this test
+		// Get logs, pod status, iptables, ipsets
+		// Logs:
+		Logf("Dumping logs from calico/node pods...")
+		logFunc := Logf
+		LogPodsWithLabels(f.ClientSet, "kube-system", map[string]string{"k8s-app": "calico-node"}, logFunc)
+
+		// Pod status:
+		calicoNodeList, err := f.ClientSet.CoreV1().Pods("kube-system").List(metav1.ListOptions{LabelSelector: labels.SelectorFromSet(map[string]string{"k8s-app": "calico-node"}).String()})
+		if err != nil {
+			Logf("failed to get list of pods in kube-system with label k8s-app=calico-node")
+		}
+		for _, nodePod := range calicoNodeList.Items {
+			Logf("Podstatus for %s = %s", nodePod.Name, nodePod.Status)
+		}
+
+		// iptables & ipsets
+		_, nodeList := GetMasterAndWorkerNodesOrDie(f.ClientSet)
+		for _, node := range nodeList.Items {
+			one := int64(1)
+			privileged := true
+			podName := fmt.Sprintf("diagspod-%s", node.Name)
+			// run pod on node in hostnetwork and get iptables & ipsets diags
+			podspec := &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   podName,
+					Labels: map[string]string{"pod-name": podName},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:    "diags",
+							Image:   "calico/felix",
+							Command: []string{"sh", "-c", "ipset list; iptables-save -c"},
+							SecurityContext: &v1.SecurityContext{
+								Privileged: &privileged,
+							},
+						},
+					},
+					RestartPolicy:                 v1.RestartPolicyNever,
+					HostNetwork:                   true,
+					TerminationGracePeriodSeconds: &one, // Speed up pod termination.
+					NodeName: node.Name,
+				},
+			}
+			podClient := f.ClientSet.CoreV1().Pods(f.Namespace.Name)
+			_, err := podClient.Create(podspec)
+			if err != nil {
+				Logf("failed to create diags collection pod: %s", err)
+			}
+			err = f.WaitForPodNoLongerRunning(podName)
+			if err != nil {
+				Logf("failed to run diags collection pod: %s", err)
+			}
+			LogPodsWithLabels(f.ClientSet, f.Namespace.Name, map[string]string{"pod-name": podName}, logFunc)
+		}
 	}
 }
 
@@ -544,7 +613,7 @@ type KubeUser struct {
 }
 
 type KubeCluster struct {
-	Name    string `yaml:"name"`
+	Name string `yaml:"name"`
 	Cluster struct {
 		CertificateAuthorityData string `yaml:"certificate-authority-data"`
 		Server                   string `yaml:"server"`
@@ -553,7 +622,7 @@ type KubeCluster struct {
 
 type KubeConfig struct {
 	Contexts []struct {
-		Name    string `yaml:"name"`
+		Name string `yaml:"name"`
 		Context struct {
 			Cluster string `yaml:"cluster"`
 			User    string
@@ -732,7 +801,7 @@ func (p *PodStateVerification) filter(c clientset.Interface, namespace *v1.Names
 	unfilteredPods := pl.Items
 	filteredPods := []v1.Pod{}
 ReturnPodsSoFar:
-	// Next: Pod must match at least one of the states that the user specified
+// Next: Pod must match at least one of the states that the user specified
 	for _, pod := range unfilteredPods {
 		if !(passesPhasesFilter(pod, p.ValidPhases) && passesPodNameFilter(pod, p.PodName)) {
 			continue
@@ -818,4 +887,31 @@ func GetLogToFileFunc(file *os.File) func(format string, args ...interface{}) {
 		}
 		writer.Flush()
 	}
+}
+
+func MaybeWaitForInvestigation() {
+	// If pause file exist, stop for investigation.
+	count := 0
+	for {
+		if _, err := os.Stat(pauseFilePath); os.IsNotExist(err) {
+			break
+		}
+		time.Sleep(5 * time.Second)
+		if count == 0 {
+			fmt.Println("Pausing to allow investigation by pause file.")
+		}
+		count++
+	}
+	if count > 0 {
+		fmt.Println("Now continuing test")
+	}
+
+	// If env is set, stop for investigation.  Equalfold removes case from the match test.
+	if strings.EqualFold(os.Getenv("CALICO_DEBUG"), "true") {
+		return
+	}
+	fmt.Println("Pausing to allow investigation.  Press Enter to continue.")
+	var input string
+	fmt.Scanln(&input)
+	fmt.Println("Now continuing test")
 }

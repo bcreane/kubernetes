@@ -49,7 +49,6 @@ import (
 const (
 	cmdTestPodName        = "cmd-test-container-pod"
 	calicoctlManifestPath = "test/e2e/testing-manifests/calicoctl"
-	pauseFilePath         = "/report/pause"
 )
 
 var (
@@ -999,7 +998,6 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	err = framework.WaitTimeoutForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name, 6*time.Minute)
 	if err != nil {
 		framework.Logf("calicoctl pod %v got error %v, %#", podClient, err)
-		MaybeWaitForInvestigation()
 	}
 	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
 
@@ -1079,31 +1077,4 @@ func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
 func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) error {
 	podNow := GetPodNow(f, podName)
 	return LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
-}
-
-func MaybeWaitForInvestigation() {
-	// If pause file exist, stop for investigation.
-	count := 0
-	for {
-		if _, err := os.Stat(pauseFilePath); os.IsNotExist(err) {
-			break
-		}
-		time.Sleep(5 * time.Second)
-		if count == 0 {
-			fmt.Println("Pausing to allow investigation by pause file.")
-		}
-		count++
-	}
-	if count > 0 {
-		fmt.Println("Now continuing test")
-	}
-
-	// If env is set, stop for investigation.
-	if os.Getenv("CALICO_DEBUG") != "true" {
-		return
-	}
-	fmt.Println("Pausing to allow investigation.  Press Enter to continue.")
-	var input string
-	fmt.Scanln(&input)
-	fmt.Println("Now continuing test")
 }
