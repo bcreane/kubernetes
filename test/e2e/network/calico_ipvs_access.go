@@ -1031,7 +1031,7 @@ var _ = SIGDescribe("IPVSIngress", func() {
 
 		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
 		It("10 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
+			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1IP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
 		It("11 Test accessing NodePort (Node not running server pod) from a pod on a third node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
@@ -1042,6 +1042,11 @@ var _ = SIGDescribe("IPVSIngress", func() {
 			testIngressPolicy(ipvsTC.node0Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
+		// TODO: Enable this test when we figure out what is wrong with accessing a NodePort using 127.0.0.1 with IPVS
+		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
+		// It("13 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node using localhost [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
+		// 	testIngressPolicy(ipvsTC.node1Name, true, "127.0.0.1", ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
+		// })
 	})
 
 })
