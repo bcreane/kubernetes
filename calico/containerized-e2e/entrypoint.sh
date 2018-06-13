@@ -104,6 +104,7 @@ if [ -z "$FOCUS" ]; then focus_combined ; fi
 if [ -n "$FOCUS" ]; then
   focus_info "$FOCUS"
   runner "$FOCUS"
+  mv /report/junit_01.xml /report/junit_basic.xml || true
 fi
 
 # extended secondary/tertiary focus runs whether or not calico/cnx were provided
@@ -112,8 +113,10 @@ EXT_CONFORMANCE_FOCUS="(ConfigMap|Docker|Downward API|Events|DNS|Proxy|Scheduler
 if [ "$EXT_NETWORKING" == true ]; then
   focus_info "$EXT_NETWORK_FOCUS"
   runner "$EXT_NETWORK_FOCUS"
+  mv /report/junit_01.xml /report/junit_ext_networking.xml || true
 fi
 if [ "$EXT_CONFORMANCE" == true ]; then
   focus_info "$EXT_CONFORMANCE_FOCUS"
   runner "$EXT_CONFORMANCE_FOCUS"
+  mv /report/junit_01.xml /report/junit_ext_conformance.xml || true
 fi
