@@ -25,8 +25,8 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
-	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/alp"
@@ -777,7 +777,8 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 	}
 
 	pc := alp.WrapPodCustomizerIncreaseRetries(podCustomizer)
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, pc)
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	podClient := createNetworkClientPodX(f, ns, podName, target, pc)
 	containerName := podClient.Spec.Containers[0].Name
 	defer func() {
 		// Deferring deleting client pod after test is done.
@@ -837,7 +838,8 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 	}
 
 	pc := alp.WrapPodCustomizerIncreaseRetries(podCustomizer)
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, pc)
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	podClient := createNetworkClientPodX(f, ns, podName, target, pc)
 	containerName := podClient.Spec.Containers[0].Name
 	defer func() {
 		// Deferring deleting client pod after test is done.

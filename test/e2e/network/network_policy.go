@@ -361,11 +361,12 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 })
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {}, func() {})
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
-func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod), onFailure func()) {
+func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod), onFailure func()) {
 	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
+	podClient := createNetworkClientPodX(f, ns, podName, target, podCustomizer)
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -420,11 +421,12 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 }
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	testCannotConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {})
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
-func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) {
+func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod)) {
 	By(fmt.Sprintf("Creating client pod %s that should not be able to connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
+	podClient := createNetworkClientPodX(f, ns, podName, target, podCustomizer)
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -536,7 +538,9 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 		},
 	}
 	// Allow customization of the pod spec before creation.
-	podCustomizer(pod)
+	if podCustomizer != nil {
+		podCustomizer(pod)
+	}
 	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 	Expect(err).NotTo(HaveOccurred())
 	framework.Logf("Created pod %v", pod.ObjectMeta.Name)
@@ -577,9 +581,10 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 // This client will attempt a one-shot connection, then die, without restarting the pod.
 // Test can then be asserted based on whether the pod quit with an error or not.
 func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int) *v1.Pod {
-	return createNetworkClientPodX(f, namespace, podName, targetService, targetPort, func(pod *v1.Pod) {})
+	target := fmt.Sprintf("%s.%s:%d", targetService.Name, targetService.Namespace, targetPort)
+	return createNetworkClientPodX(f, namespace, podName, target, func(pod *v1.Pod) {})
 }
-func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) *v1.Pod {
+func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -596,14 +601,16 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
-							targetService.Name, targetService.Namespace, targetPort),
+						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
+							target),
 					},
 				},
 			},
 		},
 	}
-	podCustomizer(pod)
+	if podCustomizer != nil {
+		podCustomizer(pod)
+	}
 	var err error
 	pod, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 
