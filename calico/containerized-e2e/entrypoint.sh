@@ -20,6 +20,8 @@ function focus_calico {
   CALICO_FOCUS_REGEX="\[Feature:CalicoPolicy-${CALICO_VER}\]"
   if [ "$CALICO_VER" == "v2" ]; then
     SKIPS=$(combine_regex "|" "named port" "$SKIPS")
+    # Also include policy ordering tests.
+    CALICO_FOCUS_REGEX="${CALICO_FOCUS_REGEX}|policy ordering"
   fi
 }
 

@@ -111,21 +111,20 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 	}
 
 	expectConnection := func() {
+		var podCustomizer func(pod *v1.Pod)
 		if hostNetworkedServer {
-			testCanConnectX(f, f.Namespace, "client-can-connect", service, 80, setNodeAffinity, logServerDiags)
-		} else {
-			testCanConnect(f, f.Namespace, "client-can-connect", service, 80)
+			podCustomizer = setNodeAffinity
 		}
-
+		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
+		testCanConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer, logServerDiags)
 	}
 	expectNoConnection := func() {
-		// To debug if needed:
-		// calico.LogCalicoDiagsForNode(f, serverNodeName)
+		var podCustomizer func(pod *v1.Pod)
 		if hostNetworkedServer {
-			testCannotConnectX(f, f.Namespace, "client-cannot-connect", service, 80, setNodeAffinity)
-		} else {
-			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
+			podCustomizer = setNodeAffinity
 		}
+		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
+		testCannotConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer)
 	}
 
 	It("should be contactable", expectConnection)

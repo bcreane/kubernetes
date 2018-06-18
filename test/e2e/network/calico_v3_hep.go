@@ -118,8 +118,10 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 		})
 
 		It("should block all inbound connections by default", func() {
-			testCannotConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer)
-			testCannotConnectX(f, f.Namespace, "client", hepSvc, hepPort2, avoidNodeCustomizer)
+			target1 := fmt.Sprintf("%s.%s:%d", hepSvc.Name, hepSvc.Namespace, hepPort1)
+			target2 := fmt.Sprintf("%s.%s:%d", hepSvc.Name, hepSvc.Namespace, hepPort2)
+			testCannotConnectX(f, f.Namespace, "client", hepSvc, target1, avoidNodeCustomizer)
+			testCannotConnectX(f, f.Namespace, "client", hepSvc, target2, avoidNodeCustomizer)
 		})
 
 		It("should allow inbound connections with an allow-all", func() {
@@ -138,8 +140,10 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 			ctl.Apply(policy)
 			defer ctl.Delete(policy)
 
-			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer, func() {})
-			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort2, avoidNodeCustomizer, func() {})
+			target1 := fmt.Sprintf("%s.%s:%d", hepSvc.Name, hepSvc.Namespace, hepPort1)
+			target2 := fmt.Sprintf("%s.%s:%d", hepSvc.Name, hepSvc.Namespace, hepPort2)
+			testCanConnectX(f, f.Namespace, "client", hepSvc, target1, avoidNodeCustomizer, func() {})
+			testCanConnectX(f, f.Namespace, "client", hepSvc, target2, avoidNodeCustomizer, func() {})
 		})
 
 		It("should allow connections only to the specified named port", func() {
@@ -160,8 +164,10 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3][Serial]", func() {
 			ctl.Apply(policy)
 			defer ctl.Delete(policy)
 
-			testCanConnectX(f, f.Namespace, "client", hepSvc, hepPort1, avoidNodeCustomizer, func() {})
-			testCannotConnectX(f, f.Namespace, "client", hepSvc, hepPort2, avoidNodeCustomizer)
+			target1 := fmt.Sprintf("%s.%s:%d", hepSvc.Name, hepSvc.Namespace, hepPort1)
+			target2 := fmt.Sprintf("%s.%s:%d", hepSvc.Name, hepSvc.Namespace, hepPort2)
+			testCanConnectX(f, f.Namespace, "client", hepSvc, target1, avoidNodeCustomizer, func() {})
+			testCannotConnectX(f, f.Namespace, "client", hepSvc, target2, avoidNodeCustomizer)
 		})
 
 		AfterEach(func() {
