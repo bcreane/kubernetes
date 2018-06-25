@@ -706,6 +706,7 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 				},
 				Resources: []string{
 					"namespaces",
+					"serviceaccounts",
 				},
 				Verbs: []string{
 					"get",
