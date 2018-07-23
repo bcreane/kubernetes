@@ -18,6 +18,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/aws"
@@ -107,18 +108,18 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 			}()
 
 			By("client pod in deny sg should not be able to access rds service")
-			testCannotConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, sgDeny)
+			testCannotConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, []string {sgDeny})
 
 			By("client pod in allow sg should be able to access rds service")
-			testCanConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, sgRds)
+			testCanConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, []string{sgRds})
 		})
 
 	})
 })
 
-func testCanConnectRds(f *framework.Framework, ns *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sg string) {
+func testCanConnectRds(f *framework.Framework, ns *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sgs []string) {
 	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s:%s.", podName, endPoint, port))
-	podClient := createRdsClientPod(f, ns, podName, endPoint, port, password, dbName, sg)
+	podClient := createRdsClientPod(f, ns, podName, endPoint, port, password, dbName, sgs)
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -132,6 +133,8 @@ func testCanConnectRds(f *framework.Framework, ns *v1.Namespace, podName string,
 
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
 	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
+
+
 	if err != nil {
 		// Collect/log Calico diags.
 		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
@@ -169,9 +172,9 @@ func testCanConnectRds(f *framework.Framework, ns *v1.Namespace, podName string,
 	}
 }
 
-func testCannotConnectRds(f *framework.Framework, ns *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sg string) {
+func testCannotConnectRds(f *framework.Framework, ns *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sgs []string) {
 	By(fmt.Sprintf("Creating client pod %s that should not be able to connect to %s:%s.", podName, endPoint, port))
-	podClient := createRdsClientPod(f, ns, podName, endPoint, port, password, dbName, sg)
+	podClient := createRdsClientPod(f, ns, podName, endPoint, port, password, dbName, sgs)
 	defer func() {
 		By(fmt.Sprintf("Cleaning up the pod %s", podName))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -215,9 +218,15 @@ func testCannotConnectRds(f *framework.Framework, ns *v1.Namespace, podName stri
 	}
 }
 
-func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sg string) *v1.Pod {
+func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sgs []string) *v1.Pod {
 	dbCmd := fmt.Sprintf("PGCONNECT_TIMEOUT=3 PGPASSWORD=%s psql --host=%s --port=%s --username=master --dbname=%s -c 'select 1'",
 		password, endPoint, port, dbName)
+
+	sgsNew := []string{}
+	for _, sg := range sgs {
+		sgsNew = append(sgsNew, fmt.Sprintf(`"%s"`, sg))
+	}
+
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -225,7 +234,7 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 				"pod-name": podName,
 			},
 			Annotations: map[string]string{
-				"aws.tigera.io/security-groups": fmt.Sprintf(`["%s"]`, sg),
+				"aws.tigera.io/security-groups": fmt.Sprintf(`[%s]`, strings.Join(sgsNew, ", ")),
 			},
 		},
 		Spec: v1.PodSpec{
