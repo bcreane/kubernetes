@@ -39,7 +39,7 @@ type AwsConfig struct {
 type Awsctl struct {
 	Config AwsConfig // Current aws config for anx cluster.
 
-	Client *AwsCloud // Aws client
+	Client *Cloud // Aws client
 }
 
 func CheckAnxInstalled(f *framework.Framework) bool {
@@ -57,7 +57,7 @@ func ConfigureAwsctl(f *framework.Framework, opts ...AwsctlOptions) *Awsctl {
 
 	framework.Logf("Got aws config %#v", ctl.Config)
 
-	// Create AwsCloud client handler
+	// Create Cloud client handler
 	ctl.Client, err = NewCloudHandler(f.BaseName, ctl.Config.Region, framework.Logf)
 	Expect(err).NotTo(HaveOccurred(), "Unable to create aws cloud handler: %v", err)
 

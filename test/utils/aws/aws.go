@@ -47,7 +47,7 @@ type awsInfo struct {
 	VPCInfo *VPCInfo
 }
 
-type AwsCloud struct {
+type Cloud struct {
 	Name string // name of the cloud cluster, used as prefix to generate resource names.
 
 	ec2 *ec2.EC2
@@ -60,7 +60,7 @@ type AwsCloud struct {
 
 type LogFunc func(format string, args ...interface{})
 
-func NewCloudHandler(name string, region string, logger LogFunc) (*AwsCloud, error) {
+func NewCloudHandler(name string, region string, logger LogFunc) (*Cloud, error) {
 	session, err := session.NewSession(&aws.Config{
 		Region: aws.String(region)},
 	)
@@ -68,7 +68,7 @@ func NewCloudHandler(name string, region string, logger LogFunc) (*AwsCloud, err
 		return nil, err
 	}
 
-	return &AwsCloud{
+	return &Cloud{
 		Name:   name,
 		ec2:    ec2.New(session),
 		rds:    rds.New(session),
@@ -76,31 +76,31 @@ func NewCloudHandler(name string, region string, logger LogFunc) (*AwsCloud, err
 	}, nil
 }
 
-func (a *AwsCloud) EC2() *ec2.EC2 {
+func (a *Cloud) EC2() *ec2.EC2 {
 	return a.ec2
 }
 
-func (a *AwsCloud) RDS() *rds.RDS {
+func (a *Cloud) RDS() *rds.RDS {
 	return a.rds
 }
 
-func (a *AwsCloud) ResourceName(name string) string {
+func (a *Cloud) ResourceName(name string) string {
 	return a.Name + "-" + name
 }
 
-func (a *AwsCloud) subnetIDs() []*string {
-	result := []*string{}
+func (a *Cloud) subnetIDs() []*string {
+	var result []*string
 	for _, subnet := range a.Info.VPCInfo.Subnets {
 		result = append(result, aws.String(subnet.ID))
 	}
 	return result
 }
 
-func (a *AwsCloud) firstSubnetID() string {
+func (a *Cloud) firstSubnetID() string {
 	return a.Info.VPCInfo.Subnets[0].ID
 }
 
-func (a *AwsCloud) findVPC(vpcID string) (*ec2.Vpc, error) {
+func (a *Cloud) findVPC(vpcID string) (*ec2.Vpc, error) {
 	a.logger("Calling DescribeVPC for VPC %s", vpcID)
 
 	request := &ec2.DescribeVpcsInput{
@@ -124,7 +124,7 @@ func (a *AwsCloud) findVPC(vpcID string) (*ec2.Vpc, error) {
 	return vpc, nil
 }
 
-func (a *AwsCloud) GetVPCInfo(vpcID string) error {
+func (a *Cloud) GetVPCInfo(vpcID string) error {
 	vpc, err := a.findVPC(vpcID)
 	if err != nil {
 		return err
@@ -165,7 +165,7 @@ func (a *AwsCloud) GetVPCInfo(vpcID string) error {
 	return nil
 }
 
-func (a *AwsCloud) CreateVpcSG(name string, desc string) (string, error) {
+func (a *Cloud) CreateVpcSG(name string, desc string) (string, error) {
 	vpcID := a.Info.VPCInfo.ID
 
 	result, err := a.EC2().CreateSecurityGroup(&ec2.CreateSecurityGroupInput{
@@ -193,7 +193,7 @@ func (a *AwsCloud) CreateVpcSG(name string, desc string) (string, error) {
 	return groupID, nil
 }
 
-func (a *AwsCloud) DeleteVpcSG(groupID string) error {
+func (a *Cloud) DeleteVpcSG(groupID string) error {
 	deleteRequest := &ec2.DeleteSecurityGroupInput{
 		GroupId: aws.String(groupID),
 	}
@@ -208,7 +208,128 @@ func (a *AwsCloud) DeleteVpcSG(groupID string) error {
 	return nil
 }
 
-func (a *AwsCloud) AuthorizeSGIngressSrcSG(groupID string, protocol string, fromPort, toPort int64, srcSGs []string) error {
+func (a *Cloud) DescribeSecurityGroup(groupID string) ([]*ec2.SecurityGroup, error) {
+	input := &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []*string{
+			aws.String(groupID),
+		},
+	}
+
+	result, err := a.EC2().DescribeSecurityGroups(input)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to discribe security group %s, %v", groupID, err)
+	}
+
+	//a.logger("Successfully describe security group %s : %s", groupID, result)
+	return result.SecurityGroups, nil
+}
+
+// Remove all ingress rules in an SG.
+func (a *Cloud) RevokeSecurityGroupsIngress(groupID string) error {
+	sgs, err := a.DescribeSecurityGroup(groupID)
+	if err != nil {
+		return err
+	}
+
+	for _, sg := range sgs {
+		if len(sg.IpPermissions) > 0 {
+			// Has to use GroupId for non-default VPC.
+			_, err := a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
+				GroupId:       sg.GroupId,
+				IpPermissions: sg.IpPermissions,
+			})
+			if err != nil {
+				a.logger("Got err %v", err)
+				return fmt.Errorf("Unable to revoke security group %s ingress, %v", aws.StringValue(sg.GroupId), err)
+			}
+
+			a.logger("Successfully revoke security group ingress for %s", aws.StringValue(sg.GroupId))
+		}
+	}
+
+	return nil
+}
+
+// Remove all egress rules in an SG.
+func (a *Cloud) RevokeSecurityGroupsEgress(groupID string) error {
+	sgs, err := a.DescribeSecurityGroup(groupID)
+	if err != nil {
+		return err
+	}
+
+	for _, sg := range sgs {
+		if len(sg.IpPermissionsEgress) > 0 {
+			// Has to use GroupId for non-default VPC.
+			_, err := a.EC2().RevokeSecurityGroupEgress(&ec2.RevokeSecurityGroupEgressInput{
+				GroupId:       sg.GroupId,
+				IpPermissions: sg.IpPermissionsEgress,
+			})
+			if err != nil {
+				a.logger("Got err %v", err)
+				return fmt.Errorf("Unable to revoke security group %s egress, %v", aws.StringValue(sg.GroupId), err)
+			}
+		}
+
+		a.logger("Successfully revoke security group egress for %s", aws.StringValue(sg.GroupId))
+	}
+
+	return nil
+}
+
+func (a *Cloud) AuthorizeSGEgressDstSG(groupID string, protocol string, fromPort, toPort int64, dstSGs []string) error {
+	// From dst sg names to userIDGroupPairs.
+	ids := []*ec2.UserIdGroupPair{}
+	for _, sg := range dstSGs {
+		ids = append(ids, &ec2.UserIdGroupPair{GroupId: aws.String(sg)})
+	}
+
+	// Has to use GroupId for non-default VPC.
+	_, err := a.EC2().AuthorizeSecurityGroupEgress(&ec2.AuthorizeSecurityGroupEgressInput{
+		GroupId: aws.String(groupID),
+		IpPermissions: []*ec2.IpPermission{
+			(&ec2.IpPermission{}).
+				SetIpProtocol(protocol).
+				SetFromPort(fromPort).
+				SetToPort(toPort).
+				SetUserIdGroupPairs(ids),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("Unable to set security group %s egress, %v", groupID, err)
+	}
+
+	a.logger("Successfully set security group egress for %s", groupID)
+	return nil
+}
+
+func (a *Cloud) RevokeSGIngressSrcSG(groupID string, protocol string, fromPort, toPort int64, srcSGs []string) error {
+	// From source sg names to userIDGroupPairs.
+	ids := []*ec2.UserIdGroupPair{}
+	for _, sg := range srcSGs {
+		ids = append(ids, &ec2.UserIdGroupPair{GroupId: aws.String(sg)})
+	}
+
+	// Has to use GroupId for non-default VPC.
+	_, err := a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
+		GroupId: aws.String(groupID),
+		IpPermissions: []*ec2.IpPermission{
+			(&ec2.IpPermission{}).
+				SetIpProtocol(protocol).
+				SetFromPort(fromPort).
+				SetToPort(toPort).
+				SetUserIdGroupPairs(ids),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("Unable to revoke security group %s ingress, %v", groupID, err)
+	}
+
+	a.logger("Successfully revoke security group ingress for %s", groupID)
+	return nil
+}
+
+
+func (a *Cloud) AuthorizeSGIngressSrcSG(groupID string, protocol string, fromPort, toPort int64, srcSGs []string) error {
 	// From source sg names to userIDGroupPairs.
 	ids := []*ec2.UserIdGroupPair{}
 	for _, sg := range srcSGs {
@@ -234,8 +355,8 @@ func (a *AwsCloud) AuthorizeSGIngressSrcSG(groupID string, protocol string, from
 	return nil
 }
 
-func (a *AwsCloud) AuthorizeSGIngressIPRange(groupID string, protocol string, fromPort, toPort int64, ipRanges []string) error {
-	// From source ip ranges strings, e.g "0.0.0.0/0" to cidrs.
+func (a *Cloud) AuthorizeSGIngressIPRange(groupID string, protocol string, fromPort, toPort int64, ipRanges []string) error {
+	// From source ip ranges strings, e.g "0.0.0.0/0" to CIDRs.
 	rgs := []*ec2.IpRange{}
 	for _, rg := range ipRanges {
 		rgs = append(rgs, &ec2.IpRange{CidrIp: aws.String(rg)})
@@ -260,7 +381,7 @@ func (a *AwsCloud) AuthorizeSGIngressIPRange(groupID string, protocol string, fr
 	return nil
 }
 
-func (a *AwsCloud) CreateDBSubnetGroup(name string) (string, error) {
+func (a *Cloud) CreateDBSubnetGroup(name string) (string, error) {
 	createInput := &rds.CreateDBSubnetGroupInput{
 		DBSubnetGroupDescription: aws.String(a.ResourceName("DB subnet group")),
 		DBSubnetGroupName:        aws.String(a.ResourceName(name)),
@@ -278,7 +399,7 @@ func (a *AwsCloud) CreateDBSubnetGroup(name string) (string, error) {
 	return groupName, nil
 }
 
-func (a *AwsCloud) DeleteDBSubnetGroup(idString string) error {
+func (a *Cloud) DeleteDBSubnetGroup(idString string) error {
 	deleteRequest := &rds.DeleteDBSubnetGroupInput{
 		DBSubnetGroupName: aws.String(idString),
 	}
@@ -293,7 +414,7 @@ func (a *AwsCloud) DeleteDBSubnetGroup(idString string) error {
 	return nil
 }
 
-func (a *AwsCloud) CreateRDSInstance(name, subnetGroup, vpcSgID, password, dbName string) (string, string, int64, error) {
+func (a *Cloud) CreateRDSInstance(name, subnetGroup, vpcSgID, password, dbName string) (string, string, int64, error) {
 	createInput := &rds.CreateDBInstanceInput{
 		AllocatedStorage:      aws.Int64(5),
 		BackupRetentionPeriod: aws.Int64(0),
@@ -345,8 +466,8 @@ func (a *AwsCloud) CreateRDSInstance(name, subnetGroup, vpcSgID, password, dbNam
 	return idString, *db.Endpoint.Address, *db.Endpoint.Port, nil
 }
 
-func (a *AwsCloud) DeleteRDSInstance(idString string) error {
-	a.logger("RDS instance start deleting", idString)
+func (a *Cloud) DeleteRDSInstance(idString string) error {
+	a.logger("RDS instance %s start deleting", idString)
 	skipFinalSnapshot := true
 	deleteRequest := &rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier: aws.String(idString),
@@ -374,7 +495,7 @@ func (a *AwsCloud) DeleteRDSInstance(idString string) error {
 	return nil
 }
 
-func (a *AwsCloud) createInstance(name, sgID string) (string, error) {
+func (a *Cloud) createInstance(name, sgID string) (string, error) {
 	// Specify the details of the instance that you want to create.
 	request := &ec2.RunInstancesInput{
 		// An Amazon Linux AMI ID for t2.micro instances in the us-west-2 region
@@ -431,14 +552,14 @@ func (a *AwsCloud) createInstance(name, sgID string) (string, error) {
 	return idString, nil
 }
 
-func (a *AwsCloud) DeleteInstance(idString string) error {
+func (a *Cloud) DeleteInstance(idString string) error {
 	log.Printf("Deleting EC2 instance %s", idString)
 	request := &ec2.TerminateInstancesInput{
 		InstanceIds: []*string{aws.String(idString)},
 	}
 	_, err := a.EC2().TerminateInstances(request)
 	if err != nil {
-		if AWSErrorCode(err) == "InvalidInstanceID.NotFound" {
+		if ErrorCode(err) == "InvalidInstanceID.NotFound" {
 			log.Printf("Got InvalidInstanceID.NotFound error deleting instance %s; will treat as already-deleted", idString)
 		} else {
 			return fmt.Errorf("error deleting Instance %s: %v", idString, err)
@@ -460,16 +581,16 @@ func (a *AwsCloud) DeleteInstance(idString string) error {
 	return nil
 }
 
-// AWSErrorCode returns the aws error code, if it is an awserr.Error, otherwise ""
-func AWSErrorCode(err error) string {
+// ErrorCode returns the aws error code, if it is an awserr.Error, otherwise ""
+func ErrorCode(err error) string {
 	if awsError, ok := err.(awserr.Error); ok {
 		return awsError.Code()
 	}
 	return ""
 }
 
-// AWSErrorMessage returns the aws error message, if it is an awserr.Error, otherwise ""
-func AWSErrorMessage(err error) string {
+// ErrorMessage returns the aws error message, if it is an awserr.Error, otherwise ""
+func ErrorMessage(err error) string {
 	if awsError, ok := err.(awserr.Error); ok {
 		return awsError.Message()
 	}
