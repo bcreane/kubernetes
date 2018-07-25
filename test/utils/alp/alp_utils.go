@@ -36,7 +36,7 @@ const (
 	DikastesContainerName = "dikastes"
 	ProxyContainerName    = "istio-proxy"
 	IstioNamespace        = "istio-system"
-	PilotDiscoveryPort    = 15003
+	PilotDiscoveryPort    = 15011
 	NumberOfRetries       = 50
 )
 
