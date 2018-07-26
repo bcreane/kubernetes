@@ -237,6 +237,8 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 				"aws.tigera.io/security-groups": fmt.Sprintf(`[%s]`, strings.Join(sgsNew, ", ")),
 			},
 		},
+		// It could take time for anx controller to be notified with new sg or new rules and to render those into network policies.
+		// Set the total test time for up to 30 seconds.
 		Spec: v1.PodSpec{
 			RestartPolicy: v1.RestartPolicyNever,
 			Containers: []v1.Container{
@@ -246,7 +248,7 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 5); do %s && exit 0 || sleep 3; done; exit 1", dbCmd),
+						fmt.Sprintf("for i in $(seq 1 10); do %s && exit 0 || sleep 3; done; exit 1", dbCmd),
 					},
 				},
 			},
