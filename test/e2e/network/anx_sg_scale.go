@@ -250,7 +250,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 
 func restartAwsController(f *framework.Framework) {
 	// Get calico-node pod on the node.
-	labelSelector := labels.SelectorFromSet(labels.Set(map[string]string{"k8s-app": "tigera-aws-controllers"}))
+	labelSelector := labels.SelectorFromSet(labels.Set(map[string]string{"k8s-app": "tigera-cloud-controllers"}))
 	options := metav1.ListOptions{LabelSelector: labelSelector.String()}
 	podClient := f.ClientSet.CoreV1().Pods("kube-system")
 
