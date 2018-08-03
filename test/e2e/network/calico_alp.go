@@ -884,7 +884,7 @@ func testIstioGetPutCmd(service *v1.Service, method string) (string, string) {
 	port := service.Spec.Ports[0].Port
 
 	// Setup retry. Each retry max timeout 5 seconds. Total timeout 50 seconds.
-	retryArgs := fmt.Sprintf("--connect-timeout 3 --max-time 5 --retry %d --retry-delay 0 --retry-max-time 50",
+	retryArgs := fmt.Sprintf("--connect-timeout 3 --max-time 5 --retry %d --retry-delay 0 --retry-max-time 50 --retry-connrefused",
 		alp.NumberOfRetries)
 
 	switch method {
