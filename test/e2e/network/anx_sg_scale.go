@@ -68,6 +68,15 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 	})
 
 	AfterEach(func() {
+		// Dump GNPs and SGs on failure
+		if CurrentGinkgoTestDescription().Failed {
+			gnps, err := framework.RunKubectl("get", "globalnetworkpolicies", "-o", "yaml")
+			Expect(err).NotTo(HaveOccurred())
+			framework.Logf("Dumping GlobalNetworkPolicies:\n%s", gnps)
+			err = awsctl.DumpSGsInVpc()
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		// Cleanup AWS resources created for the test.
 
 		// Revoke all ingress rules for sgRDS first.
@@ -205,7 +214,6 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			randNum := rand.Intn(numSGs)
 			oneSG := podSgs[randNum] // Select one random SG.
 
-
 			allowOneSGToRdsSG(oneSG)
 			waitForSG()
 
@@ -229,7 +237,6 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			oneSG := podSgs[randNum] // Select one random SG.
 
 			allowOneSGToRdsSG(oneSG)
-
 
 			By("Add egress allow rule to one pod SG to allow traffic to RDS sg")
 			err := awsctl.Client.AuthorizeSGEgressDstSG(oneSG, "tcp", portInt64, portInt64, []string{sgRds})
