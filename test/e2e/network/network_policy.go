@@ -30,6 +30,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo/config"
 )
 
 /*
@@ -47,7 +48,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 	f := framework.NewDefaultFramework("network-policy")
-
+	framework.Logf("focus string is %s", config.GinkgoConfig.FocusString)
 	Context("NetworkPolicy between server and client", func() {
 		BeforeEach(func() {
 			By("Creating a simple server that serves on port 80 and 81.")
@@ -68,7 +69,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			cleanupServerPodAndService(f, podServer, service)
 		})
 
-		It("should support a 'default-deny' policy", func() {
+		It("WindowsPolicy::should support a 'default-deny' policy", func() {
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "deny-all",
@@ -88,7 +89,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
 		})
 
-		It("should enforce policy based on PodSelector", func() {
+		It("WindowsPolicy::should enforce policy based on PodSelector", func() {
 			By("Creating a network policy for the server which allows traffic from the pod 'client-a'.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -126,7 +127,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			})
 		})
 
-		It("should enforce policy based on NamespaceSelector", func() {
+		It("WindowsPolicy::should enforce policy based on NamespaceSelector", func() {
 			nsA := f.Namespace
 			nsBName := f.BaseName + "-b"
 			// The CreateNamespace helper uses the input name as a Name Generator, so the namespace itself
@@ -175,7 +176,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, nsB, "client-b", service, 80)
 		})
 
-		It("should enforce policy based on Ports", func() {
+		It("WindowsPolicy::should enforce policy based on Ports", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -205,7 +206,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should enforce multiple, stacked policies with overlapping podSelectors", func() {
+		It("WindowsPolicy::should enforce multiple, stacked policies with overlapping podSelectors", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -259,7 +260,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should support allow-all policy", func() {
+		It("WindowsPolicy::should support allow-all policy", func() {
 			By("Creating a network policy which allows all traffic.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -361,7 +362,20 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 })
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	var target string
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+		if err := framework.WaitForEndpoint(f.ClientSet, service.Namespace, service.Name); err != nil {
+			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
+		}
+		endpoint, err := f.ClientSet.Core().Endpoints(service.Namespace).Get(service.Name, metav1.GetOptions{})
+		if err != nil {
+			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
+		}
+		target = fmt.Sprintf("http://%s:%d", endpoint.Subsets[0].Addresses[0].IP, targetPort)
+		framework.Logf("endpoint ip:port : %s.", target)
+	} else {
+		target = fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	}
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
 func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod), onFailure func()) {
@@ -421,7 +435,21 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 }
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	//target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	var target string
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+		if err := framework.WaitForEndpoint(f.ClientSet, service.Namespace, service.Name); err != nil {
+			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
+		}
+		endpoint, err := f.ClientSet.Core().Endpoints(service.Namespace).Get(service.Name, metav1.GetOptions{})
+		if err != nil {
+			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
+		}
+		target = fmt.Sprintf("http://%s:%d", endpoint.Subsets[0].Addresses[0].IP, targetPort)
+		framework.Logf("endpoint ip:port : %s.", target)
+	} else {
+		target = fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	}
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
 func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod)) {
@@ -484,13 +512,20 @@ func createHostNetworkedServerPodAndService(f *framework.Framework, namespace *v
 func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod), serviceCustomizer func(svc *v1.Service)) (*v1.Pod, *v1.Service) {
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
 	// and ServicePorts.for our Service.
+	var imageUrl string
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+		imageUrl = "caltigera/porter:first"
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
 			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageutils.GetE2EImage(imageutils.Porter),
+			//Image: imageutils.GetE2EImage(imageutils.Porter),
+			Image: imageUrl,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -585,6 +620,21 @@ func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, pod
 	return createNetworkClientPodX(f, namespace, podName, target, func(pod *v1.Pod) {})
 }
 func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
+	var imageUrl string
+	var arr [2]string
+	var cmd string
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+		imageUrl = "microsoft/powershell:nanoserver"
+		arr[0] = "C:\\Program Files\\PowerShell\\pwsh.exe"
+		arr[1] = "-Command"
+		cmd =  fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing",target)
+	} else {
+		imageUrl =  "busybox"
+		arr[0] = "/bin/sh"
+		arr[1] = "-c"
+		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
+							target)
+	}
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -597,12 +647,11 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 			Containers: []v1.Container{
 				{
 					Name:  fmt.Sprintf("%s-container", podName),
-					Image: "busybox",
+					Image: imageUrl,
 					Args: []string{
-						"/bin/sh",
-						"-c",
-						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
-							target),
+						arr[0],
+						arr[1],
+						cmd,
 					},
 				},
 			},
