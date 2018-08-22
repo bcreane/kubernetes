@@ -24,8 +24,8 @@ import (
 	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-	"k8s.io/kubernetes/test/utils/winctl"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	"fmt"
 
@@ -611,14 +611,14 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	var cmd string
 	if isWindows := winctl.RunningWindowsTest(); isWindows {
 		imageUrl = "microsoft/powershell:nanoserver"
-		podArgs =  append(podArgs,"C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
-		cmd =  fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing",target)
+		podArgs = append(podArgs, "C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
+		cmd = fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing", target)
 	} else {
-		imageUrl =  "busybox"
-		podArgs = append(podArgs,"/bin/sh","-c")
-		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",target)
+		imageUrl = "busybox"
+		podArgs = append(podArgs, "/bin/sh", "-c")
+		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1", target)
 	}
-	podArgs = append(podArgs,cmd)
+	podArgs = append(podArgs, cmd)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -632,7 +632,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 				{
 					Name:  fmt.Sprintf("%s-container", podName),
 					Image: imageUrl,
-					Args: podArgs,
+					Args:  podArgs,
 				},
 			},
 		},
