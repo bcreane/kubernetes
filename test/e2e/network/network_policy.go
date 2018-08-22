@@ -24,6 +24,7 @@ import (
 	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
+	"k8s.io/kubernetes/test/utils/winctl"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"fmt"
@@ -358,41 +359,13 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 		})
 	})
 })
-/*Since we have a know issue related to service ClusterIP on windows,hence using EndpointIP
- to connect*/
-func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName string) string {
 
-	if err := framework.WaitForEndpoint(f.ClientSet, svcNSName , svcName); err != nil {
-		framework.Failf("Unable to get endpoint for service %s: %v", svcName, err)
-	}
-	endpoint, err := f.ClientSet.Core().Endpoints(svcNSName).Get(svcName, metav1.GetOptions{})
-	Expect(err).NotTo(HaveOccurred())
-
-	endpointIP := fmt.Sprintf("%s", endpoint.Subsets[0].Addresses[0].IP)
-	framework.Logf("Service endpointIP : %s.", endpointIP)
-	return endpointIP
-}
-func getTarget(f *framework.Framework, service *v1.Service, targetPort int )string {
-	var targetIP string
-	/*This is a hackfor windows to use EndpointIP instead of service's 
-	ClusterIP, Since we have known issue with service's ClusterIP*/
-	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
-		/*check if serviceEndpointIP is already present in map,else
-		 raise a request to get it*/
-		if IP, exist := calico.SvcEndpointIP[service.Name]; exist {
-			targetIP = IP
-		} else {
-			targetIP = getServiceEndpointIP(f, service.Namespace, service.Name)
-			calico.SvcEndpointIP[service.Name] = targetIP
-		}
-		return fmt.Sprintf("http://%s:%d", targetIP, targetPort)
-	} else {
-		return fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
-	}
-
-}
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	target := getTarget(f, service, targetPort)
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	/*This is a hack for windows to use PodIP instead of Service's ClusterIP*/
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+		target = winctl.GetTarget(f, service, targetPort)
+	}
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
 func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod), onFailure func()) {
@@ -452,7 +425,11 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 }
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	target := getTarget(f, service, targetPort)
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	/*This is a hack for windows to use PodIP instead of Service's ClusterIP*/
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+		target = winctl.GetTarget(f, service, targetPort)
+	}
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
 func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod)) {
@@ -518,7 +495,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	var imageUrl string
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
-	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
 		imageUrl = "caltigera/porter:first"
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
@@ -610,9 +587,9 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 		framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
 	}
 	/*clean up winctl map here*/
-	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
 		By("Cleaning up the ServiceEndpointIP map.")
-		calico.CleanupWinctlMap()
+		winctl.CleanupMap()
 	}
 	By("Cleaning up the server's service.")
 	if err := f.ClientSet.CoreV1().Services(service.Namespace).Delete(service.Name, nil); err != nil {
@@ -631,7 +608,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	var imageUrl string
 	var podArgs []string
 	var cmd string
-	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
+	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs =  append(podArgs,"C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
 		cmd =  fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing",target)

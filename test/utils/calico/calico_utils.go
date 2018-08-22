@@ -38,7 +38,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/kubernetes/test/utils/winctl"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/generated"
 	imageutils "k8s.io/kubernetes/test/utils/image"
@@ -51,7 +50,6 @@ const (
 	cmdTestPodName        = "cmd-test-container-pod"
 	calicoctlManifestPath = "test/e2e/testing-manifests/calicoctl"
 )
-var SvcEndpointIP =  winctl.ServiceEndpointIP
 var (
 	felixConfigNeeded       = true
 	DatastoreType           = ""
@@ -448,10 +446,6 @@ func CleanupServerPod(f *framework.Framework, pod *v1.Pod) {
 	if err := f.ClientSet.CoreV1().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
 		framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
 	}
-}
-func CleanupWinctlMap() {
-	framework.Logf("CleanupWinctlMap")
-	winctl.CleanupMap()
 }
 
 func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {

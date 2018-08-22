@@ -19,7 +19,47 @@ limitations under the License.
 
 package winctl
 
+import (
+        "k8s.io/api/core/v1"
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        "k8s.io/kubernetes/test/e2e/framework"
+        "fmt"
+        . "github.com/onsi/gomega"
+)
 var ServiceEndpointIP = map[string]string{}
+
+func GetTarget(f *framework.Framework, service *v1.Service, targetPort int )string {
+        var targetIP string
+        /*This is a hack for windows to use EndpointIP instead of service's
+        ClusterIP, Since we have known issue with service's ClusterIP*/
+        /*check if serviceEndpointIP is already present in map,else
+         raise a request to get it*/
+	key := fmt.Sprintf("%s-%s",service.Namespace,service.Name)
+        if IP, exist := ServiceEndpointIP[key]; exist {
+                targetIP = IP
+        } else {
+                targetIP = getServiceEndpointIP(f, service.Namespace, service.Name)
+                ServiceEndpointIP[key] = targetIP
+        }
+        return fmt.Sprintf("http://%s:%d", targetIP, targetPort)
+}
+
+
+/*Since we have a known issue related to service ClusterIP on windows,hence using EndpointIP
+ to connect*/
+func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName string) string {
+
+        if err := framework.WaitForEndpoint(f.ClientSet, svcNSName , svcName); err != nil {
+                framework.Failf("Unable to get endpoint for service %s: %v", svcName, err)
+        }
+        endpoint, err := f.ClientSet.Core().Endpoints(svcNSName).Get(svcName, metav1.GetOptions{})
+        Expect(err).NotTo(HaveOccurred())
+
+        endpointIP := fmt.Sprintf("%s", endpoint.Subsets[0].Addresses[0].IP)
+        framework.Logf("Service endpointIP : %s.", endpointIP)
+        return endpointIP
+}
+
 
 /*function to cleanup map*/
 func CleanupMap() {
