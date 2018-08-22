@@ -43,12 +43,10 @@ failed or successfully connected as expected.
 */
 
 var egressVersion = utilversion.MustParseSemantic("v1.8.0")
-
 var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 	f := framework.NewDefaultFramework("network-policy")
-	framework.Logf("focus string is %s", config.GinkgoConfig.FocusString)
 	Context("NetworkPolicy between server and client", func() {
 		BeforeEach(func() {
 			By("Creating a simple server that serves on port 80 and 81.")
@@ -69,7 +67,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			cleanupServerPodAndService(f, podServer, service)
 		})
 
-		It("WindowsPolicy::should support a 'default-deny' policy", func() {
+		It("should support a 'default-deny' policy [Feature:WindowsPolicy]", func() {
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "deny-all",
@@ -89,7 +87,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
 		})
 
-		It("WindowsPolicy::should enforce policy based on PodSelector", func() {
+		It("should enforce policy based on PodSelector [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy for the server which allows traffic from the pod 'client-a'.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -127,7 +125,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			})
 		})
 
-		It("WindowsPolicy::should enforce policy based on NamespaceSelector", func() {
+		It("should enforce policy based on NamespaceSelector [Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 			nsBName := f.BaseName + "-b"
 			// The CreateNamespace helper uses the input name as a Name Generator, so the namespace itself
@@ -176,7 +174,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, nsB, "client-b", service, 80)
 		})
 
-		It("WindowsPolicy::should enforce policy based on Ports", func() {
+		It("should enforce policy based on Ports [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -206,7 +204,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("WindowsPolicy::should enforce multiple, stacked policies with overlapping podSelectors", func() {
+		It("should enforce multiple, stacked policies with overlapping podSelectors [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -260,7 +258,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("WindowsPolicy::should support allow-all policy", func() {
+		It("should support allow-all policy [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy which allows all traffic.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -360,22 +358,41 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 		})
 	})
 })
+/*Since we have a know issue related to service ClusterIP on windows,hence using EndpointIP
+ to connect*/
+func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName string) string {
 
-func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	var target string
-	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
-		if err := framework.WaitForEndpoint(f.ClientSet, service.Namespace, service.Name); err != nil {
-			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
-		}
-		endpoint, err := f.ClientSet.Core().Endpoints(service.Namespace).Get(service.Name, metav1.GetOptions{})
-		if err != nil {
-			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
-		}
-		target = fmt.Sprintf("http://%s:%d", endpoint.Subsets[0].Addresses[0].IP, targetPort)
-		framework.Logf("endpoint ip:port : %s.", target)
-	} else {
-		target = fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	if err := framework.WaitForEndpoint(f.ClientSet, svcNSName , svcName); err != nil {
+		framework.Failf("Unable to get endpoint for service %s: %v", svcName, err)
 	}
+	endpoint, err := f.ClientSet.Core().Endpoints(svcNSName).Get(svcName, metav1.GetOptions{})
+	Expect(err).NotTo(HaveOccurred())
+
+	endpointIP := fmt.Sprintf("%s", endpoint.Subsets[0].Addresses[0].IP)
+	framework.Logf("Service endpointIP : %s.", endpointIP)
+	return endpointIP
+}
+func getTarget(f *framework.Framework, service *v1.Service, targetPort int )string {
+	var targetIP string
+	/*This is a hackfor windows to use EndpointIP instead of service's 
+	ClusterIP, Since we have known issue with service's ClusterIP*/
+	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
+		/*check if serviceEndpointIP is already present in map,else
+		 raise a request to get it*/
+		if IP, exist := calico.SvcEndpointIP[service.Name]; exist {
+			targetIP = IP
+		} else {
+			targetIP = getServiceEndpointIP(f, service.Namespace, service.Name)
+			calico.SvcEndpointIP[service.Name] = targetIP
+		}
+		return fmt.Sprintf("http://%s:%d", targetIP, targetPort)
+	} else {
+		return fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	}
+
+}
+func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
+	target := getTarget(f, service, targetPort)
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
 func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod), onFailure func()) {
@@ -435,21 +452,7 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 }
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	//target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
-	var target string
-	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
-		if err := framework.WaitForEndpoint(f.ClientSet, service.Namespace, service.Name); err != nil {
-			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
-		}
-		endpoint, err := f.ClientSet.Core().Endpoints(service.Namespace).Get(service.Name, metav1.GetOptions{})
-		if err != nil {
-			framework.Failf("unable to get endpoint for service %s: %v", service.Name, err)
-		}
-		target = fmt.Sprintf("http://%s:%d", endpoint.Subsets[0].Addresses[0].IP, targetPort)
-		framework.Logf("endpoint ip:port : %s.", target)
-	} else {
-		target = fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
-	}
+	target := getTarget(f, service, targetPort)
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
 func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod)) {
@@ -515,7 +518,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	var imageUrl string
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
-	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
 		imageUrl = "caltigera/porter:first"
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
@@ -606,6 +609,11 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 	if err := f.ClientSet.CoreV1().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
 		framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
 	}
+	/*clean up winctl map here*/
+	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
+		By("Cleaning up the ServiceEndpointIP map.")
+		calico.CleanupWinctlMap()
+	}
 	By("Cleaning up the server's service.")
 	if err := f.ClientSet.CoreV1().Services(service.Namespace).Delete(service.Name, nil); err != nil {
 		framework.Failf("unable to cleanup svc %v: %v", service.Name, err)
@@ -621,20 +629,18 @@ func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, pod
 }
 func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
 	var imageUrl string
-	var arr [2]string
+	var podArgs []string
 	var cmd string
-	if config.GinkgoConfig.FocusString == "WindowsPolicy" {
+	if config.GinkgoConfig.FocusString == "[Feature:WindowsPolicy]" {
 		imageUrl = "microsoft/powershell:nanoserver"
-		arr[0] = "C:\\Program Files\\PowerShell\\pwsh.exe"
-		arr[1] = "-Command"
+		podArgs =  append(podArgs,"C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
 		cmd =  fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing",target)
 	} else {
 		imageUrl =  "busybox"
-		arr[0] = "/bin/sh"
-		arr[1] = "-c"
-		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
-							target)
+		podArgs = append(podArgs,"/bin/sh","-c")
+		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",target)
 	}
+	podArgs = append(podArgs,cmd)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -648,11 +654,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 				{
 					Name:  fmt.Sprintf("%s-container", podName),
 					Image: imageUrl,
-					Args: []string{
-						arr[0],
-						arr[1],
-						cmd,
-					},
+					Args: podArgs,
 				},
 			},
 		},

@@ -48,7 +48,6 @@ import (
 	"google.golang.org/api/googleapi"
 
 	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/config"
 	. "github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
 
@@ -655,13 +654,8 @@ func WaitForPodsRunningReady(c clientset.Interface, ns string, minPods, allowedN
 				return false, errors.New("unexpected Succeeded pod state")
 			case pod.Status.Phase != v1.PodFailed:
 				Logf("The status of Pod %s is %s (Ready = false), waiting for it to be either Running (with Ready = true) or Failed", pod.ObjectMeta.Name, pod.Status.Phase)
-				/*This is a hack to ignore ContainerCreating pods for networkCNI*/
-				if GinkgoConfig.FocusString == "WindowsPolicy" {
-					nOk++
-				} else {
-					notReady++
-					badPods = append(badPods, pod)
-				}
+				notReady++
+				badPods = append(badPods, pod)
 			default:
 				if metav1.GetControllerOf(&pod) == nil {
 					Logf("Pod %s is Failed, but it's not controlled by a controller", pod.ObjectMeta.Name)
@@ -673,12 +667,7 @@ func WaitForPodsRunningReady(c clientset.Interface, ns string, minPods, allowedN
 
 		Logf("%d / %d pods in namespace '%s' are running and ready (%d seconds elapsed)",
 			nOk, len(podList.Items), ns, int(time.Since(start).Seconds()))
-		/*This is a hack to ignore ContainerCreating pods for networkCNI*/
-		if GinkgoConfig.FocusString == "WindowsConfig" {
-			replicaOk = replicas
-		}
 		Logf("expected %d pod replicas in namespace '%s', %d are Running and Ready.", replicas, ns, replicaOk)
-
 		if replicaOk == replicas && nOk >= minPods && len(badPods) == 0 {
 			return true, nil
 		}
