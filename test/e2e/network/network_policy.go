@@ -43,10 +43,12 @@ failed or successfully connected as expected.
 */
 
 var egressVersion = utilversion.MustParseSemantic("v1.8.0")
+
 var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 	var service *v1.Service
 	var podServer *v1.Pod
 	f := framework.NewDefaultFramework("network-policy")
+
 	Context("NetworkPolicy between server and client", func() {
 		BeforeEach(func() {
 			By("Creating a simple server that serves on port 80 and 81.")

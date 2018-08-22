@@ -59,6 +59,7 @@ var (
 	serviceCmd              = "/bin/sh -c 'while /bin/true; do echo foo | nc -l %d; done'"
 	serverPort1             = 80
 )
+
 func ReadTestFileOrDie(file string, config ...interface{}) string {
 	v := string(generated.ReadOrDie(path.Join(calicoctlManifestPath, file)))
 	if len(config) == 1 {
