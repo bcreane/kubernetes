@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2017 Tigera, Inc. All rights reserved.
+Copyright (c) 2018 Tigera, Inc. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,20 +20,29 @@ limitations under the License.
 package winctl
 
 import (
+        "fmt"
         "k8s.io/api/core/v1"
         metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
         "k8s.io/kubernetes/test/e2e/framework"
-        "fmt"
+	. "github.com/onsi/ginkgo/config"
         . "github.com/onsi/gomega"
 )
+//Map to store serviceName and respective endpointIP
 var ServiceEndpointIP = map[string]string{}
+// Check if we are running windows specific test cases.
+func RunningWindowsTest () bool {
+	if GinkgoConfig.FocusString == "WindowsPolicy" {
+		return true
+	}
+	return false
+}
 
+//This is a hack for windows to use EndpointIP instead of service's
+//ClusterIP, Since we have known issue with service's ClusterIP
 func GetTarget(f *framework.Framework, service *v1.Service, targetPort int )string {
         var targetIP string
-        /*This is a hack for windows to use EndpointIP instead of service's
-        ClusterIP, Since we have known issue with service's ClusterIP*/
-        /*check if serviceEndpointIP is already present in map,else
-         raise a request to get it*/
+        //check if serviceEndpointIP is already present in map,else
+        //raise a request to get it
 	key := fmt.Sprintf("%s-%s",service.Namespace,service.Name)
         if IP, exist := ServiceEndpointIP[key]; exist {
                 targetIP = IP
@@ -45,8 +54,8 @@ func GetTarget(f *framework.Framework, service *v1.Service, targetPort int )stri
 }
 
 
-/*Since we have a known issue related to service ClusterIP on windows,hence using EndpointIP
- to connect*/
+//Since we have a known issue related to service ClusterIP on windows,hence using EndpointIP
+// to connect
 func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName string) string {
 
         if err := framework.WaitForEndpoint(f.ClientSet, svcNSName , svcName); err != nil {
@@ -56,13 +65,13 @@ func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName stri
         Expect(err).NotTo(HaveOccurred())
 
         endpointIP := fmt.Sprintf("%s", endpoint.Subsets[0].Addresses[0].IP)
-        framework.Logf("Service endpointIP : %s.", endpointIP)
+        framework.Logf("ServiceName: %s endpointIP: %s.",svcName ,endpointIP)
         return endpointIP
 }
 
 
-/*function to cleanup map*/
-func CleanupMap() {
+//function to cleanup ServiceName and EndpointIP map
+func CleanupServiceEndpointMap() {
 	for i := range ServiceEndpointIP {
 		delete(ServiceEndpointIP, i)
 	}

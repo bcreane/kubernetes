@@ -50,6 +50,7 @@ const (
 	cmdTestPodName        = "cmd-test-container-pod"
 	calicoctlManifestPath = "test/e2e/testing-manifests/calicoctl"
 )
+
 var (
 	felixConfigNeeded       = true
 	DatastoreType           = ""
