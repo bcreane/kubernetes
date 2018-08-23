@@ -496,10 +496,13 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	var imageUrl string
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
+	var nodeselector = map[string]string{}
 	if winctl.RunningWindowsTest() {
 		imageUrl = "caltigera/porter:first"
+		nodeselector["beta.kubernetes.io/os"] = "windows"
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
 	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
@@ -550,6 +553,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 		Spec: v1.PodSpec{
 			Containers:    containers,
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 		},
 	}
 	// Allow customization of the pod spec before creation.
@@ -609,14 +613,17 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	var imageUrl string
 	var podArgs []string
 	var cmd string
+	var nodeselector = map[string]string{}
 	if winctl.RunningWindowsTest() {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs = append(podArgs, "C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
 		cmd = fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing", target)
+		nodeselector["beta.kubernetes.io/os"] = "windows"
 	} else {
 		imageUrl = "busybox"
 		podArgs = append(podArgs, "/bin/sh", "-c")
 		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1", target)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
 	}
 	podArgs = append(podArgs, cmd)
 	pod := &v1.Pod{
@@ -628,6 +635,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 			Containers: []v1.Container{
 				{
 					Name:  fmt.Sprintf("%s-container", podName),

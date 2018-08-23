@@ -526,10 +526,13 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
 	var imageUrl string
+	var nodeselector = map[string]string{}
 	if winctl.RunningWindowsTest() {
 		imageUrl = "caltigera/porter:first"
+		nodeselector["beta.kubernetes.io/os"] = "windows"
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
 	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
@@ -584,6 +587,7 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		Spec: v1.PodSpec{
 			Containers:    containers,
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 		},
 	})
 	Expect(err).NotTo(HaveOccurred())

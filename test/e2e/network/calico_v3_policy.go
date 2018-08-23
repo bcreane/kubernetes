@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-	"k8s.io/kubernetes/test/utils/winctl"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -87,9 +86,9 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 			framework.Logf("Waiting for Server to come up.")
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
-			//This is a hack to get service endpointIP before applying calico-policy on server.
-			target := winctl.GetTarget(f, serviceB, 80)
-			framework.Logf("endpoint for service %s :%s ", serviceB, target)
+
+			By("Creating client-can-connect-b which will be able to contact the server-b since no policies are present.")
+			testCanConnect(f, nsB, "client-can-connect-b", serviceB, 80)
 			// TODO (mattl): remove this and rework these policies. Currently need to create a default deny since Calico v2.6.0
 			// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
 			By("Creating a namespace-wide default-deny policy")
@@ -291,9 +290,8 @@ spec:
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
 
-			//This is a hack to get service endpointIP before applying calico-policy on server.
-			target := winctl.GetTarget(f, serviceB, 80)
-			framework.Logf("endpoint for service %s :%s ", serviceB, target)
+			By("Creating client-can-connect-b which will be able to contact the server-b since no policies are present.")
+			testCanConnect(f, nsB, "client-can-connect-b", serviceB, 80)
 			// Verify that by default, all namespaces can connect with each other
 			// Currently commented out because it breaks tests that are not broken without this block
 			/*
@@ -475,18 +473,16 @@ spec:
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
 
-			//This is a hack to get service endpointIP before applying calico-policy on server.
-			target := winctl.GetTarget(f, serviceB, 80)
-			framework.Logf("endpoint for service %s :%s ", serviceB, target)
+			By("Creating client-can-connect-b which will be able to contact the server-b since no policies are present.")
+			testCanConnect(f, nsB, "client-can-connect-b", serviceB, 80)
 			// Create a labeled server within namespace A: the namespace without a labeled server pod
 			podServerC, serviceC := calico.CreateServerPodAndServiceWithLabels(f, nsA, "server-c", []int{80}, map[string]string{identifierKey: "ident2"})
 			defer cleanupServerPodAndService(f, podServerC, serviceC)
 			framework.Logf("Waiting for Server to come up.")
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerC)
 			Expect(err).NotTo(HaveOccurred())
-			//This is a hack to get service endpointIP before applying calico-policy on server.
-			target = winctl.GetTarget(f, serviceC, 80)
-			framework.Logf("endpoint for service %s :%s ", serviceC, target)
+			By("Creating client-can-connect-c which will be able to contact the server-c since no policies are present.")
+			testCanConnect(f, nsA, "client-can-connect-c", serviceC, 80)
 
 			// Test that all of the pods are able to reach each other
 			// Commented out for now since it seems to make the last few tests fail
@@ -877,7 +873,7 @@ spec:
 		testCanConnect(f, ns, "client", service, serverPort1)
 	})
 
-	It("should support CRUD operations of a policy [WindowsPolicy]", func() {
+	It("should support CRUD operations of a policy [Feature:WindowsPolicy]", func() {
 		ns := f.Namespace
 		calicoctl := calico.ConfigureCalicoctl(f)
 
