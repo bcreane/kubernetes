@@ -364,7 +364,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
 	//This is a hack for windows to use PodIP instead of Service's ClusterIP
-	if isWindows := winctl.RunningWindowsTest(); isWindows {
+	if winctl.RunningWindowsTest() {
 		target = winctl.GetTarget(f, service, targetPort)
 	}
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
@@ -428,7 +428,7 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
 	//This is a hack for windows to use PodIP instead of Service's ClusterIP
-	if isWindows := winctl.RunningWindowsTest(); isWindows {
+	if winctl.RunningWindowsTest() {
 		target = winctl.GetTarget(f, service, targetPort)
 	}
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
@@ -496,7 +496,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	var imageUrl string
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
-	if isWindows := winctl.RunningWindowsTest(); isWindows {
+	if winctl.RunningWindowsTest() {
 		imageUrl = "caltigera/porter:first"
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
@@ -588,7 +588,7 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 	}
 	//This is a hack again to clear map created for Servicename and endpointIP
 	//Clean up winctl service endpoint map here
-	if isWindows := winctl.RunningWindowsTest(); isWindows {
+	if winctl.RunningWindowsTest() {
 		By("Cleaning up the ServiceEndpointIP map.")
 		winctl.CleanupServiceEndpointMap()
 	}
@@ -609,7 +609,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	var imageUrl string
 	var podArgs []string
 	var cmd string
-	if isWindows := winctl.RunningWindowsTest(); isWindows {
+	if winctl.RunningWindowsTest() {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs = append(podArgs, "C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
 		cmd = fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing", target)

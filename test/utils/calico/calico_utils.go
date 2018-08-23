@@ -41,6 +41,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/generated"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -413,7 +414,7 @@ func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
 			clientset.CoreV1().Pods("kube-system").Delete(calicoNodePod.ObjectMeta.Name, deleteImmediately)
 		}
 	}
-	framework.WaitForPodsRunningReady(clientset, "kube-system", int32(numKubeSys),0, 5*time.Minute, map[string]string{})
+	framework.WaitForPodsRunningReady(clientset, "kube-system", int32(numKubeSys), 0, 5*time.Minute, map[string]string{})
 }
 
 func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, labels map[string]string, port int) *v1.Pod {
@@ -524,11 +525,17 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	// and ServicePorts.for our Service.
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
+	var imageUrl string
+	if winctl.RunningWindowsTest() {
+		imageUrl = "caltigera/porter:first"
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
 			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageutils.GetE2EImage(imageutils.Porter),
+			Image: imageUrl,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -959,6 +966,8 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 				},
 			},
 			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
+			//Since calico policy would be applied from master, hence made NodeSelector as linux
+			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
 	}
 

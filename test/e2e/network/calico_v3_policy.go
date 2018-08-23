@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -67,7 +68,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 			calicoctl.Cleanup()
 		})
 
-		It("should correctly isolate namespaces by ingress and egress policies", func() {
+		It("should correctly isolate namespaces by ingress and egress policies [Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 			serviceA := service
 			nsBName := f.BaseName + "-b"
@@ -86,7 +87,9 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] calico policy", func() {
 			framework.Logf("Waiting for Server to come up.")
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
-
+			//This is a hack to get service endpointIP before applying calico-policy on server.
+			target := winctl.GetTarget(f, serviceB, 80)
+			framework.Logf("endpoint for service %s :%s ", serviceB, target)
 			// TODO (mattl): remove this and rework these policies. Currently need to create a default deny since Calico v2.6.0
 			// defaults to allow for any non matching policies while 2.5.1 and earlier default to deny.
 			By("Creating a namespace-wide default-deny policy")
@@ -195,7 +198,7 @@ spec:
 			testCannotConnect(f, nsA, "client-a", serviceB, 80)
 		})
 
-		It("should be able to set up a \"default-deny\" policy for a namespace", func() {
+		It("should be able to set up a \"default-deny\" policy for a namespace [Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 			serviceA := service
 			nsBName := f.BaseName + "-b"
@@ -261,7 +264,7 @@ spec:
 			testCanConnect(f, nsA, "client-a", serviceB, 80)
 		})
 
-		It("should correctly overwrite existing calico policies with simple ingress and egress policies", func() {
+		It("should correctly overwrite existing calico policies with simple ingress and egress policies [Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 			serviceA := service
 
@@ -288,6 +291,9 @@ spec:
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
 
+			//This is a hack to get service endpointIP before applying calico-policy on server.
+			target := winctl.GetTarget(f, serviceB, 80)
+			framework.Logf("endpoint for service %s :%s ", serviceB, target)
 			// Verify that by default, all namespaces can connect with each other
 			// Currently commented out because it breaks tests that are not broken without this block
 			/*
@@ -441,7 +447,7 @@ spec:
 			testCanConnect(f, nsA, "client-a", serviceB, 80)
 		})
 
-		It("should correctly be able to select endpoints for policies using label selectors", func() {
+		It("should correctly be able to select endpoints for policies using label selectors[Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 			serviceA := service
 
@@ -469,12 +475,18 @@ spec:
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerB)
 			Expect(err).NotTo(HaveOccurred())
 
+			//This is a hack to get service endpointIP before applying calico-policy on server.
+			target := winctl.GetTarget(f, serviceB, 80)
+			framework.Logf("endpoint for service %s :%s ", serviceB, target)
 			// Create a labeled server within namespace A: the namespace without a labeled server pod
 			podServerC, serviceC := calico.CreateServerPodAndServiceWithLabels(f, nsA, "server-c", []int{80}, map[string]string{identifierKey: "ident2"})
 			defer cleanupServerPodAndService(f, podServerC, serviceC)
 			framework.Logf("Waiting for Server to come up.")
 			err = framework.WaitForPodRunningInNamespace(f.ClientSet, podServerC)
 			Expect(err).NotTo(HaveOccurred())
+			//This is a hack to get service endpointIP before applying calico-policy on server.
+			target = winctl.GetTarget(f, serviceC, 80)
+			framework.Logf("endpoint for service %s :%s ", serviceC, target)
 
 			// Test that all of the pods are able to reach each other
 			// Commented out for now since it seems to make the last few tests fail
@@ -794,7 +806,7 @@ spec:
 		*/
 	})
 
-	It("should enforce rule ordering correctly", func() {
+	It("should enforce rule ordering correctly [Feature:WindowsPolicy]", func() {
 		ns := f.Namespace
 		calicoctl := calico.ConfigureCalicoctl(f)
 
@@ -865,7 +877,7 @@ spec:
 		testCanConnect(f, ns, "client", service, serverPort1)
 	})
 
-	It("should support CRUD operations of a policy", func() {
+	It("should support CRUD operations of a policy [WindowsPolicy]", func() {
 		ns := f.Namespace
 		calicoctl := calico.ConfigureCalicoctl(f)
 

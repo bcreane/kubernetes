@@ -62,7 +62,8 @@ func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName stri
 	}
 	endpoint, err := f.ClientSet.Core().Endpoints(svcNSName).Get(svcName, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred())
-
+	Expect(endpoint.Subsets).To(HaveLen(1), fmt.Sprintf("Failed to find endpoint subset for service %s", svcName))
+	Expect(endpoint.Subsets[0].Addresses).To(HaveLen(1), fmt.Sprintf("Failed to find endpoint address for service %s", svcName))
 	endpointIP := fmt.Sprintf("%s", endpoint.Subsets[0].Addresses[0].IP)
 	framework.Logf("ServiceName: %s endpointIP: %s.", svcName, endpointIP)
 	return endpointIP
