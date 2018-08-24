@@ -17,8 +17,11 @@ limitations under the License.
 package aws
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -107,7 +110,12 @@ func (a *Cloud) findVPC(vpcID string) (*ec2.Vpc, error) {
 		VpcIds: []*string{&vpcID},
 	}
 
-	response, err := a.EC2().DescribeVpcs(request)
+	var response *ec2.DescribeVpcsOutput
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		response, err = a.EC2().DescribeVpcs(request)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error listing VPCs: %v", err)
 	}
@@ -144,7 +152,11 @@ func (a *Cloud) GetVPCInfo(vpcID string) error {
 		Filters: []*ec2.Filter{newEC2Filter("vpc-id", vpcID)},
 	}
 
-	response, err := a.EC2().DescribeSubnets(request)
+	var response *ec2.DescribeSubnetsOutput
+	err = retryDueToRequestLimiting(func() error {
+		response, err = a.EC2().DescribeSubnets(request)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("error listing subnets in VPC %s: %v", vpcID, err)
 	}
@@ -168,10 +180,15 @@ func (a *Cloud) GetVPCInfo(vpcID string) error {
 func (a *Cloud) CreateVpcSG(name string, desc string) (string, error) {
 	vpcID := a.Info.VPCInfo.ID
 
-	result, err := a.EC2().CreateSecurityGroup(&ec2.CreateSecurityGroupInput{
-		GroupName:   aws.String(a.ResourceName(name)),
-		Description: aws.String(desc),
-		VpcId:       aws.String(vpcID),
+	var result *ec2.CreateSecurityGroupOutput
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		result, err = a.EC2().CreateSecurityGroup(&ec2.CreateSecurityGroupInput{
+			GroupName:   aws.String(a.ResourceName(name)),
+			Description: aws.String(desc),
+			VpcId:       aws.String(vpcID),
+		})
+		return err
 	})
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -179,7 +196,7 @@ func (a *Cloud) CreateVpcSG(name string, desc string) (string, error) {
 			case "InvalidVpcID.NotFound":
 				return "", fmt.Errorf("Unable to find VPC with ID %s.", vpcID)
 			case "InvalidGroup.Duplicate":
-				return "", fmt.Errorf("Security group %s already exists.", name)
+				return "", fmt.Errorf("Security group %s already exists in %s.", name, vpcID)
 			}
 		}
 		return "", fmt.Errorf("Unable to create security group %q, %v", name, err)
@@ -198,7 +215,11 @@ func (a *Cloud) DeleteVpcSG(groupID string) error {
 		GroupId: aws.String(groupID),
 	}
 
-	_, err := a.EC2().DeleteSecurityGroup(deleteRequest)
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		_, err = a.EC2().DeleteSecurityGroup(deleteRequest)
+		return err
+	})
 	if err != nil {
 		a.logger("Could not delete vpc security group %v", err)
 		return err
@@ -215,12 +236,37 @@ func (a *Cloud) DescribeSecurityGroup(groupID string) ([]*ec2.SecurityGroup, err
 		},
 	}
 
-	result, err := a.EC2().DescribeSecurityGroups(input)
+	var result *ec2.DescribeSecurityGroupsOutput
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		result, err = a.EC2().DescribeSecurityGroups(input)
+		return err
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("Unable to discribe security group %s, %v", groupID, err)
+		return nil, err
 	}
 
-	//a.logger("Successfully describe security group %s : %s", groupID, result)
+	return result.SecurityGroups, nil
+}
+
+func (a *Cloud) DescribeFilteredSecurityGroups(filter map[string][]string) ([]*ec2.SecurityGroup, error) {
+	f := []*ec2.Filter{}
+	for k, v := range filter {
+		f = append(f, newEC2Filter(k, v...))
+	}
+	input := &ec2.DescribeSecurityGroupsInput{Filters: f}
+
+	var result *ec2.DescribeSecurityGroupsOutput
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		result, err = a.EC2().DescribeSecurityGroups(input)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Unable to discribe security group with filter %v, %v", f, err)
+	}
+
 	return result.SecurityGroups, nil
 }
 
@@ -234,9 +280,14 @@ func (a *Cloud) RevokeSecurityGroupsIngress(groupID string) error {
 	for _, sg := range sgs {
 		if len(sg.IpPermissions) > 0 {
 			// Has to use GroupId for non-default VPC.
-			_, err := a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
+			input := &ec2.RevokeSecurityGroupIngressInput{
 				GroupId:       sg.GroupId,
 				IpPermissions: sg.IpPermissions,
+			}
+			var err error
+			err = retryDueToRequestLimiting(func() error {
+				_, err = a.EC2().RevokeSecurityGroupIngress(input)
+				return err
 			})
 			if err != nil {
 				a.logger("Got err %v", err)
@@ -260,9 +311,14 @@ func (a *Cloud) RevokeSecurityGroupsEgress(groupID string) error {
 	for _, sg := range sgs {
 		if len(sg.IpPermissionsEgress) > 0 {
 			// Has to use GroupId for non-default VPC.
-			_, err := a.EC2().RevokeSecurityGroupEgress(&ec2.RevokeSecurityGroupEgressInput{
+			input := &ec2.RevokeSecurityGroupEgressInput{
 				GroupId:       sg.GroupId,
 				IpPermissions: sg.IpPermissionsEgress,
+			}
+			var err error
+			err = retryDueToRequestLimiting(func() error {
+				_, err := a.EC2().RevokeSecurityGroupEgress(input)
+				return err
 			})
 			if err != nil {
 				a.logger("Got err %v", err)
@@ -284,15 +340,19 @@ func (a *Cloud) AuthorizeSGEgressDstSG(groupID string, protocol string, fromPort
 	}
 
 	// Has to use GroupId for non-default VPC.
-	_, err := a.EC2().AuthorizeSecurityGroupEgress(&ec2.AuthorizeSecurityGroupEgressInput{
-		GroupId: aws.String(groupID),
-		IpPermissions: []*ec2.IpPermission{
-			(&ec2.IpPermission{}).
-				SetIpProtocol(protocol).
-				SetFromPort(fromPort).
-				SetToPort(toPort).
-				SetUserIdGroupPairs(ids),
-		},
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		_, err = a.EC2().AuthorizeSecurityGroupEgress(&ec2.AuthorizeSecurityGroupEgressInput{
+			GroupId: aws.String(groupID),
+			IpPermissions: []*ec2.IpPermission{
+				(&ec2.IpPermission{}).
+					SetIpProtocol(protocol).
+					SetFromPort(fromPort).
+					SetToPort(toPort).
+					SetUserIdGroupPairs(ids),
+			},
+		})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("Unable to set security group %s egress, %v", groupID, err)
@@ -309,16 +369,20 @@ func (a *Cloud) RevokeSGIngressSrcSG(groupID string, protocol string, fromPort, 
 		ids = append(ids, &ec2.UserIdGroupPair{GroupId: aws.String(sg)})
 	}
 
-	// Has to use GroupId for non-default VPC.
-	_, err := a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
-		GroupId: aws.String(groupID),
-		IpPermissions: []*ec2.IpPermission{
-			(&ec2.IpPermission{}).
-				SetIpProtocol(protocol).
-				SetFromPort(fromPort).
-				SetToPort(toPort).
-				SetUserIdGroupPairs(ids),
-		},
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		// Has to use GroupId for non-default VPC.
+		_, err = a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
+			GroupId: aws.String(groupID),
+			IpPermissions: []*ec2.IpPermission{
+				(&ec2.IpPermission{}).
+					SetIpProtocol(protocol).
+					SetFromPort(fromPort).
+					SetToPort(toPort).
+					SetUserIdGroupPairs(ids),
+			},
+		})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("Unable to revoke security group %s ingress, %v", groupID, err)
@@ -328,6 +392,35 @@ func (a *Cloud) RevokeSGIngressSrcSG(groupID string, protocol string, fromPort, 
 	return nil
 }
 
+func (a *Cloud) RevokeSGIngressIPRange(groupID string, protocol string, fromPort, toPort int64, ipRanges []string) error {
+	// From source ip ranges strings, e.g "0.0.0.0/0" to CIDRs.
+	rgs := []*ec2.IpRange{}
+	for _, rg := range ipRanges {
+		rgs = append(rgs, &ec2.IpRange{CidrIp: aws.String(rg)})
+	}
+
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		// Has to use GroupId for non-default VPC.
+		_, err = a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
+			GroupId: aws.String(groupID),
+			IpPermissions: []*ec2.IpPermission{
+				(&ec2.IpPermission{}).
+					SetIpProtocol(protocol).
+					SetFromPort(fromPort).
+					SetToPort(toPort).
+					SetIpRanges(rgs),
+			},
+		})
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("Unable to revoke security group %s ingress, %v", groupID, err)
+	}
+
+	a.logger("Successfully revoke security group ingress for %s", groupID)
+	return nil
+}
 
 func (a *Cloud) AuthorizeSGIngressSrcSG(groupID string, protocol string, fromPort, toPort int64, srcSGs []string) error {
 	// From source sg names to userIDGroupPairs.
@@ -336,16 +429,20 @@ func (a *Cloud) AuthorizeSGIngressSrcSG(groupID string, protocol string, fromPor
 		ids = append(ids, &ec2.UserIdGroupPair{GroupId: aws.String(sg)})
 	}
 
-	// Has to use GroupId for non-default VPC.
-	_, err := a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
-		GroupId: aws.String(groupID),
-		IpPermissions: []*ec2.IpPermission{
-			(&ec2.IpPermission{}).
-				SetIpProtocol(protocol).
-				SetFromPort(fromPort).
-				SetToPort(toPort).
-				SetUserIdGroupPairs(ids),
-		},
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		// Has to use GroupId for non-default VPC.
+		_, err = a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
+			GroupId: aws.String(groupID),
+			IpPermissions: []*ec2.IpPermission{
+				(&ec2.IpPermission{}).
+					SetIpProtocol(protocol).
+					SetFromPort(fromPort).
+					SetToPort(toPort).
+					SetUserIdGroupPairs(ids),
+			},
+		})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("Unable to set security group %s ingress, %v", groupID, err)
@@ -362,16 +459,38 @@ func (a *Cloud) AuthorizeSGIngressIPRange(groupID string, protocol string, fromP
 		rgs = append(rgs, &ec2.IpRange{CidrIp: aws.String(rg)})
 	}
 
-	// Has to use GroupId for non-default VPC.
-	_, err := a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
-		GroupId: aws.String(groupID),
-		IpPermissions: []*ec2.IpPermission{
-			(&ec2.IpPermission{}).
-				SetIpProtocol(protocol).
-				SetFromPort(fromPort).
-				SetToPort(toPort).
-				SetIpRanges(rgs),
-		},
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		// Has to use GroupId for non-default VPC.
+		_, err = a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
+			GroupId: aws.String(groupID),
+			IpPermissions: []*ec2.IpPermission{
+				(&ec2.IpPermission{}).
+					SetIpProtocol(protocol).
+					SetFromPort(fromPort).
+					SetToPort(toPort).
+					SetIpRanges(rgs),
+			},
+		})
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("Unable to set security group %s ingress, %v", groupID, err)
+	}
+
+	a.logger("Successfully set security group ingress for %s", groupID)
+	return nil
+}
+
+func (a *Cloud) AuthorizeSGIngressIpPermissions(groupID string, ipPermissions []*ec2.IpPermission) error {
+	var err error
+	err = retryDueToRequestLimiting(func() error {
+		// Has to use GroupId for non-default VPC.
+		_, err = a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
+			GroupId:       aws.String(groupID),
+			IpPermissions: ipPermissions,
+		})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("Unable to set security group %s ingress, %v", groupID, err)
@@ -495,7 +614,9 @@ func (a *Cloud) DeleteRDSInstance(idString string) error {
 	return nil
 }
 
-func (a *Cloud) createInstance(name, sgID string) (string, error) {
+// To debug the instance you can set AWS_INSTANCE_KEY_NAME with a key in AWS
+// that will be loaded to the instance and then it can be ssh'd to as ec2-user.
+func (a *Cloud) CreateInstance(name, sgID string, instanceCommand string) (instanceId string, err error) {
 	// Specify the details of the instance that you want to create.
 	request := &ec2.RunInstancesInput{
 		// An Amazon Linux AMI ID for t2.micro instances in the us-west-2 region
@@ -503,11 +624,23 @@ func (a *Cloud) createInstance(name, sgID string) (string, error) {
 		InstanceType: aws.String("t2.micro"),
 		MinCount:     aws.Int64(1),
 		MaxCount:     aws.Int64(1),
-		SecurityGroupIds: []*string{
-			aws.String(sgID),
-		},
-		SubnetId: aws.String(a.firstSubnetID()),
+		NetworkInterfaces: []*ec2.InstanceNetworkInterfaceSpecification{
+			&ec2.InstanceNetworkInterfaceSpecification{
+				AssociatePublicIpAddress: aws.Bool(true),
+				DeviceIndex:              aws.Int64(0),
+				Groups: []*string{
+					aws.String(sgID),
+				},
+				SubnetId: aws.String(a.firstSubnetID()),
+			}},
+		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(instanceCommand))),
 	}
+
+	key_pair_name := os.Getenv("AWS_INSTANCE_KEY_NAME")
+	if key_pair_name == "" {
+		key_pair_name = "wavetank"
+	}
+	request.KeyName = aws.String(key_pair_name)
 
 	result, err := a.EC2().RunInstances(request)
 
@@ -552,6 +685,49 @@ func (a *Cloud) createInstance(name, sgID string) (string, error) {
 	return idString, nil
 }
 
+func (a *Cloud) GetInstanceSshUser(instanceId string) (string, error) {
+	return "ec2-user", nil
+}
+
+func (a *Cloud) GetInstancePrivateIp(instanceId string) (privateIp string, err error) {
+	result, err := a.EC2().DescribeInstances(&ec2.DescribeInstancesInput{
+		InstanceIds: []*string{aws.String(instanceId)},
+	})
+	if err != nil {
+		return "", fmt.Errorf("Failed to describe instance %s: %v", instanceId, err)
+	}
+	if len(result.Reservations) != 1 {
+		return "", fmt.Errorf(
+			"Describe instance returned incorrect number of reservations: %v",
+			result.Reservations)
+	}
+	if len(result.Reservations[0].Instances) != 1 {
+		return "", fmt.Errorf(
+			"Describe instance returned incorrect number of instances: %v",
+			result.Reservations[0].Instances)
+	}
+	return aws.StringValue(result.Reservations[0].Instances[0].PrivateIpAddress), nil
+}
+func (a *Cloud) GetInstancePublicIp(instanceId string) (privateIp string, err error) {
+	result, err := a.EC2().DescribeInstances(&ec2.DescribeInstancesInput{
+		InstanceIds: []*string{aws.String(instanceId)},
+	})
+	if err != nil {
+		return "", fmt.Errorf("Failed to describe instance %s: %v", instanceId, err)
+	}
+	if len(result.Reservations) != 1 {
+		return "", fmt.Errorf(
+			"Describe instance returned incorrect number of reservations: %v",
+			result.Reservations)
+	}
+	if len(result.Reservations[0].Instances) != 1 {
+		return "", fmt.Errorf(
+			"Describe instance returned incorrect number of instances: %v",
+			result.Reservations[0].Instances)
+	}
+	return aws.StringValue(result.Reservations[0].Instances[0].PublicIpAddress), nil
+}
+
 func (a *Cloud) DeleteInstance(idString string) error {
 	log.Printf("Deleting EC2 instance %s", idString)
 	request := &ec2.TerminateInstancesInput{
@@ -572,7 +748,7 @@ func (a *Cloud) DeleteInstance(idString string) error {
 		InstanceIds: []*string{aws.String(idString)},
 	}
 
-	if err := a.EC2().WaitUntilInstanceExists(describeInput); err != nil {
+	if err := a.EC2().WaitUntilInstanceTerminated(describeInput); err != nil {
 		return err
 	}
 
@@ -607,4 +783,22 @@ func newEC2Filter(name string, values ...string) *ec2.Filter {
 		Values: awsValues,
 	}
 	return filter
+}
+
+func retryDueToRequestLimiting(theFunc func() error) error {
+	delay := time.Second
+	for err := theFunc(); err != nil; {
+		code := ErrorCode(err)
+		if code != "RequestLimitExceeded" {
+			return err
+		}
+		if delay.Minutes() < 5 {
+			time.Sleep(delay)
+		} else {
+			return fmt.Errorf("API backoff timed out: %v", err)
+		}
+
+		delay = 2 * delay
+	}
+	return nil
 }

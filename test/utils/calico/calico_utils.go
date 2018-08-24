@@ -30,6 +30,8 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -658,7 +660,7 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	if len(opts) == 1 {
 		ctl.opts = opts[0]
 	}
-	cfg, err := GetCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
+	cfg, err := GetCalicoConfigMapData(f, []string{"calico-config", "canal-config", "tigera-aws-config"})
 	Expect(err).NotTo(HaveOccurred(), "Unable to get config map: %v", err)
 	if v, ok := (*cfg)["etcd_endpoints"]; ok {
 		ctl.datastore = "etcdv3"
@@ -1091,4 +1093,54 @@ func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
 func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) error {
 	podNow := GetPodNow(f, podName)
 	return LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
+}
+
+func RunSSHCommand(cmd, host, user string, timeout time.Duration) (stdout, stderr string, rc int, err error) {
+	signer, err := framework.GetSigner(framework.TestContext.Provider)
+	if err != nil {
+		return "", "", 1, fmt.Errorf("error getting signer for provider %s: '%v'", framework.TestContext.Provider, err)
+	}
+
+	config := &ssh.ClientConfig{
+		User:            user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         timeout,
+	}
+
+	client, err := ssh.Dial("tcp", host, config)
+	if err != nil {
+		return "", "", 1, fmt.Errorf("error getting SSH client to host %s: '%v'", host, err)
+	}
+
+	// Run the command
+	framework.Logf("Executing '%s' on %v", cmd, client.RemoteAddr())
+	session, err := client.NewSession()
+	if err != nil {
+		return "", "", 0, fmt.Errorf("error creating session to host %s: '%v'", client.RemoteAddr(), err)
+	}
+	defer session.Close()
+
+	// Run the command.
+	code := 0
+	var bout, berr bytes.Buffer
+
+	session.Stdout, session.Stderr = &bout, &berr
+	err = session.Run(cmd)
+	if err != nil {
+		// Check whether the command failed to run or didn't complete.
+		if exiterr, ok := err.(*ssh.ExitError); ok {
+			// If we got an ExitError and the exit code is nonzero, we'll
+			// consider the SSH itself successful (just that the command run
+			// errored on the host).
+			if code = exiterr.ExitStatus(); code != 0 {
+				err = nil
+			}
+		} else {
+			// Some other kind of error happened (e.g. an IOError); consider the
+			// SSH unsuccessful.
+			err = fmt.Errorf("failed running `%s` on %s: '%v'", cmd, client.RemoteAddr(), err)
+		}
+	}
+	return bout.String(), berr.String(), code, err
 }
