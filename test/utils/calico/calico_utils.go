@@ -43,6 +43,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/generated"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -526,11 +527,20 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	// and ServicePorts.for our Service.
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
+	var imageUrl string
+	var nodeselector = map[string]string{}
+	if winctl.RunningWindowsTest() {
+		imageUrl = "caltigera/porter:first"
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
 			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageutils.GetE2EImage(imageutils.Porter),
+			Image: imageUrl,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -579,6 +589,7 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		Spec: v1.PodSpec{
 			Containers:    containers,
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 		},
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -961,6 +972,8 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 				},
 			},
 			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
+			//Since calico policy would be applied from master, hence made NodeSelector as linux
+			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
 	}
 
