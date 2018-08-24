@@ -200,13 +200,30 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	}
 
 	By(fmt.Sprintf("Creating a logging pod %s in namespace %s", podName, f.Namespace.Name))
+
+	sv, err := f.ClientSet.Discovery().ServerVersion()
+	if err != nil {
+		return nil, err
+	}
+	minor, err := strconv.Atoi(sv.Minor)
+	if err != nil {
+		return nil, err
+	}
+	var nodeID string
+	// We use ExternalID -which is getting deprecated-only for server side versions <= 10.
+	if sv.Major == "1" && minor <= 10 {
+		nodeID = node.Spec.ExternalID
+	} else {
+		nodeID = node.Name
+	}
+
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
 			Namespace: f.Namespace.Name,
 			Labels: map[string]string{
 				"pod-name":               podName,
-				"kubernetes.io/hostname": node.Name,
+				"kubernetes.io/hostname": nodeID,
 			},
 		},
 		Spec: v1.PodSpec{
@@ -214,11 +231,11 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 			Volumes:       volumes,
 			RestartPolicy: v1.RestartPolicyNever,
 			NodeSelector: map[string]string{
-				"kubernetes.io/hostname": node.Name,
+				"kubernetes.io/hostname": nodeID,
 			},
 		},
 	}
-	pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
+	pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
 	if err != nil {
 		return pod, err
 	}
