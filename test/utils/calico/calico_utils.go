@@ -206,7 +206,7 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 			Namespace: f.Namespace.Name,
 			Labels: map[string]string{
 				"pod-name":               podName,
-				"kubernetes.io/hostname": node.Spec.ExternalID,
+				"kubernetes.io/hostname": node.Name,
 			},
 		},
 		Spec: v1.PodSpec{
@@ -214,7 +214,7 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 			Volumes:       volumes,
 			RestartPolicy: v1.RestartPolicyNever,
 			NodeSelector: map[string]string{
-				"kubernetes.io/hostname": node.Spec.ExternalID,
+				"kubernetes.io/hostname": node.Name,
 			},
 		},
 	}
