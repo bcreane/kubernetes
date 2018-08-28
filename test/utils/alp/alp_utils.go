@@ -49,6 +49,7 @@ func CheckIstioInstall(f *framework.Framework) (bool, error) {
 		framework.Logf("Checking istio install failed with error: %s.", err)
 		return false, err // with error
 	}
+	framework.WaitForPodsRunningReady(f.ClientSet, IstioNamespace, 3, 0, 20*time.Minute, nil)
 	return true, nil // installed.
 }
 
