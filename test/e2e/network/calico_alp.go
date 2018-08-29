@@ -69,6 +69,12 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 		calicoctl.SetEnv("ALPHA_FEATURES", "serviceaccounts,httprules")
 	})
 
+	AfterEach(func() {
+		if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
+			framework.Logf(alp.GetIstioDiags(f))
+		}
+	})
+
 	Context("with service running", func() {
 		var podServer *v1.Pod
 		var service *v1.Service
@@ -805,10 +811,9 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 		framework.Logf("Client container was not successful %v", err)
 
 		diags := alp.GetProbeAndTargetDiags(f, podClient, targetPod, containerName)
-		istioDiags := alp.GetIstioDiags(f)
 
-		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.%s\n\n%s",
-			podName, service.Name, diags, istioDiags)
+		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.%s",
+			podName, service.Name, diags)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -868,10 +873,9 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 	if err == nil {
 		// Get logs from the target, both Dikastes and the proxy (Envoy)
 		diags := alp.GetProbeAndTargetDiags(f, podClient, targetPod, containerName)
-		istioDiags := alp.GetIstioDiags(f)
 
-		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.%s\n\n%s",
-			podName, service.Name, diags, istioDiags)
+		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.%s",
+			podName, service.Name, diags)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
