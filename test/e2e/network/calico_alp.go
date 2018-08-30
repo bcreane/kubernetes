@@ -69,7 +69,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 		calicoctl.SetEnv("ALPHA_FEATURES", "serviceaccounts,httprules")
 	})
 
-	AfterEach(func() {
+	JustAfterEach(func() {
 		if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
 			framework.Logf(alp.GetIstioDiags(f))
 		}
