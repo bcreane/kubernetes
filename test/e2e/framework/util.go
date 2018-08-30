@@ -684,6 +684,109 @@ func WaitForPodsRunningReady(c clientset.Interface, ns string, minPods, allowedN
 	return nil
 }
 
+// WaitForPodsRunningReadyOrSucceeded waits up to timeout to ensure that all
+// pods in namespace ns are either running and ready, or succeeded. Also, it
+// ensures that at least minPods are running and ready. It has separate behavior
+// from other 'wait for' pods functions in that it requests the list of pods on
+// every iteration. This is useful, for example, in cluster startup, because the
+// number of pods increases while waiting.
+//
+// If ignoreLabels is not empty, pods matching this selector are ignored.
+func WaitForPodsRunningReadyOrSucceeded(
+	c clientset.Interface,
+	ns string,
+	minPods, allowedNotReadyPods int32,
+	timeout time.Duration,
+	ignoreLabels map[string]string) error {
+	ignoreSelector := labels.SelectorFromSet(ignoreLabels)
+	start := time.Now()
+	Logf("Waiting up to %v for all pods (need at least %d) in namespace '%s' to be running and ready",
+		timeout, minPods, ns)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	var ignoreNotReady bool
+	badPods := []v1.Pod{}
+	desiredPods := 0
+
+	if wait.PollImmediate(Poll, timeout, func() (bool, error) {
+		// We get the new list of pods, replication controllers, and
+		// replica sets in every iteration because more pods come
+		// online during startup and we want to ensure they are also
+		// checked.
+		replicas, replicaOk := int32(0), int32(0)
+
+		rcList, err := c.Core().ReplicationControllers(ns).List(metav1.ListOptions{})
+		if err != nil {
+			Logf("Error getting replication controllers in namespace '%s': %v", ns, err)
+			if IsRetryableAPIError(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		for _, rc := range rcList.Items {
+			replicas += *rc.Spec.Replicas
+			replicaOk += rc.Status.ReadyReplicas
+		}
+
+		rsList, err := c.Extensions().ReplicaSets(ns).List(metav1.ListOptions{})
+		if err != nil {
+			Logf("Error getting replication sets in namespace %q: %v", ns, err)
+			if IsRetryableAPIError(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		for _, rs := range rsList.Items {
+			replicas += *rs.Spec.Replicas
+			replicaOk += rs.Status.ReadyReplicas
+		}
+
+		podList, err := c.Core().Pods(ns).List(metav1.ListOptions{})
+		if err != nil {
+			Logf("Error getting pods in namespace '%s': %v", ns, err)
+			if IsRetryableAPIError(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		nOk := int32(0)
+		notReady := int32(0)
+		badPods = []v1.Pod{}
+		desiredPods = len(podList.Items)
+		for _, pod := range podList.Items {
+			if len(ignoreLabels) != 0 && ignoreSelector.Matches(labels.Set(pod.Labels)) {
+				continue
+			}
+			res, err := testutil.PodRunningReadyOrSucceeded(&pod)
+			switch {
+			case res && err == nil:
+				nOk++
+			default:
+				Logf("The status of Pod %s is %s (Ready = false), waiting for it to be either Running (with Ready = true) or Succeeded", pod.ObjectMeta.Name, pod.Status.Phase)
+				notReady++
+				badPods = append(badPods, pod)
+			}
+		}
+
+		Logf("%d / %d pods in namespace '%s' are running and ready or succeeded (%d seconds elapsed)",
+			nOk, len(podList.Items), ns, int(time.Since(start).Seconds()))
+		Logf("expected %d pod replicas in namespace '%s', %d are Running and Ready or Succeeded.", replicas, ns, replicaOk)
+
+		if replicaOk == replicas && nOk >= minPods && len(badPods) == 0 {
+			return true, nil
+		}
+		ignoreNotReady = (notReady <= allowedNotReadyPods)
+		logPodStates(badPods)
+		return false, nil
+	}) != nil {
+		if !ignoreNotReady {
+			return errors.New(errorBadPodsStates(badPods, desiredPods, ns, "RUNNING and READY", timeout))
+		}
+		Logf("Number of not-ready pods is allowed.")
+	}
+	return nil
+}
+
 func kubectlLogPod(c clientset.Interface, pod v1.Pod, containerNameSubstr string, logFunc func(ftm string, args ...interface{})) {
 	for _, container := range pod.Spec.Containers {
 		if strings.Contains(container.Name, containerNameSubstr) {
