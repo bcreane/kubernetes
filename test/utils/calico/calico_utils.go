@@ -437,6 +437,22 @@ func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
 }
 
 func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, labels map[string]string, port int) *v1.Pod {
+	var imageUrl string
+	var podArgs []string
+	var cmd string
+	var nodeselector = map[string]string{}
+	if winctl.RunningWindowsTest() {
+		imageUrl = "microsoft/powershell:nanoserver"
+		podArgs = append(podArgs, "C:\\Program Files\\Powershell\\pwsh.exe", "-Command")
+		cmd = fmt.Sprintf("while($true){Write-Host Hello ping test on %s ;Start-Sleep -Seconds 10}", port)
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+	} else {
+		imageUrl = "gcr.io/google_containers/redis:e2e"
+		podArgs = append(podArgs, "/bin/sh", "-c")
+		cmd = fmt.Sprintf(serviceCmd, port)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
+	podArgs = append(podArgs, cmd)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -444,15 +460,12 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 			Labels:    labels,
 		},
 		Spec: v1.PodSpec{
+			NodeSelector: nodeselector,
 			Containers: []v1.Container{
 				{
 					Name:  fmt.Sprintf("%s-container-%d", podName, port),
-					Image: "gcr.io/google_containers/redis:e2e",
-					Args: []string{
-						"/bin/sh",
-						"-c",
-						fmt.Sprintf(serviceCmd, port),
-					},
+					Image: imageUrl,
+					Args:  podArgs,
 					Ports: []v1.ContainerPort{{ContainerPort: int32(port)}},
 				},
 			},
@@ -471,6 +484,23 @@ func CleanupServerPod(f *framework.Framework, pod *v1.Pod) {
 }
 
 func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {
+	var imageUrl string
+	var podArgs []string
+	var cmd string
+	var nodeselector = map[string]string{}
+	if winctl.RunningWindowsTest() {
+		imageUrl = "microsoft/powershell:nanoserver"
+		podArgs = append(podArgs, "C:\\Program Files\\Powershell\\pwsh.exe", "-Command")
+		cmd = fmt.Sprintf("ping -n 2 -w 10 %s", targetPod.Status.PodIP)
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+	} else {
+		imageUrl = "gcr.io/google_containers/redis:e2e"
+		podArgs = append(podArgs, "/bin/sh", "-c")
+		cmd = fmt.Sprintf("ping -c 3 -W 2 -w 10 %s", targetPod.Status.PodIP)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
+	podArgs = append(podArgs, cmd)
+
 	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -480,15 +510,12 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 			Containers: []v1.Container{
 				{
 					Name:  fmt.Sprintf("%s-container", podName),
-					Image: "gcr.io/google_containers/redis:e2e",
-					Args: []string{
-						"/bin/sh",
-						"-c",
-						fmt.Sprintf("ping -c 3 -W 2 -w 10 %s", targetPod.Status.PodIP),
-					},
+					Image: imageUrl,
+					Args:  podArgs,
 				},
 			},
 		},

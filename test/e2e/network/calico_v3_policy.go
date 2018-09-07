@@ -1033,7 +1033,7 @@ spec:
 		Expect(framework.CheckConnectivityToHost(f, nodeName, "ping-test-can-connect", nodeIP, framework.IPv4PingCommand, connectivityCheckTimeout)).NotTo(HaveOccurred())
 		// Pod created above will be cleaned up when the namespace goes away, which is exectuted as part of test teardown.
 	})
-	It("should allow negative selectors and support for filtering ICMP", func() {
+	It("should allow negative selectors and support for filtering ICMP [Feature:WindowsPolicy]", func() {
 		ns := f.Namespace
 		calicoctl := calico.ConfigureCalicoctl(f)
 
