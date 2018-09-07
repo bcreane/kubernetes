@@ -130,11 +130,25 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 				Expect(err).NotTo(HaveOccurred())
 				podSgs = append(podSgs, sg)
 			}
+
+			Eventually(func() error {
+				sgs, err := awsctl.Client.GetRDSInstanceSecurityGroups(rds)
+				if err != nil {
+					return err
+				}
+
+				for _, v := range sgs {
+					if v == awsctl.Config.TrustSG {
+						return nil
+					}
+				}
+				return fmt.Errorf("RDS Instance %s did not have trust SG: %v", rds, sgs)
+			}, 2*time.Minute).ShouldNot(HaveOccurred())
 		})
 
 		allowOneSGToRdsSG := func(podSG string) {
 			By("Add ingress allow rule to RDS sg to allow traffic from one pod SG")
-			err := awsctl.Client.AuthorizeSGIngressSrcSG(sgRds, "tcp", portInt64, portInt64, []string{sgRds, awsctl.Config.TrustSG, podSG})
+			err := awsctl.Client.AuthorizeSGIngressSrcSG(sgRds, "tcp", portInt64, portInt64, []string{sgRds, podSG})
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Add ingress allow rule to one pod SG to allow traffic from RDS sg")

@@ -120,8 +120,22 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 			port = fmt.Sprint(portInt64)
 
 			By("Add rules to allow SG to allow traffic to rds instances")
-			err = awsctl.Client.AuthorizeSGIngressSrcSG(sgRds, "tcp", portInt64, portInt64, []string{sgRds, awsctl.Config.TrustSG})
+			err = awsctl.Client.AuthorizeSGIngressSrcSG(sgRds, "tcp", portInt64, portInt64, []string{sgRds})
 			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func() error {
+				sgs, err := awsctl.Client.GetRDSInstanceSecurityGroups(rds)
+				if err != nil {
+					return err
+				}
+
+				for _, v := range sgs {
+					if v == awsctl.Config.TrustSG {
+						return nil
+					}
+				}
+				return fmt.Errorf("RDS Instance %s did not have trust SG: %v", rds, sgs)
+			}, 2*time.Minute).ShouldNot(HaveOccurred())
 		})
 
 		It("should allow pod to connect rds instance with allow SG", func() {
