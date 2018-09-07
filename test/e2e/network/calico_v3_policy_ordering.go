@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	. "github.com/onsi/ginkgo"
 )
@@ -65,6 +66,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		podServer = calico.GetPodNow(f, podServer.Name)
 		serverNodeName = podServer.Spec.NodeName
 
+		testCanConnect(f, f.Namespace, "client-can-connect-80", service, 80)
 		// Discover the server node's IP addresses.
 		node, err := f.ClientSet.CoreV1().Nodes().Get(serverNodeName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
@@ -116,6 +118,10 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 			podCustomizer = setNodeAffinity
 		}
 		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
+		//This is a hack for windows to use PodIP instead of Service's ClusterIP
+		if winctl.RunningWindowsTest() {
+			target = winctl.GetTarget(f, service, 80)
+		}
 		testCanConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer, logServerDiags)
 	}
 	expectNoConnection := func() {
@@ -124,10 +130,14 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 			podCustomizer = setNodeAffinity
 		}
 		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
+		//This is a hack for windows to use PodIP instead of Service's ClusterIP
+		if winctl.RunningWindowsTest() {
+			target = winctl.GetTarget(f, service, 80)
+		}
 		testCannotConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer)
 	}
 
-	It("should be contactable", expectConnection)
+	It("should be contactable [Feature:WindowsPolicy]", expectConnection)
 
 	var (
 		names    []string
@@ -208,35 +218,35 @@ spec:
 				BeforeEach(func() {
 					policies = []string{allowAll, denyAll, denyAll}
 				})
-				It("should be contactable", expectConnection)
+				It("should be contactable [Feature:WindowsPolicy]", expectConnection)
 			})
 
 			Context("denyAll, denyAll, denyAll", func() {
 				BeforeEach(func() {
 					policies = []string{denyAll, denyAll, denyAll}
 				})
-				It("should not be contactable", expectNoConnection)
+				It("should not be contactable [Feature:WindowsPolicy]", expectNoConnection)
 			})
 
 			Context("denyAll, allowAll, allowAll", func() {
 				BeforeEach(func() {
 					policies = []string{denyAll, allowAll, allowAll}
 				})
-				It("should not be contactable", expectNoConnection)
+				It("should not be contactable [Feature:WindowsPolicy]", expectNoConnection)
 			})
 
 			Context("noneAll, allowAll, allowAll", func() {
 				BeforeEach(func() {
 					policies = []string{noneAll, allowAll, allowAll}
 				})
-				It("should be contactable", expectConnection)
+				It("should be contactable [Feature:WindowsPolicy]", expectConnection)
 			})
 
 			Context("noneAll, denyAll, allowAll", func() {
 				BeforeEach(func() {
 					policies = []string{noneAll, denyAll, allowAll}
 				})
-				It("should not be contactable", expectNoConnection)
+				It("should not be contactable [Feature:WindowsPolicy]", expectNoConnection)
 			})
 		}
 

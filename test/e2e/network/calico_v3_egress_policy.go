@@ -71,7 +71,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 			calicoctl.Cleanup()
 		})
 
-		It("should support lower order 'allow ingress' policy", func() {
+		It("should support lower order 'allow ingress' policy [Feature:WindowsPolicy]", func() {
 			// Create deny-all policy
 			By("Creating deny-all policy with kubectl, no client should be able to contact the server.")
 			policy := &networkingv1.NetworkPolicy{
@@ -115,7 +115,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 
 		})
 
-		It("should support a 'deny egress' policy", func() {
+		It("should support a 'deny egress' policy[Feature:WindowsPolicy]", func() {
 			By("Creating calico egress policy which denies traffic within namespace.")
 			nsName := f.Namespace.Name
 			policyName := "deny-egress"
@@ -223,7 +223,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 			testCanConnect(f, nsB, "client-can-connect", serviceB, 80) //allow B -> B
 		})
 
-		It("should enforce egress policy based on labelSelector and NamespaceSelector", func() {
+		It("should enforce egress policy based on labelSelector and NamespaceSelector [Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 
 			nsBName := f.BaseName + "-b"
@@ -334,7 +334,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-v3] egress policy", func() {
 			testCanConnect(f, nsB, "client-a", serviceAB, 80) //allow B.client-a -> A.server-b
 		})
 
-		It("should enforce egress policy based on portSelector and labelSelector and NamespaceSelector", func() {
+		It("should enforce egress policy based on portSelector and labelSelector and NamespaceSelector [Feature:WindowsPolicy]", func() {
 			Skip("[turk] currently fails on all setups. Needs investigation before enabling")
 			// Create Server with Service
 			By("Creating a simple server.")
