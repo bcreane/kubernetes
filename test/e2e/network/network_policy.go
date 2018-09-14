@@ -507,8 +507,9 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
-			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageUrl,
+			Name:            fmt.Sprintf("%s-container-%d", podName, port),
+			Image:           imageUrl,
+			ImagePullPolicy: v1.PullIfNotPresent,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -638,9 +639,10 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 			NodeSelector:  nodeselector,
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("%s-container", podName),
-					Image: imageUrl,
-					Args:  podArgs,
+					Name:            fmt.Sprintf("%s-container", podName),
+					Image:           imageUrl,
+					Args:            podArgs,
+					ImagePullPolicy: v1.PullIfNotPresent,
 				},
 			},
 		},

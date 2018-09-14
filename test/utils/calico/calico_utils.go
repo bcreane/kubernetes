@@ -463,10 +463,11 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 			NodeSelector: nodeselector,
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("%s-container-%d", podName, port),
-					Image: imageUrl,
-					Args:  podArgs,
-					Ports: []v1.ContainerPort{{ContainerPort: int32(port)}},
+					Name:            fmt.Sprintf("%s-container-%d", podName, port),
+					Image:           imageUrl,
+					Args:            podArgs,
+					ImagePullPolicy: v1.PullIfNotPresent,
+					Ports:           []v1.ContainerPort{{ContainerPort: int32(port)}},
 				},
 			},
 		},
@@ -513,9 +514,10 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 			NodeSelector:  nodeselector,
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("%s-container", podName),
-					Image: imageUrl,
-					Args:  podArgs,
+					Name:            fmt.Sprintf("%s-container", podName),
+					Image:           imageUrl,
+					Args:            podArgs,
+					ImagePullPolicy: v1.PullIfNotPresent,
 				},
 			},
 		},
@@ -583,8 +585,9 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
-			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageUrl,
+			Name:            fmt.Sprintf("%s-container-%d", podName, port),
+			Image:           imageUrl,
+			ImagePullPolicy: v1.PullIfNotPresent,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
