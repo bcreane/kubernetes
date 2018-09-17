@@ -441,11 +441,13 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs = append(podArgs, "C:\\Program Files\\Powershell\\pwsh.exe", "-Command")
 		cmd = fmt.Sprintf("while($true){Write-Host Hello ping test on %s ;Start-Sleep -Seconds 10}", port)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
 	} else {
 		imageUrl = "gcr.io/google_containers/redis:e2e"
 		podArgs = append(podArgs, "/bin/sh", "-c")
@@ -466,7 +468,7 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 					Name:            fmt.Sprintf("%s-container-%d", podName, port),
 					Image:           imageUrl,
 					Args:            podArgs,
-					ImagePullPolicy: v1.PullIfNotPresent,
+					ImagePullPolicy: imagePull,
 					Ports:           []v1.ContainerPort{{ContainerPort: int32(port)}},
 				},
 			},
@@ -489,11 +491,13 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs = append(podArgs, "C:\\Program Files\\Powershell\\pwsh.exe", "-Command")
 		cmd = fmt.Sprintf("ping -n 2 -w 10 %s", targetPod.Status.PodIP)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
 	} else {
 		imageUrl = "gcr.io/google_containers/redis:e2e"
 		podArgs = append(podArgs, "/bin/sh", "-c")
@@ -517,7 +521,7 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 					Name:            fmt.Sprintf("%s-container", podName),
 					Image:           imageUrl,
 					Args:            podArgs,
-					ImagePullPolicy: v1.PullIfNotPresent,
+					ImagePullPolicy: imagePull,
 				},
 			},
 		},
@@ -575,9 +579,11 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	servicePorts := []v1.ServicePort{}
 	var imageUrl string
 	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
 		imageUrl = "caltigera/porter:first"
 		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
 		nodeselector["beta.kubernetes.io/os"] = "linux"
@@ -587,7 +593,7 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		containers = append(containers, v1.Container{
 			Name:            fmt.Sprintf("%s-container-%d", podName, port),
 			Image:           imageUrl,
-			ImagePullPolicy: v1.PullIfNotPresent,
+			ImagePullPolicy: imagePull,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),

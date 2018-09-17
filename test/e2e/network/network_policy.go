@@ -497,9 +497,11 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
 	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
 		imageUrl = "caltigera/porter:first"
 		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
 	} else {
 		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
 		nodeselector["beta.kubernetes.io/os"] = "linux"
@@ -509,7 +511,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 		containers = append(containers, v1.Container{
 			Name:            fmt.Sprintf("%s-container-%d", podName, port),
 			Image:           imageUrl,
-			ImagePullPolicy: v1.PullIfNotPresent,
+			ImagePullPolicy: imagePull,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -615,11 +617,13 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs = append(podArgs, "C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
 		cmd = fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing", target)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
 	} else {
 		imageUrl = "busybox"
 		podArgs = append(podArgs, "/bin/sh", "-c")
@@ -642,7 +646,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 					Name:            fmt.Sprintf("%s-container", podName),
 					Image:           imageUrl,
 					Args:            podArgs,
-					ImagePullPolicy: v1.PullIfNotPresent,
+					ImagePullPolicy: imagePull,
 				},
 			},
 		},
