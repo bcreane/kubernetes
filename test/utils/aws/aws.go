@@ -585,6 +585,31 @@ func (a *Cloud) CreateRDSInstance(name, subnetGroup, vpcSgID, password, dbName s
 	return idString, *db.Endpoint.Address, *db.Endpoint.Port, nil
 }
 
+func (a *Cloud) GetRDSInstanceSecurityGroups(idString string) ([]string, error) {
+
+	describeInput := &rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(idString),
+	}
+
+	response, err := a.RDS().DescribeDBInstances(describeInput)
+	if err != nil {
+		return nil, fmt.Errorf("error listing rdb instance: %v", err)
+	}
+
+	if len(response.DBInstances) != 1 {
+		return nil, fmt.Errorf("found multiple instances for %s", idString)
+	}
+
+	db := response.DBInstances[0]
+
+	sgs := []string{}
+	for _, sgm := range db.VpcSecurityGroups {
+		sgs = append(sgs, aws.StringValue(sgm.VpcSecurityGroupId))
+	}
+
+	return sgs, nil
+}
+
 func (a *Cloud) DeleteRDSInstance(idString string) error {
 	a.logger("RDS instance %s start deleting", idString)
 	skipFinalSnapshot := true
