@@ -12,8 +12,7 @@ go_test(
         "helpers_test.go",
         "types_test.go",
     ],
-    importpath = "k8s.io/client-go/tools/clientcmd/api",
-    library = ":go_default_library",
+    embed = [":go_default_library"],
     deps = ["//vendor/github.com/ghodss/yaml:go_default_library"],
 )
 
@@ -28,7 +27,6 @@ go_library(
     ],
     importpath = "k8s.io/client-go/tools/clientcmd/api",
     deps = [
-        "//vendor/k8s.io/apimachinery/pkg/conversion:go_default_library",
         "//vendor/k8s.io/apimachinery/pkg/runtime:go_default_library",
         "//vendor/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
     ],

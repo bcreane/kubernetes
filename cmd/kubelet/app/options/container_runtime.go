@@ -22,12 +22,13 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/kubelet/config"
+	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 )
 
 const (
 	// When these values are updated, also update test/e2e/framework/util.go
-	defaultPodSandboxImageName    = "gcr.io/google_containers/pause"
-	defaultPodSandboxImageVersion = "3.0"
+	defaultPodSandboxImageName    = "k8s.gcr.io/pause"
+	defaultPodSandboxImageVersion = "3.1"
 	// From pkg/kubelet/rkt/rkt.go to avoid circular import
 	defaultRktAPIServiceEndpoint = "localhost:15441"
 )
@@ -47,6 +48,7 @@ func NewContainerRuntimeOptions() *config.ContainerRuntimeOptions {
 	}
 
 	return &config.ContainerRuntimeOptions{
+		ContainerRuntime:          kubetypes.DockerContainerRuntime,
 		DockerEndpoint:            dockerEndpoint,
 		DockershimRootDirectory:   "/var/lib/dockershim",
 		DockerDisableSharedPID:    true,

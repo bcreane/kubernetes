@@ -28,7 +28,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
-	"k8s.io/kubernetes/pkg/kubelet/dockershim/libdocker"
+	"k8s.io/kubernetes/pkg/kubelet/dockershim"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	kubeio "k8s.io/kubernetes/pkg/util/io"
 	"k8s.io/kubernetes/pkg/util/mount"
@@ -50,7 +50,7 @@ func NewHollowKubelet(
 	nodeName string,
 	client *clientset.Clientset,
 	cadvisorInterface cadvisor.Interface,
-	dockerClient libdocker.Interface,
+	dockerClientConfig *dockershim.ClientConfig,
 	kubeletPort, kubeletReadOnlyPort int,
 	containerManager cm.ContainerManager,
 	maxPods int, podsPerCore int,
@@ -66,18 +66,18 @@ func NewHollowKubelet(
 	volumePlugins := empty_dir.ProbeVolumePlugins()
 	volumePlugins = append(volumePlugins, secret.ProbeVolumePlugins()...)
 	d := &kubelet.Dependencies{
-		KubeClient:        client,
-		HeartbeatClient:   client.CoreV1(),
-		DockerClient:      dockerClient,
-		CAdvisorInterface: cadvisorInterface,
-		Cloud:             nil,
-		OSInterface:       &containertest.FakeOS{},
-		ContainerManager:  containerManager,
-		VolumePlugins:     volumePlugins,
-		TLSOptions:        nil,
-		OOMAdjuster:       oom.NewFakeOOMAdjuster(),
-		Writer:            &kubeio.StdWriter{},
-		Mounter:           mount.New("" /* default mount path */),
+		KubeClient:         client,
+		HeartbeatClient:    client.CoreV1(),
+		DockerClientConfig: dockerClientConfig,
+		CAdvisorInterface:  cadvisorInterface,
+		Cloud:              nil,
+		OSInterface:        &containertest.FakeOS{},
+		ContainerManager:   containerManager,
+		VolumePlugins:      volumePlugins,
+		TLSOptions:         nil,
+		OOMAdjuster:        oom.NewFakeOOMAdjuster(),
+		Writer:             &kubeio.StdWriter{},
+		Mounter:            mount.New("" /* default mount path */),
 	}
 
 	return &HollowKubelet{
@@ -105,16 +105,18 @@ func GetHollowKubeletConfig(
 	podsPerCore int) (*options.KubeletFlags, *kubeletconfig.KubeletConfiguration) {
 
 	testRootDir := utils.MakeTempDirOrDie("hollow-kubelet.", "")
-	manifestFilePath := utils.MakeTempDirOrDie("manifest", testRootDir)
+	podFilePath := utils.MakeTempDirOrDie("static-pods", testRootDir)
 	glog.Infof("Using %s as root dir for hollow-kubelet", testRootDir)
 
 	// Flags struct
 	f := options.NewKubeletFlags()
+	f.EnableServer = true
 	f.RootDirectory = testRootDir
 	f.HostnameOverride = nodeName
 	f.MinimumGCAge = metav1.Duration{Duration: 1 * time.Minute}
 	f.MaxContainerCount = 100
 	f.MaxPerPodContainerCount = 2
+	f.RegisterNode = true
 	f.RegisterSchedulable = true
 
 	// Config struct
@@ -123,11 +125,11 @@ func GetHollowKubeletConfig(
 		panic(err)
 	}
 
-	c.ManifestURL = ""
+	c.StaticPodURL = ""
 	c.Address = "0.0.0.0" /* bind address */
 	c.Port = int32(kubeletPort)
 	c.ReadOnlyPort = int32(kubeletReadOnlyPort)
-	c.PodManifestPath = manifestFilePath
+	c.StaticPodPath = podFilePath
 	c.FileCheckFrequency.Duration = 20 * time.Second
 	c.HTTPCheckFrequency.Duration = 20 * time.Second
 	c.NodeStatusUpdateFrequency.Duration = 10 * time.Second
@@ -140,19 +142,15 @@ func GetHollowKubeletConfig(
 	c.ImageGCLowThresholdPercent = 80
 	c.VolumeStatsAggPeriod.Duration = time.Minute
 	c.CgroupRoot = ""
-	c.ContainerRuntime = kubetypes.DockerContainerRuntime
 	c.CPUCFSQuota = true
-	c.RuntimeCgroups = ""
 	c.EnableControllerAttachDetach = false
 	c.EnableDebuggingHandlers = true
-	c.EnableServer = true
 	c.CgroupsPerQOS = false
 	// hairpin-veth is used to allow hairpin packets. Note that this deviates from
 	// what the "real" kubelet currently does, because there's no way to
 	// set promiscuous mode on docker0.
 	c.HairpinMode = kubeletconfig.HairpinVeth
 	c.MaxOpenFiles = 1024
-	c.RegisterNode = true
 	c.RegistryBurst = 10
 	c.RegistryPullQPS = 5.0
 	c.ResolverConfig = kubetypes.ResolvConfDefault
