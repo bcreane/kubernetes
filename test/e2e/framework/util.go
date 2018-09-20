@@ -749,7 +749,7 @@ func WaitForPodsRunningReadyOrSucceeded(
 		rcList, err := c.Core().ReplicationControllers(ns).List(metav1.ListOptions{})
 		if err != nil {
 			Logf("Error getting replication controllers in namespace '%s': %v", ns, err)
-			if IsRetryableAPIError(err) {
+			if testutils.IsRetryableAPIError(err) {
 				return false, nil
 			}
 			return false, err
@@ -762,7 +762,7 @@ func WaitForPodsRunningReadyOrSucceeded(
 		rsList, err := c.Extensions().ReplicaSets(ns).List(metav1.ListOptions{})
 		if err != nil {
 			Logf("Error getting replication sets in namespace %q: %v", ns, err)
-			if IsRetryableAPIError(err) {
+			if testutils.IsRetryableAPIError(err) {
 				return false, nil
 			}
 			return false, err
@@ -775,7 +775,7 @@ func WaitForPodsRunningReadyOrSucceeded(
 		podList, err := c.Core().Pods(ns).List(metav1.ListOptions{})
 		if err != nil {
 			Logf("Error getting pods in namespace '%s': %v", ns, err)
-			if IsRetryableAPIError(err) {
+			if testutils.IsRetryableAPIError(err) {
 				return false, nil
 			}
 			return false, err
@@ -788,7 +788,7 @@ func WaitForPodsRunningReadyOrSucceeded(
 			if len(ignoreLabels) != 0 && ignoreSelector.Matches(labels.Set(pod.Labels)) {
 				continue
 			}
-			res, err := testutil.PodRunningReadyOrSucceeded(&pod)
+			res, err := testutils.PodRunningReadyOrSucceeded(&pod)
 			switch {
 			case res && err == nil:
 				nOk++
