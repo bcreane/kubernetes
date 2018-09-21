@@ -176,6 +176,9 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 					}
 
 				}(i)
+				// This helps with running in EKS with heptio-authenticator-aws
+				// (it was producing Unauthenticated errors)
+				time.Sleep(time.Second)
 			}
 
 			// Wait for all test goroutines to complete.

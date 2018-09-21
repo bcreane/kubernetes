@@ -26,6 +26,7 @@ import (
 
 	"k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo"
@@ -645,8 +646,9 @@ func testCannotConnectRds(f *framework.Framework, ns *v1.Namespace, podName stri
 }
 
 func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sgs []string) *v1.Pod {
-	dbCmd := fmt.Sprintf("PGCONNECT_TIMEOUT=3 PGPASSWORD=%s psql --host=%s --port=%s --username=master --dbname=%s -c 'select 1'",
-		password, endPoint, port, dbName)
+	dbEnv := fmt.Sprintf("PGCONNECT_TIMEOUT=1 PGPASSWORD=%s", password)
+	dbCmd := fmt.Sprintf("psql --host=%s --port=%s --username=master --dbname=%s -c 'select 1'",
+		endPoint, port, dbName)
 
 	sgsNew := []string{}
 	for _, sg := range sgs {
@@ -674,7 +676,9 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 10); do %s && exit 0 || sleep 3; done; exit 1", dbCmd),
+						// psql doesn't seem to be honoring the PGCONNECT_TIMEOUT so use timeout command to force it.
+						fmt.Sprintf("for i in $(seq 1 10); do %s /usr/bin/timeout 1 %s && exit 0 || sleep 3; done; exit 1",
+							dbEnv, dbCmd),
 					},
 				},
 			},
@@ -682,7 +686,14 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 	}
 
 	var err error
-	pod, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
+	var p *v1.Pod
+	p, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
+
+	// Hack for heptio-authenticator-aws where Unauthorized happens sometimes
+	if status, ok := err.(*errors.StatusError); ok && status.ErrStatus.Message == "Unauthorized" {
+		p, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
+	}
+	pod = p
 
 	Expect(err).NotTo(HaveOccurred())
 

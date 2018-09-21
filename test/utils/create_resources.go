@@ -51,7 +51,7 @@ func RetryWithExponentialBackOff(fn wait.ConditionFunc) error {
 }
 
 func IsRetryableAPIError(err error) bool {
-	return apierrs.IsTimeout(err) || apierrs.IsServerTimeout(err) || apierrs.IsTooManyRequests(err) || utilnet.IsProbableEOF(err)
+	return apierrs.IsTimeout(err) || apierrs.IsServerTimeout(err) || apierrs.IsTooManyRequests(err) || utilnet.IsProbableEOF(err) || apierrs.IsUnauthorized(err)
 }
 
 func CreatePodWithRetries(c clientset.Interface, namespace string, obj *v1.Pod) error {
