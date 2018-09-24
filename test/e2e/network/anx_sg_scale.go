@@ -41,9 +41,6 @@ const (
 // The test runs Anx security group scale testing.
 var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", func() {
 	var awsctl *aws.Awsctl
-	var sgRds, subnetGroup string
-	var rds, endPoint, port string
-	var portInt64 int64
 
 	var podSgs []string
 
@@ -79,35 +76,18 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 
 		// Cleanup AWS resources created for the test.
 
-		// Revoke all ingress rules for sgRDS first.
-		if sgRds != "" {
-			err := awsctl.Client.RevokeSecurityGroupsIngress(sgRds)
-			Expect(err).NotTo(HaveOccurred())
-		}
-
 		// Cleanup and reinitialise podSg.
 		for _, sg := range podSgs {
 			err := awsctl.Client.DeleteVpcSG(sg)
 			Expect(err).NotTo(HaveOccurred())
 		}
 		podSgs = nil
-
-		// Cleanup rds instance and associated sg and subnet group.
-		if rds != "" {
-			err := awsctl.Client.DeleteRDSInstance(rds)
-			Expect(err).NotTo(HaveOccurred())
-		}
-		if sgRds != "" {
-			err := awsctl.Client.DeleteVpcSG(sgRds)
-			Expect(err).NotTo(HaveOccurred())
-		}
-		if subnetGroup != "" {
-			err := awsctl.Client.DeleteDBSubnetGroup(subnetGroup)
-			Expect(err).NotTo(HaveOccurred())
-		}
 	})
 
 	Context(fmt.Sprintf("%d SGs with rds instance", numSGs), func() {
+		var sgRds, subnetGroup string
+		var rds, endPoint, port string
+		var portInt64 int64
 		BeforeEach(func() {
 			var err error
 
@@ -144,6 +124,34 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 				}
 				return fmt.Errorf("RDS Instance %s did not have trust SG: %v", rds, sgs)
 			}, 2*time.Minute).ShouldNot(HaveOccurred())
+		})
+
+		AfterEach(func() {
+			// Revoke all ingress rules for sgRDS first.
+			if sgRds != "" {
+				err := awsctl.Client.RevokeSecurityGroupsIngress(sgRds)
+				Expect(err).NotTo(HaveOccurred())
+
+				for _, pSg := range podSgs {
+					err := awsctl.Client.RevokeSecurityGroupsIngress(pSg)
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+			}
+
+			// Cleanup rds instance and associated sg and subnet group.
+			if rds != "" {
+				err := awsctl.Client.DeleteRDSInstance(rds)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			if sgRds != "" {
+				err := awsctl.Client.DeleteVpcSG(sgRds)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			if subnetGroup != "" {
+				err := awsctl.Client.DeleteDBSubnetGroup(subnetGroup)
+				Expect(err).NotTo(HaveOccurred())
+			}
 		})
 
 		allowOneSGToRdsSG := func(podSG string) {
