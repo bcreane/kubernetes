@@ -695,6 +695,9 @@ type Calicoctl struct {
 	opts           CalicoctlOptions
 	datastore      string
 	endPoints      string
+	etcdCaFile     string
+	etcdKeyFile    string
+	etcdCertFile   string
 	framework      *framework.Framework
 	serviceAccount *v1.ServiceAccount
 	role           *rbacv1.ClusterRole
@@ -710,6 +713,9 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	ctl.framework = f
 	ctl.datastore = "kubernetes"
 	ctl.endPoints = "unused"
+	ctl.etcdCaFile = ""
+	ctl.etcdKeyFile = ""
+	ctl.etcdCertFile = ""
 	if len(opts) == 1 {
 		ctl.opts = opts[0]
 	}
@@ -718,6 +724,9 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	if v, ok := (*cfg)["etcd_endpoints"]; ok {
 		ctl.datastore = "etcdv3"
 		ctl.endPoints = v
+		ctl.etcdCaFile = (*cfg)["etcd_ca"]
+		ctl.etcdKeyFile = (*cfg)["etcd_key"]
+		ctl.etcdCertFile = (*cfg)["etcd_cert"]
 	}
 
 	// The following resources are created for RBAC permissions for KDD tests. They do not affect etcd tests.
@@ -773,11 +782,36 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 				Resources: []string{
 					"namespaces",
 					"serviceaccounts",
+					"nodes",
 				},
 				Verbs: []string{
 					"get",
 					"list",
 					"watch",
+					"update",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods/status",
+				},
+				Verbs: []string{
+					"update",
 				},
 			},
 		},
@@ -923,8 +957,7 @@ func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
 func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
-		"cat <<EOF > /$HOME/e2e-test-resource.yaml; "+
-			"/calicoctl %s %s --file=/$HOME/e2e-test-resource.yaml\n"+
+			"/calicoctl %s %s -f - <<EOF\n"+
 			"%s\n"+
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
@@ -999,6 +1032,9 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	env := []v1.EnvVar{
 		{Name: "DATASTORE_TYPE", Value: c.datastore},
 		{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
+		{Name: "ETCD_CA_CERT_FILE", Value: c.etcdCaFile},
+		{Name: "ETCD_KEY_FILE", Value: c.etcdKeyFile},
+		{Name: "ETCD_CERT_FILE", Value: c.etcdCertFile},
 	}
 	for name, value := range c.env {
 		env = append(env, v1.EnvVar{Name: name, Value: value})
@@ -1028,6 +1064,25 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			//Since calico policy would be applied from master, hence made NodeSelector as linux
 			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
+	}
+	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != ""  {
+		framework.Logf("etcd is secured, adding certs to calicoctl pod")
+		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
+			{
+				Name:      "etcd_cert",
+				MountPath: "/calico-secrets",
+			},
+		}
+		pod.Spec.Volumes = []v1.Volume{
+			{
+				Name: "etcd-certs",
+				VolumeSource: v1.VolumeSource{
+					Secret: &v1.SecretVolumeSource{
+						SecretName: "calico-etcd-secrets",
+					},
+				},
+			},
+		}
 	}
 
 	if c.node != "" {
