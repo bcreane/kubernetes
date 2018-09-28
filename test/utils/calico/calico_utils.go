@@ -1069,7 +1069,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		framework.Logf("etcd is secured, adding certs to calicoctl pod")
 		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
 			{
-				Name:      "etcd_cert",
+				Name:      "etcd_certs",
 				MountPath: "/calico-secrets",
 			},
 		}
