@@ -25,13 +25,13 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
 	"golang.org/x/crypto/ssh"
-
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -205,7 +205,10 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	if err != nil {
 		return nil, err
 	}
-	minor, err := strconv.Atoi(sv.Minor)
+	// extract just the number part (sometimes we get strings like '10+')
+	var getNum = regexp.MustCompile(`(\d+)\+?`)
+	validMinor := getNum.FindStringSubmatch(sv.Minor)[1]
+	minor, err := strconv.Atoi(validMinor)
 	if err != nil {
 		return nil, err
 	}
@@ -1069,7 +1072,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		framework.Logf("etcd is secured, adding certs to calicoctl pod")
 		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
 			{
-				Name:      "etcd_certs",
+				Name:      "etcd-certs",
 				MountPath: "/calico-secrets",
 			},
 		}
@@ -1082,6 +1085,27 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 					},
 				},
 			},
+		}
+		// Check that etcd-certs exists in this namespace, copy it over from kube-system if not.
+		_, err := f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Get("calico-etcd-secrets", metav1.GetOptions{})
+		if err != nil {
+			originalSecret, err := f.ClientSet.CoreV1().Secrets("kube-system").Get("calico-etcd-secrets", metav1.GetOptions{})
+			if err != nil {
+				framework.Failf("unable to find secret %v in ns %v: %v", originalSecret.Name, originalSecret.Namespace, err)
+			}
+			// Copy the bits we want out of the old secret
+			modifiedSecret := &v1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: originalSecret.Name,
+					Namespace: f.Namespace.Name,
+				},
+				Type: originalSecret.Type,
+				Data: originalSecret.Data,
+			}
+			newSecret, err := f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Create(modifiedSecret)
+			if err != nil {
+				framework.Failf("unable to create secret %v in ns %v: %v", newSecret.Name, newSecret.Namespace, err)
+			}
 		}
 	}
 
