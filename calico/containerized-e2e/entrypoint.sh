@@ -8,7 +8,7 @@ CNX_FOCUS_REGEX=""
 EXT_NETWORKING=true
 EXT_CONFORMANCE=false
 FOCUS=""
-DEFAULT_TIMEOUTS="3m"
+DEFAULT_TIMEOUTS="6m"
 SKIPS="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy|Pods Set QOS Class"
 
 function combine_regex {
