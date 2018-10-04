@@ -135,6 +135,8 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 				for _, pSg := range podSgs {
 					err := awsctl.Client.RevokeSecurityGroupsIngress(pSg)
 					Expect(err).NotTo(HaveOccurred())
+					err = awsctl.Client.RevokeSecurityGroupsEgress(pSg)
+					Expect(err).NotTo(HaveOccurred())
 				}
 
 			}
