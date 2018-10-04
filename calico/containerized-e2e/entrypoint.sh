@@ -8,6 +8,7 @@ CNX_FOCUS_REGEX=""
 EXT_NETWORKING=true
 EXT_CONFORMANCE=false
 FOCUS=""
+DEFAULT_TIMEOUTS="6m"
 SKIPS="Alpha|Disruptive|Experimental|Flaky|Kubectl|Serial|Volume|Feature:EgressNetworkPolicy|Pods Set QOS Class"
 
 function combine_regex {
@@ -57,7 +58,10 @@ function runner {
   e2e.test -kubeconfig=/root/kubeconfig \
     --ginkgo.focus="$FOCUS" \
     --ginkgo.skip="$SKIPS" \
-    -report-dir=/report $EXTRA_ARGS
+    -report-dir=/report \
+    --node-schedulable-timeout="$DEFAULT_TIMEOUTS" \
+    --system-pods-startup-timeout="$DEFAULT_TIMEOUTS" \
+    $EXTRA_ARGS
 }
 
 function focus_info {

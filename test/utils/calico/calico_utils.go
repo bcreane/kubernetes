@@ -25,13 +25,13 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
 	"golang.org/x/crypto/ssh"
-
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -205,7 +205,10 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	if err != nil {
 		return nil, err
 	}
-	minor, err := strconv.Atoi(sv.Minor)
+	// extract just the number part (sometimes we get strings like '10+')
+	var getNum = regexp.MustCompile(`(\d+)\+?`)
+	validMinor := getNum.FindStringSubmatch(sv.Minor)[1]
+	minor, err := strconv.Atoi(validMinor)
 	if err != nil {
 		return nil, err
 	}
@@ -695,6 +698,9 @@ type Calicoctl struct {
 	opts           CalicoctlOptions
 	datastore      string
 	endPoints      string
+	etcdCaFile     string
+	etcdKeyFile    string
+	etcdCertFile   string
 	framework      *framework.Framework
 	serviceAccount *v1.ServiceAccount
 	role           *rbacv1.ClusterRole
@@ -710,6 +716,9 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	ctl.framework = f
 	ctl.datastore = "kubernetes"
 	ctl.endPoints = "unused"
+	ctl.etcdCaFile = ""
+	ctl.etcdKeyFile = ""
+	ctl.etcdCertFile = ""
 	if len(opts) == 1 {
 		ctl.opts = opts[0]
 	}
@@ -718,6 +727,9 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	if v, ok := (*cfg)["etcd_endpoints"]; ok {
 		ctl.datastore = "etcdv3"
 		ctl.endPoints = v
+		ctl.etcdCaFile = (*cfg)["etcd_ca"]
+		ctl.etcdKeyFile = (*cfg)["etcd_key"]
+		ctl.etcdCertFile = (*cfg)["etcd_cert"]
 	}
 
 	// The following resources are created for RBAC permissions for KDD tests. They do not affect etcd tests.
@@ -773,11 +785,36 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 				Resources: []string{
 					"namespaces",
 					"serviceaccounts",
+					"nodes",
 				},
 				Verbs: []string{
 					"get",
 					"list",
 					"watch",
+					"update",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods/status",
+				},
+				Verbs: []string{
+					"update",
 				},
 			},
 		},
@@ -923,8 +960,7 @@ func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
 func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
-		"cat <<EOF > /$HOME/e2e-test-resource.yaml; "+
-			"/calicoctl %s %s --file=/$HOME/e2e-test-resource.yaml\n"+
+			"/calicoctl %s %s -f - <<EOF\n"+
 			"%s\n"+
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
@@ -999,6 +1035,9 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	env := []v1.EnvVar{
 		{Name: "DATASTORE_TYPE", Value: c.datastore},
 		{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
+		{Name: "ETCD_CA_CERT_FILE", Value: c.etcdCaFile},
+		{Name: "ETCD_KEY_FILE", Value: c.etcdKeyFile},
+		{Name: "ETCD_CERT_FILE", Value: c.etcdCertFile},
 	}
 	for name, value := range c.env {
 		env = append(env, v1.EnvVar{Name: name, Value: value})
@@ -1028,6 +1067,46 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			//Since calico policy would be applied from master, hence made NodeSelector as linux
 			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
+	}
+	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != ""  {
+		framework.Logf("etcd is secured, adding certs to calicoctl pod")
+		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
+			{
+				Name:      "etcd-certs",
+				MountPath: "/calico-secrets",
+			},
+		}
+		pod.Spec.Volumes = []v1.Volume{
+			{
+				Name: "etcd-certs",
+				VolumeSource: v1.VolumeSource{
+					Secret: &v1.SecretVolumeSource{
+						SecretName: "calico-etcd-secrets",
+					},
+				},
+			},
+		}
+		// Check that etcd-certs exists in this namespace, copy it over from kube-system if not.
+		_, err := f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Get("calico-etcd-secrets", metav1.GetOptions{})
+		if err != nil {
+			originalSecret, err := f.ClientSet.CoreV1().Secrets("kube-system").Get("calico-etcd-secrets", metav1.GetOptions{})
+			if err != nil {
+				framework.Failf("unable to find secret %v in ns %v: %v", originalSecret.Name, originalSecret.Namespace, err)
+			}
+			// Copy the bits we want out of the old secret
+			modifiedSecret := &v1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: originalSecret.Name,
+					Namespace: f.Namespace.Name,
+				},
+				Type: originalSecret.Type,
+				Data: originalSecret.Data,
+			}
+			newSecret, err := f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Create(modifiedSecret)
+			if err != nil {
+				framework.Failf("unable to create secret %v in ns %v: %v", newSecret.Name, newSecret.Namespace, err)
+			}
+		}
 	}
 
 	if c.node != "" {
