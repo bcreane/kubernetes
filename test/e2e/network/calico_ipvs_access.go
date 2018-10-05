@@ -30,6 +30,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const DEFAULT_EXTERNAL_IP = "60.70.80.90"
+
 var _ = SIGDescribe("IPVSEgress", func() {
 
 	// Test that Calico workload egress policy still takes effect when kube-proxy is using IPVS
@@ -188,7 +190,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 					target = fmt.Sprintf("%v:%v", nodeIPs[1], svcNodePort)
 				} else if c.accessType == "external IP" {
 					expectSNAT = true
-					target = fmt.Sprintf("%v:%v", nodeIPs[0], svcPort)
+					target = fmt.Sprintf("%v:%v", DEFAULT_EXTERNAL_IP, svcPort)
 				} else {
 					panic("Unhandled accessType: " + c.accessType)
 				}
@@ -283,7 +285,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	}
 
 	addExternalIPLocalOnly := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
 	}
 
@@ -292,7 +294,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	}
 
 	addExternalIPClusterWide := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
 	}
 
@@ -469,7 +471,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 	var calicoctl *calico.Calicoctl
 
 	addExternalIPClusterWide := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
 	}
 
@@ -614,7 +616,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 						target = fmt.Sprintf("%v:%v", hepNodeIP, svcNodePort)
 					} else if c.accessType == "external IP" {
 						expectSNAT = true
-						target = fmt.Sprintf("%v:%v", hepNodeIP, svcPort)
+						target = fmt.Sprintf("%v:%v", DEFAULT_EXTERNAL_IP, svcPort)
 					} else if c.accessType == "pod IP" {
 						expectSNAT = false
 						target = fmt.Sprintf("%v:%s", dstPod.Status.PodIP, "8080")
