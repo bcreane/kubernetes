@@ -36,8 +36,8 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -157,7 +157,7 @@ func executeCmdInPodWithCustomizer(f *framework.Framework, cmd string, cmdTestCo
 }
 
 func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
-	podName := "logging-" + string(uuid.NewUUID())
+	podName := fmt.Sprintf("%s%s", "logging-", utilrand.String(5))
 
 	volumes := []v1.Volume{
 		{
@@ -1043,9 +1043,10 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		env = append(env, v1.EnvVar{Name: name, Value: value})
 	}
 
+	podName := fmt.Sprintf("%s%s", "calicoctl-", utilrand.String(5))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "calicoctl",
+			Name: podName,
 			Labels: map[string]string{
 				"pod-name": "calicoctl",
 			},
@@ -1152,7 +1153,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
 
 	// Collect pod logs regardless of execution result.
-	logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podClient.Name))
+	logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, "calicoctl-container")
 	if logErr != nil {
 		framework.Failf("Error getting container logs: %s", logErr)
 	}
