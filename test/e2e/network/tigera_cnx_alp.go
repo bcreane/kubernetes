@@ -148,7 +148,7 @@ spec:
 				By("verifying pod (svc-acct-b) cannot connect")
 				testIstioCannotConnect(f, f.Namespace, "pod-cannot-connect", service, 80, podServer, sb)
 
-				By("creating a network policy in tier t0; allow svc-acct-b, deny svc-acct-b")
+				By("creating a network policy in tier t0; deny svc-acct-a, allow svc-acct-b")
 				np := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
@@ -370,12 +370,12 @@ spec:
 				By("verifying pod (svc-acct-b) cannot PUT")
 				testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
 
-				By("creating a network policy in the t0 tier; put svc-acct-a")
+				By("creating a network policy in the t0 tier; put svc-acct-a/b; deny svc-acct-a; pass svc-acct-b")
 				np = fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
-  name: t0.allow-put-a-b-pass-b
+  name: t0.allow-put-a-b-deny-a-pass-b
   namespace: %s
 spec:
   order: 100
@@ -400,7 +400,7 @@ spec:
   - action: Allow
 `, f.Namespace.Name)
 				calicoctl.Apply(np)
-				defer calicoctl.DeleteNP(f.Namespace.Name, "t0.allow-put-a-b-pass-b")
+				defer calicoctl.DeleteNP(f.Namespace.Name, "t0.allow-put-a-b-deny-a-pass-b")
 
 				By("verifying pod (svc-acct-a) cannot GET")
 				testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
