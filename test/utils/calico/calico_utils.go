@@ -20,6 +20,7 @@ package calico
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -36,8 +37,8 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
-	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -879,6 +880,40 @@ func (c *Calicoctl) DatastoreType() string {
 	return c.datastore
 }
 
+// GetAsMapReturnError queries the requested resource using calicoctl, returning the value of the resource as
+// a map[string]interface{} (using standard JSON unmarshaling).
+func (c *Calicoctl) GetAsMapReturnError(kind, name, namespace string) (map[string]interface{}, error) {
+	var y string
+	var err error
+	// Use the export option when querying the resource since we want it in a format where
+	// it can be easily reapplied.
+	if namespace == "" {
+		y, err = c.ExecReturnError("get", kind, name, "-o", "json", "--export")
+	} else {
+		y, err = c.ExecReturnError("get", kind, name, "-n", namespace, "-o", "json", "--export")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	m := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(y), &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// ApplyFromMapReturnError applies the resource as specificed in the map. The map will be
+// marshaled into JSON and applied using calicoctl.
+func (c *Calicoctl) ApplyFromMapReturnError(r map[string]interface{}, args ...string) error {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = c.actionCtlWithError(string(b), "apply")
+	return err
+}
+
 func (c *Calicoctl) Apply(yaml string, args ...string) {
 	c.actionCtl(yaml, "apply", args...)
 }
@@ -960,7 +995,7 @@ func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
 func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
-			"/calicoctl %s %s -f - <<EOF\n"+
+		"/calicoctl %s %s -f - <<EOF\n"+
 			"%s\n"+
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
@@ -1069,7 +1104,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
 	}
-	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != ""  {
+	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != "" {
 		framework.Logf("etcd is secured, adding certs to calicoctl pod")
 		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
 			{
@@ -1097,7 +1132,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			// Copy the bits we want out of the old secret
 			modifiedSecret := &v1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: originalSecret.Name,
+					Name:      originalSecret.Name,
 					Namespace: f.Namespace.Name,
 				},
 				Type: originalSecret.Type,
