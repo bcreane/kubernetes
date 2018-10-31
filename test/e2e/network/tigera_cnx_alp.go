@@ -29,10 +29,53 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+type testSAGetPut struct {
+	getA bool
+	getB bool
+	putA bool
+	putB bool
+}
+
 var _ = SIGDescribe("[Feature:CNX-ALP] Tigera CNX application layer policy", func() {
 	var calicoctl *calico.Calicoctl
+	var service *v1.Service
+	var podServer *v1.Pod
+	var sa, sb *v1.ServiceAccount
 
 	f := framework.NewDefaultFramework("cnx-alp")
+
+	// Define a useful function for testing HTTP connectivity between the pod server and two
+	// pods in different service accounts.
+	runTestSAGetPut := func(res testSAGetPut) {
+		if res.getA {
+			By("verifying pod (svc-acct-a) can GET")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
+		} else {
+			By("verifying pod (svc-acct-a) cannot GET")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
+		}
+		if res.putA {
+			By("verifying pod (svc-acct-a) can PUT")
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
+		} else {
+			By("verifying pod (svc-acct-a) cannot PUT")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
+		}
+		if res.getB {
+			By("verifying pod (svc-acct-b) can GET")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
+		} else {
+			By("verifying pod (svc-acct-b) cannot GET")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
+		}
+		if res.putB {
+			By("verifying pod (svc-acct-b) can PUT")
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
+		} else {
+			By("verifying pod (svc-acct-b) cannot PUT")
+			testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
+		}
+	}
 
 	Context("tiered application layer policy tests", func() {
 		BeforeEach(func() {
@@ -69,6 +112,10 @@ var _ = SIGDescribe("[Feature:CNX-ALP] Tigera CNX application layer policy", fun
 				framework.Failf("Error deleting calico Tier 't0': %s", result)
 			}
 			calicoctl.Create(newTier("t0", 98))
+
+			By("creating two service accounts for the test")
+			sa = alp.CreateServiceAccount(f, "svc-acct-a", f.Namespace.Name, map[string]string{"svc-acct-id": "a"})
+			sb = alp.CreateServiceAccount(f, "svc-acct-b", f.Namespace.Name, map[string]string{"svc-acct-id": "b"})
 		})
 
 		JustAfterEach(func() {
@@ -83,26 +130,31 @@ var _ = SIGDescribe("[Feature:CNX-ALP] Tigera CNX application layer policy", fun
 			if err != nil {
 				framework.Failf("Error deleting calico Tier 't0': %s", result)
 			}
+
+			if sa != nil {
+				alp.DeleteServiceAccount(f, sa)
+				sa = nil
+			}
+			if sb != nil {
+				alp.DeleteServiceAccount(f, sb)
+				sb = nil
+			}
+
+			// Pod and service are created in specific test contexts, but cleanup code can be commonized here.
+			if podServer != nil && service != nil {
+				cleanupServerPodAndService(f, podServer, service)
+				podServer = nil
+				service = nil
+			}
 		})
 
 		Context("simple tier/policy ordering using service account matches", func() {
-			var service *v1.Service
-			var podServer *v1.Pod
-
 			BeforeEach(func() {
 				By("Creating a simple server.")
 				podServer, service = createIstioServerPodAndService(f, f.Namespace, "server", []int{80}, nil)
 				framework.Logf("Waiting for Server to come up.")
 				err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
 				Expect(err).NotTo(HaveOccurred())
-			})
-
-			AfterEach(func() {
-				if podServer != nil && service != nil {
-					cleanupServerPodAndService(f, podServer, service)
-					podServer = nil
-					service = nil
-				}
 			})
 
 			It("should honor tier and policy ordering / policies matching on service account names", func() {
@@ -117,12 +169,6 @@ var _ = SIGDescribe("[Feature:CNX-ALP] Tigera CNX application layer policy", fun
 				// t0      | 10    | Pass  ---+  | Allow       |    SA-a and SA-b
 				//
 				// This test uses a mixture of name and label selection of service accounts in the policy rules.
-				By("creating two service accounts for the test")
-				sa := alp.CreateServiceAccount(f, "svc-acct-a", f.Namespace.Name, map[string]string{"svc-acct-id": "a"})
-				sb := alp.CreateServiceAccount(f, "svc-acct-b", f.Namespace.Name, map[string]string{"svc-acct-id": "b"})
-				defer alp.DeleteServiceAccount(f, sa)
-				defer alp.DeleteServiceAccount(f, sb)
-
 				By("creating a global network policy in the default tier; allow svc-acct-a")
 				gnp := `
 apiVersion: projectcalico.org/v3
@@ -211,9 +257,6 @@ spec:
 		})
 
 		Context("simple tier/policy ordering using http matches and service accounts", func() {
-			var service *v1.Service
-			var podServer *v1.Pod
-
 			BeforeEach(func() {
 				// Create Server with Service
 				By("Creating a server support GET/PUT.")
@@ -226,14 +269,6 @@ spec:
 				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
 				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
 
-			})
-
-			AfterEach(func() {
-				if podServer != nil && service != nil {
-					cleanupServerPodAndService(f, podServer, service)
-					podServer = nil
-					service = nil
-				}
 			})
 
 			It("should disallow unsupported policy configuration", func() {
@@ -303,12 +338,6 @@ spec:
 				// Deny and a Pass match. Since Felix ignores the HTTP part of the match, the Allow match will trump
 				// both the Deny and Pass in Felix. Thus, the handling of the Deny and Pass rules and subsequent policy
 				// matching is performed in Dikastes.
-				By("creating two service accounts for the test")
-				sa := alp.CreateServiceAccount(f, "svc-acct-a", f.Namespace.Name, map[string]string{"svc-acct-id": "a"})
-				sb := alp.CreateServiceAccount(f, "svc-acct-b", f.Namespace.Name, map[string]string{"svc-acct-id": "b"})
-				defer alp.DeleteServiceAccount(f, sa)
-				defer alp.DeleteServiceAccount(f, sb)
-
 				// This is a quick add-on test, to ensure a policy in a different namespace will not impact the
 				// test which uses a different namespace.
 				By("creating an allow all network policy in the default namespace and default tier; should not impact test")
@@ -359,15 +388,7 @@ spec:
 `, f.Namespace.Name)
 				calicoctl.Apply(np)
 				defer calicoctl.DeleteNP(f.Namespace.Name, "default.get-a-b-put-a")
-
-				By("verifying pod (svc-acct-a) can GET")
-				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
-				By("verifying pod (svc-acct-b) can GET")
-				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
-				By("verifying pod (svc-acct-a) can PUT")
-				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
-				By("verifying pod (svc-acct-b) cannot PUT")
-				testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
+				runTestSAGetPut(testSAGetPut{getA: true, getB: true, putA: true, putB: false})
 
 				By("creating a network policy in the t0 tier; put svc-acct-a/b; deny svc-acct-a; pass svc-acct-b")
 				np = fmt.Sprintf(`
@@ -400,15 +421,7 @@ spec:
 `, f.Namespace.Name)
 				calicoctl.Apply(np)
 				defer calicoctl.DeleteNP(f.Namespace.Name, "t0.allow-put-a-b-deny-a-pass-b")
-
-				By("verifying pod (svc-acct-a) cannot GET")
-				testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
-				By("verifying pod (svc-acct-b) can GET") // From the pass to next tier
-				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
-				By("verifying pod (svc-acct-a) can PUT")
-				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
-				By("verifying pod (svc-acct-b) can PUT")
-				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
+				runTestSAGetPut(testSAGetPut{getA: false, getB: true, putA: true, putB: true})
 
 				By("creating a global network policy in the t0 tier; allow-TCP-a; allow-UDP-b; pass-b")
 				np = `
@@ -444,24 +457,12 @@ spec:
 `
 				calicoctl.Apply(np)
 				defer calicoctl.DeleteGNP("t0.allow-tcp-a-udp-b-pass-b")
-
-				By("verifying pod (svc-acct-a) can GET")
-				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
-				By("verifying pod (svc-acct-b) can GET")
-				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
-				By("verifying pod (svc-acct-a) can PUT") // From the pass to next tier
-				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
-				By("verifying pod (svc-acct-b) cannot PUT") // From the pass to next tier
-				testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
+				runTestSAGetPut(testSAGetPut{getA: true, getB: true, putA: true, putB: false})
 			})
 		})
 
 		Describe("[Feature:CNX-ALP-DropActionOverride] ALP tests with DropActionOverride", func() {
-			var service *v1.Service
-			var podServer *v1.Pod
-			var sa, sb *v1.ServiceAccount
 			var np1Created, np2Created bool
-			var testFn func(override string, acceptAll bool)
 
 			BeforeEach(func() {
 				// Create Server with Service
@@ -474,10 +475,6 @@ spec:
 				By("Creating client which will be able to GET/PUT the server since no policies are present.")
 				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
 				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
-
-				By("creating two service accounts for the test")
-				sa = alp.CreateServiceAccount(f, "svc-acct-a", f.Namespace.Name, map[string]string{"svc-acct-id": "a"})
-				sb = alp.CreateServiceAccount(f, "svc-acct-b", f.Namespace.Name, map[string]string{"svc-acct-id": "b"})
 
 				By("creating a network policy in tier t0: allow svc-acct-a GET, pass svc-acct-b")
 				np := fmt.Sprintf(`
@@ -524,61 +521,15 @@ spec:
       methods: ["PUT"]
     source:
       serviceAccounts:
-        names: ["svc-acct-b"]
+        names: ["svc-acct-a", "svc-acct-b"]
   egress:
   - action: Allow
 `, f.Namespace.Name)
 				calicoctl.Apply(np)
 				np2Created = true
-
-				// Define the test function. This applies a change to the DropActionOverride
-				// global value, and then checks connectivity depending on whether deny has
-				// been overridden with accept.
-				testFn = func(override string, acceptAll bool) {
-					defer setDropActionOverride(calicoctl, "")
-
-					desc := fmt.Sprintf("changing DropActionOverride to %s - ", override)
-					if acceptAll {
-						desc += "connectivity should be allowed for all combinations"
-					} else {
-						desc += "connectivity should be as per policy"
-					}
-					// Log the sub-step description
-					By(desc)
-					Expect(setDropActionOverride(calicoctl, override)).ToNot(HaveOccurred())
-
-					By("verifying pod (svc-acct-a) can GET")
-					testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
-					if acceptAll {
-						By("verifying pod (svc-acct-a) can PUT")
-						testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
-						By("verifying pod (svc-acct-b) can GET")
-						testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
-					} else {
-						By("verifying pod (svc-acct-a) cannot PUT")
-						testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
-						By("verifying pod (svc-acct-b) cannot GET")
-						testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
-					}
-					By("verifying pod (svc-acct-b) can PUT")
-					testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
-				}
 			})
 
 			AfterEach(func() {
-				if podServer != nil && service != nil {
-					cleanupServerPodAndService(f, podServer, service)
-					podServer = nil
-					service = nil
-				}
-				if sa != nil {
-					alp.DeleteServiceAccount(f, sa)
-					sa = nil
-				}
-				if sb != nil {
-					alp.DeleteServiceAccount(f, sb)
-					sb = nil
-				}
 				if np1Created {
 					calicoctl.DeleteNP(f.Namespace.Name, "t0.get-a-pass-b")
 					np1Created = false
@@ -590,25 +541,47 @@ spec:
 			})
 
 			It("should handle requested DropActionOverride when CNX license is valid", func() {
-				testFn("Drop", false)
-				testFn("LogAndDrop", false)
-				testFn("Accept", true)
-				testFn("LogAndAccept", true)
+				defer setDropActionOverride(calicoctl, "")
+
+				setDropActionOverride(calicoctl, "Drop")
+				runTestSAGetPut(testSAGetPut{getA: true, getB: false, putA: false, putB: true})
+
+				setDropActionOverride(calicoctl, "LogAndDrop")
+				runTestSAGetPut(testSAGetPut{getA: true, getB: false, putA: false, putB: true})
+
+				setDropActionOverride(calicoctl, "Accept")
+				runTestSAGetPut(testSAGetPut{getA: true, getB: true, putA: true, putB: true})
+
+				setDropActionOverride(calicoctl, "LogAndAccept")
+				runTestSAGetPut(testSAGetPut{getA: true, getB: true, putA: true, putB: true})
 			})
 
-			// TODO: Enable as part of explicit license test task: requires a little more than just
-			//       uncommenting because Felix filters out tiers if not licensed.
-			//It("should ignore DropActionOverride when CNX license is not valid", func() {
-			//	if calicoctl.DatastoreType() != "kubernetes" {
-			//		framework.Skipf("Disabled CNX license tests only run for KDD")
-			//	}
-			//	// Delete the underlying license keys CRD (we cannot use calicoctl to delete the key)
-			//	framework.RunKubectlOrDie("delete", "licensekeys.crd.projectcalico.org", "default")
-			//	testFn("Drop", false)
-			//	testFn("LogAndDrop", false)
-			//	testFn("Accept", false)
-			//	testFn("LogAndAccept", false)
-			//})
+			It("should ignore DropActionOverride when CNX license is not valid", func() {
+				if calicoctl.DatastoreType() != "kubernetes" {
+					framework.Skipf("Disabled CNX license tests only run for KDD")
+				}
+				// Delete the underlying license keys CRD (we cannot use calicoctl to delete the key). This will
+				// force Felix to filter out all but the default tier AND will set DropActionOverride to DROP.
+				By("Removing the CNX license")
+				framework.RunKubectlOrDie("delete", "licensekeys.crd.projectcalico.org", "default")
+				defer func() {
+					setDropActionOverride(calicoctl, "")
+					// Apply the license (so we can delete tiers) in the tidy up processing.
+					calicoctl.ApplyCNXLicense()
+				}()
+
+				setDropActionOverride(calicoctl, "Drop")
+				runTestSAGetPut(testSAGetPut{getA: false, getB: false, putA: true, putB: true})
+
+				setDropActionOverride(calicoctl, "LogAndDrop")
+				runTestSAGetPut(testSAGetPut{getA: false, getB: false, putA: true, putB: true})
+
+				setDropActionOverride(calicoctl, "Accept")
+				runTestSAGetPut(testSAGetPut{getA: false, getB: false, putA: true, putB: true})
+
+				setDropActionOverride(calicoctl, "LogAndAccept")
+				runTestSAGetPut(testSAGetPut{getA: false, getB: false, putA: true, putB: true})
+			})
 		})
 	})
 })
@@ -628,8 +601,10 @@ func setDropActionOverride(ctl *calico.Calicoctl, val string) error {
 	}
 	s := fc["spec"].(map[string]interface{})
 	if val == "" {
+		By("Removing the dropActionOverride setting")
 		delete(s, "dropActionOverride")
 	} else {
+		By("Setting dropActionOverride to " + val)
 		s["dropActionOverride"] = val
 	}
 	return ctl.ApplyFromMapReturnError(fc)
