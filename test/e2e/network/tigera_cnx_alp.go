@@ -59,12 +59,11 @@ var _ = SIGDescribe("[Feature:CNX-ALP] Tigera CNX application layer policy", fun
 			// - Tier t0 created
 			// - Simple server used to determine connectivity.
 			calicoctl = calico.ConfigureCalicoctl(f)
-			calicoctl.SetEnv("ALPHA_FEATURES", "serviceaccounts,httprules")
 
 			By("Applying a test CNX license.")
 			calicoctl.ApplyCNXLicense()
 
-			By("Creating tier0.")
+			By("Creating tier t0.")
 			result, err := calicoctl.ExecReturnError("delete", "tier", "t0", "--skip-not-exists")
 			if err != nil {
 				framework.Failf("Error deleting calico Tier 't0': %s", result)
@@ -456,5 +455,182 @@ spec:
 				testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
 			})
 		})
+
+		Describe("[Feature:CNX-ALP-DropActionOverride] ALP tests with DropActionOverride", func() {
+			var service *v1.Service
+			var podServer *v1.Pod
+			var sa, sb *v1.ServiceAccount
+			var np1Created, np2Created bool
+			var testFn func(override string, acceptAll bool)
+
+			BeforeEach(func() {
+				// Create Server with Service
+				By("Creating a server support GET/PUT.")
+				podServer, service = createIstioGetPutPodAndService(f, f.Namespace, "server", 2379, nil)
+				framework.Logf("Waiting for Server to come up.")
+				err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Creating client which will be able to GET/PUT the server since no policies are present.")
+				testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
+				testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
+
+				By("creating two service accounts for the test")
+				sa = alp.CreateServiceAccount(f, "svc-acct-a", f.Namespace.Name, map[string]string{"svc-acct-id": "a"})
+				sb = alp.CreateServiceAccount(f, "svc-acct-b", f.Namespace.Name, map[string]string{"svc-acct-id": "b"})
+
+				By("creating a network policy in tier t0: allow svc-acct-a GET, pass svc-acct-b")
+				np := fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: t0.get-a-pass-b
+  namespace: %s
+spec:
+  order: 100
+  tier: t0
+  selector: pod-name == "server"
+  ingress:
+  - action: Allow
+    http:
+      methods: ["GET"]
+    source:
+      serviceAccounts:
+        names: ["svc-acct-a"]
+  - action: Pass
+    source:
+      serviceAccounts:
+        names: ["svc-acct-b"]
+  egress:
+  - action: Allow
+`, f.Namespace.Name)
+				calicoctl.Apply(np)
+				np1Created = true
+
+				By("creating a network policy in the default tier: allow svc-acct-b PUT")
+				np = fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: default.put-b
+  namespace: %s
+spec:
+  order: 100
+  tier: default
+  selector: pod-name == "server"
+  ingress:
+  - action: Allow
+    http:
+      methods: ["PUT"]
+    source:
+      serviceAccounts:
+        names: ["svc-acct-b"]
+  egress:
+  - action: Allow
+`, f.Namespace.Name)
+				calicoctl.Apply(np)
+				np2Created = true
+
+				// Define the test function. This applies a change to the DropActionOverride
+				// global value, and then checks connectivity depending on whether deny has
+				// been overridden with accept.
+				testFn = func(override string, acceptAll bool) {
+					defer setDropActionOverride(calicoctl, "")
+
+					desc := fmt.Sprintf("changing DropActionOverride to %s - ", override)
+					if acceptAll {
+						desc += "connectivity should be allowed for all combinations"
+					} else {
+						desc += "connectivity should be as per policy"
+					}
+					// Log the sub-step description
+					By(desc)
+					Expect(setDropActionOverride(calicoctl, override)).ToNot(HaveOccurred())
+
+					By("verifying pod (svc-acct-a) can GET")
+					testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sa)
+					if acceptAll {
+						By("verifying pod (svc-acct-a) can PUT")
+						testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
+						By("verifying pod (svc-acct-b) can GET")
+						testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
+					} else {
+						By("verifying pod (svc-acct-a) cannot PUT")
+						testIstioCannotGetPut(f, f.Namespace, http.MethodPut, service, podServer, sa)
+						By("verifying pod (svc-acct-b) cannot GET")
+						testIstioCannotGetPut(f, f.Namespace, http.MethodGet, service, podServer, sb)
+					}
+					By("verifying pod (svc-acct-b) can PUT")
+					testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, sb)
+				}
+			})
+
+			AfterEach(func() {
+				if podServer != nil && service != nil {
+					cleanupServerPodAndService(f, podServer, service)
+					podServer = nil
+					service = nil
+				}
+				if sa != nil {
+					alp.DeleteServiceAccount(f, sa)
+					sa = nil
+				}
+				if sb != nil {
+					alp.DeleteServiceAccount(f, sb)
+					sb = nil
+				}
+				if np1Created {
+					calicoctl.DeleteNP(f.Namespace.Name, "t0.get-a-pass-b")
+					np1Created = false
+				}
+				if np2Created {
+					calicoctl.DeleteNP(f.Namespace.Name, "default.put-b")
+					np2Created = false
+				}
+			})
+
+			It("should handle requested DropActionOverride when CNX license is valid", func() {
+				testFn("Drop", false)
+				testFn("LogAndDrop", false)
+				testFn("Accept", true)
+				testFn("LogAndAccept", true)
+			})
+
+			// TODO: Enable as part of explicit license test task: requires a little more than just
+			//       uncommenting because Felix filters out tiers if not licensed.
+			//It("should ignore DropActionOverride when CNX license is not valid", func() {
+			//	if calicoctl.DatastoreType() != "kubernetes" {
+			//		framework.Skipf("Disabled CNX license tests only run for KDD")
+			//	}
+			//	// Delete the underlying license keys CRD (we cannot use calicoctl to delete the key)
+			//	framework.RunKubectlOrDie("delete", "licensekeys.crd.projectcalico.org", "default")
+			//	testFn("Drop", false)
+			//	testFn("LogAndDrop", false)
+			//	testFn("Accept", false)
+			//	testFn("LogAndAccept", false)
+			//})
+		})
 	})
 })
+
+// setDropActionOverride sets the DropActionOverride global felix configuration option.
+func setDropActionOverride(ctl *calico.Calicoctl, val string) error {
+	fc, err := ctl.GetAsMapReturnError("felixconfiguration", "default", "")
+	if err != nil {
+		fc = map[string]interface{}{
+			"kind":       "FelixConfiguration",
+			"apiVersion": "projectcalico.org/v3",
+			"metadata": map[string]interface{}{
+				"name": "default",
+			},
+			"spec": map[string]interface{}{},
+		}
+	}
+	s := fc["spec"].(map[string]interface{})
+	if val == "" {
+		delete(s, "dropActionOverride")
+	} else {
+		s["dropActionOverride"] = val
+	}
+	return ctl.ApplyFromMapReturnError(fc)
+}
