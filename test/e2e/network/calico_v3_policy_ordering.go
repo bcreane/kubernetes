@@ -279,6 +279,10 @@ spec:
 					// Can't configure host endpoints with Kubernetes as the data store.
 					Skip("Test is not possible with Kubernetes as the data store")
 				}
+				if winctl.RunningWindowsTest() {
+					// windows node does not support host endpoints and host networked pod.
+					Skip("Test is not possible with windows nodes")
+				}
 
 				hostNetworkedServer = true
 				names = []string{"pol-c", "pol-b", "pol-a"}
