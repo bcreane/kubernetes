@@ -51,8 +51,11 @@ import (
 )
 
 const (
-	cmdTestPodName        = "cmd-test-container-pod"
-	calicoctlManifestPath = "test/e2e/testing-manifests/calicoctl"
+	maxNameLength          = 63
+	randomLength           = 5
+	maxGeneratedNameLength = maxNameLength - randomLength
+	cmdTestPodName         = "cmd-test-container-pod"
+	calicoctlManifestPath  = "test/e2e/testing-manifests/calicoctl"
 )
 
 var (
@@ -63,6 +66,13 @@ var (
 	serviceCmd              = "/bin/sh -c 'while /bin/true; do echo foo | nc -l %d; done'"
 	serverPort1             = 80
 )
+
+func GenerateRandomName(base string) string {
+	if len(base) > maxGeneratedNameLength {
+		base = base[:maxGeneratedNameLength]
+	}
+	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
+}
 
 func ReadTestFileOrDie(file string, config ...interface{}) string {
 	v := string(generated.ReadOrDie(path.Join(calicoctlManifestPath, file)))
@@ -158,7 +168,7 @@ func executeCmdInPodWithCustomizer(f *framework.Framework, cmd string, cmdTestCo
 }
 
 func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
-	podName := fmt.Sprintf("%s%s", "logging-", utilrand.String(5))
+	podName := GenerateRandomName("logging")
 
 	volumes := []v1.Volume{
 		{
@@ -1078,7 +1088,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		env = append(env, v1.EnvVar{Name: name, Value: value})
 	}
 
-	podName := fmt.Sprintf("%s%s", "calicoctl-", utilrand.String(5))
+	podName := GenerateRandomName("calicoctl")
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
