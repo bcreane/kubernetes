@@ -144,6 +144,50 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 				testIstioCannotConnect(f, f.Namespace, "pod-cannot-connect", service, 80, podServer, sa)
 			})
 		})
+		Context("With GlobalNetworkPolicy matching service account selectors", func() {
+
+			BeforeEach(func() {
+				gnp := `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: svc-acct-can-connect
+  spec:
+    selector: pod-name == "server"
+    ingress:
+    - action: Allow
+      source:
+        serviceAccounts:
+          selector: can-connect == "true"
+    egress:
+    - action: Allow
+`
+
+				calicoctl.Apply(gnp)
+			})
+
+			AfterEach(func() {
+				calicoctl.DeleteGNP("svc-acct-can-connect")
+			})
+
+			It("should allow \"can-connect\" pod to connect", func() {
+				By("creating \"can-connect\" service account")
+				sa := alp.CreateServiceAccount(f, "can-connect", f.Namespace.Name, map[string]string{"can-connect": "true"})
+				defer alp.DeleteServiceAccount(f, sa)
+
+				By("testing connectivity with pod using \"can-connect\" service account")
+				testIstioCanConnect(f, f.Namespace, "client-can-connect", service, 80, podServer, sa)
+			})
+
+			It("should not allow \"cannot-connect\" pod to connect", func() {
+				By("creating \"cannot-connect\" service account")
+				sa := alp.CreateServiceAccount(f, "cannot-connect", f.Namespace.Name, map[string]string{"can-connect": "false"})
+				defer alp.DeleteServiceAccount(f, sa)
+
+				By("testing connectivity with pod using \"cannot-connect\" service account")
+				testIstioCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80, podServer, sa)
+			})
+		})
 	})
 
 	Describe("ALP http-method test", func() {
