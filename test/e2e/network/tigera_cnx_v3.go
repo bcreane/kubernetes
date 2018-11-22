@@ -246,12 +246,9 @@ spec:
 					panic("Unhandled override setting")
 				}
 
-				time.Sleep(20 * time.Second)
-
 				// Regardless of DropActionOverride, there should always be an
 				// increase in the calico_denied_packets metric.
-				nowPackets := sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)
-				Expect(nowPackets).To(BeNumerically(">", initPackets))
+				Eventually(sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP), 90 * time.Second).Should(BeNumerically(">", initPackets))
 
 				// When DropActionOverride begins with "Log", there should be new
 				// syslogs for the packets to port 80.
