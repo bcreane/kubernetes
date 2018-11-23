@@ -626,7 +626,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	if winctl.RunningWindowsTest() {
 		imageUrl = "microsoft/powershell:nanoserver"
 		podArgs = append(podArgs, "C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
-		cmd = fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing", target)
+		cmd = fmt.Sprintf("$sb={Invoke-WebRequest %s -UseBasicParsing -TimeoutSec 3}; For ($i=0; $i -lt 5; $i++) { sleep 5; try {& $sb} catch { echo failed loop $i ; continue }; exit 0 ; }; exit 1", target)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
 	} else {
