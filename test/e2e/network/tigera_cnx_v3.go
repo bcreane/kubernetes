@@ -248,7 +248,8 @@ spec:
 
 				// Regardless of DropActionOverride, there should always be an
 				// increase in the calico_denied_packets metric.
-				Eventually(sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP), 90 * time.Second).Should(BeNumerically(">", initPackets))
+				sumFn := func() int64 {return sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)}
+				Eventually(sumFn, 90 * time.Second).Should(BeNumerically(">", initPackets))
 
 				// When DropActionOverride begins with "Log", there should be new
 				// syslogs for the packets to port 80.
