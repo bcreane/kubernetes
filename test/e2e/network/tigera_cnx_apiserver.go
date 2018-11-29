@@ -3,6 +3,7 @@ package network
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ghodss/yaml"
@@ -76,14 +77,20 @@ var _ = SIGDescribe("[Feature:CNX-APIServer]", func() {
 		})
 
 		It("Get a NetworkPolicy using kubectl command", func() {
-			By(fmt.Sprintf("Checking CNX API Server: kubectl command can get a NetworkPolicy %s in json output format", tierConfig.Name))
-			output, err := kubectl.get("networkpolicy.p", testNameSpace, npConfig.Name, "", "json")
+			By(fmt.Sprintf("Checking CNX API Server: kubectl command can get a NetworkPolicy %s", npConfig.Name))
+                        output, err := kubectl.get("networkpolicy.p", testNameSpace, npConfig.Name, "", "")
+                        Expect(err).NotTo(HaveOccurred())
+                        npName := strings.Fields(strings.Split(output, "\n")[1])[0]
+                        Expect(npName).To(Equal(npConfig.Name))
+
+			By(fmt.Sprintf("Checking CNX API Server: kubectl command can get a NetworkPolicy %s in json output format", npConfig.Name))
+			output, err = kubectl.get("networkpolicy.p", testNameSpace, npConfig.Name, "", "json")
 			Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal([]byte(output), &jsonData)
-			npName := jsonData.(map[string]interface{})["metadata"].(map[string]interface{})["name"].(string)
+			npName = jsonData.(map[string]interface{})["metadata"].(map[string]interface{})["name"].(string)
 			Expect(npName).To(Equal(npConfig.Name))
 
-			By(fmt.Sprintf("Checking CNX API Server: kubectl command can get a NetworkPolicy %s in yaml output format", tierConfig.Name))
+			By(fmt.Sprintf("Checking CNX API Server: kubectl command can get a NetworkPolicy %s in yaml output format", npConfig.Name))
 			output, err = kubectl.get("networkpolicy.p", testNameSpace, npConfig.Name, "", "yaml")
 			Expect(err).NotTo(HaveOccurred())
 			err = yaml.Unmarshal([]byte(output), &jsonData)
@@ -114,8 +121,11 @@ func (k *testKubectlCNXAPI) apply(yaml string, ns string) error {
 	return err
 }
 
-func (k *testKubectlCNXAPI) get(kind, ns, name string, label string, output_option string) (string, error) {
-	options := []string{"get", kind, "-o", output_option}
+func (k *testKubectlCNXAPI) get(kind, ns, name string, label string, outputOption string) (string, error) {
+	options := []string{"get", kind}
+	if outputOption != "" {
+                options = append(options, fmt.Sprintf("-o=%s", outputOption))
+        }
 	if name != "" {
 		options = append(options, name)
 	}
