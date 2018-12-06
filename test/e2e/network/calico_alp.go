@@ -729,6 +729,59 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 	})
 })
 
+var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] prevent sidecar injection with per-pod override annotation ", func() {
+
+	f := framework.NewDefaultFramework("sidecar-injection-override")
+
+	BeforeEach(func() {
+		var err error
+
+		// See if Istio is installed. If not, then skip these tests so we don't cause spurious failures on non-Istio
+		// test environments.
+		istioInstalled, err := alp.CheckIstioInstall(f)
+		if err != nil {
+			framework.Skipf("Checking istio install failed. Skip ALP tests.")
+		}
+		if !istioInstalled {
+			framework.Skipf("Istio not installed. ALP tests not supported.")
+		}
+
+		// Namespace for the test, labeled so that Istio Sidecar Injector will add the Dikastes & Envoy sidecars.
+		alp.EnableIstioInjectionForNamespace(f, f.Namespace)
+	})
+
+	JustAfterEach(func() {
+		if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
+			framework.Logf(alp.GetIstioDiags(f))
+		}
+	})
+
+	Describe("Tests to verify pod annotation overrides namespace label and prevents sidecar injection for that pod", func() {
+
+		It("should prevent sidecar injection for pod with annotation: \"sidecar.istio.io/inject:false\" in istio enabled namespace", func() {
+			By("Creating pod in istio enabled namespace with override annotation")
+			setAnnotation := func(pod *v1.Pod) {
+				if pod.Annotations == nil {
+					pod.Annotations = make(map[string]string)
+				}
+				pod.Annotations["sidecar.istio.io/inject"] = "false"
+			}
+			podName := framework.CreateExecPodOrFail(f.ClientSet, f.Namespace.Name, "alpexec-", setAnnotation)
+			pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(podName, metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			defer func() {
+				framework.DeletePodOrFail(f.ClientSet, f.Namespace.Name, podName)
+				alp.WaitForPodNotFoundInNamespace(f, f.Namespace, podName)
+			} ()
+
+			By("Verify sidecar containers for pod")
+			sidecars := alp.VerifySideCarsForPod(pod)
+			Expect(sidecars).To(BeFalse())
+		})
+	})
+})
+
 // createIstioServerPodAndService works just like createServerPodAndService(), but with some Istio specific tweaks.
 func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, labels map[string]string) (*v1.Pod, *v1.Service) {
 	pod, service := createServerPodAndServiceX(f, namespace, podName, ports,

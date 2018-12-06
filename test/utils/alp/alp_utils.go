@@ -264,6 +264,10 @@ func VerifyContainersForPod(pod *v1.Pod) {
 	}
 }
 
+func VerifySideCarsForPod(pod *v1.Pod) bool {
+	return checkPodSideCars(pod)
+}
+
 func checkPodSideCars(pod *v1.Pod) bool {
 	initContainers := ""
 	for _, c := range pod.Spec.InitContainers {
