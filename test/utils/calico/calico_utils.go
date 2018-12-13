@@ -79,7 +79,7 @@ func ReadTestFileOrDie(file string, config ...interface{}) string {
 	if len(config) == 1 {
 		// A config object has been supplied. We can use this to substitute configuration into the file using
 		// go templates.
-		tmpl, err := template.New("temp").Parse(v)
+		tmpl, err := template.New("temp").Funcs(template.FuncMap{"StringsList": stringsList}).Parse(v)
 		Expect(err).NotTo(HaveOccurred())
 		substituted := new(bytes.Buffer)
 		err = tmpl.Execute(substituted, config[0])
@@ -87,6 +87,13 @@ func ReadTestFileOrDie(file string, config ...interface{}) string {
 		v = substituted.String()
 	}
 	return v
+}
+
+func stringsList(v []string) string {
+	if len(v) == 0 {
+		return ""
+	}
+	return "\"" + strings.Join(v, "\",\"") + "\""
 }
 
 func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {

@@ -88,6 +88,10 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			gnp = calico.ReadTestFileOrDie("cnx-gnp-1.yaml", gnpConfig)
 			kubectl.apply(gnp, "", "")
 
+			// Allow fully permissive access to the pseudo Calico tiered policy resource types. This ensures
+			// CNX v2.2+ behaves like older versions.
+			permissiveRBAC := calico.ReadTestFileOrDie("cnx-rbac-permissive-tieredpolicy.yaml", clusterRoleBindConfig)
+			kubectl.apply(permissiveRBAC, "", "")
 		})
 
 		AfterEach(func() {
