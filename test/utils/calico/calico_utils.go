@@ -1228,7 +1228,7 @@ func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
 			for _, cmd := range []string{
 				"ip route",
 				"ipset save",
-				"iptables-save -c",
+				"sudo iptables-save -c",
 				"/sbin/versions",
 			} {
 				out, err := framework.RunHostCmd("kube-system", calicoNodePod.Name, cmd)
