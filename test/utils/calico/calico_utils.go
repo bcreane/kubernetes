@@ -79,7 +79,7 @@ func ReadTestFileOrDie(file string, config ...interface{}) string {
 	if len(config) == 1 {
 		// A config object has been supplied. We can use this to substitute configuration into the file using
 		// go templates.
-		tmpl, err := template.New("temp").Parse(v)
+		tmpl, err := template.New("temp").Funcs(template.FuncMap{"StringsList": stringsList}).Parse(v)
 		Expect(err).NotTo(HaveOccurred())
 		substituted := new(bytes.Buffer)
 		err = tmpl.Execute(substituted, config[0])
@@ -87,6 +87,13 @@ func ReadTestFileOrDie(file string, config ...interface{}) string {
 		v = substituted.String()
 	}
 	return v
+}
+
+func stringsList(v []string) string {
+	if len(v) == 0 {
+		return ""
+	}
+	return "\"" + strings.Join(v, "\",\"") + "\""
 }
 
 func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
@@ -124,7 +131,7 @@ func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
 // Creates a host networked hostexec pod in the appropriate namespace and then run a kubectl exec command on that pod
 // Cleanup exec pod.
 func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
-	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName + "-" + utilrand.String(5))
 	defer func() {
 		// Clean up the pod
 		f.PodClient().Delete(cmdTestContainerPod.Name, metav1.NewDeleteOptions(0))
@@ -140,7 +147,7 @@ func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 // Creates a hostexec pod in the appropriate namespace with customizer and then run a kubectl exec command on that pod
 // Do not cleanup exec pod, we may need to collect logs for it.
 func ExecuteCmdInPodX(f *framework.Framework, cmd string, podCustomizer func(pod *v1.Pod)) (*v1.Pod, string, error) {
-	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName + "-" + utilrand.String(5))
 	return executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, podCustomizer)
 }
 
