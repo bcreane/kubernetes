@@ -1329,3 +1329,99 @@ func RunSSHCommand(cmd, host, user string, timeout time.Duration) (stdout, stder
 	}
 	return bout.String(), berr.String(), code, err
 }
+
+type Kubectl struct {
+}
+
+func (k *Kubectl) Create(yaml, ns, user string) error {
+	options := []string{"create", "-f", "-"}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
+
+func (k *Kubectl) Apply(yaml, ns, user string) error {
+	options := []string{"apply", "-f", "-"}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
+
+func (k *Kubectl) Get(kind, ns, name, label, outputOption, user string, watch bool) (string, error) {
+	options := []string{"get", kind}
+	if name != "" {
+		options = append(options, name)
+	}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	if label != "" {
+		options = append(options, fmt.Sprintf("-l %s", label))
+	}
+	if outputOption != "" {
+		options = append(options, fmt.Sprintf("-o=%s", outputOption))
+	}
+	if watch {
+		options = append(options, "--watch")
+		output, err := framework.NewKubectlCommand(options...).WithTimeout(time.After(3 * time.Second)).Exec()
+		// Filter out all errors (timeout, single instance kdd watch error, etc.) except "Forbidden"
+		// Example: $ kubectl get po --as=nouser
+		// Error from server (Forbidden): pods is forbidden: User "nouser" cannot list pods in the namespace "default"
+		if strings.Contains(err.Error(), "Forbidden") {
+			return "", err
+		}
+		return output, nil
+	}
+
+	output, err := framework.NewKubectlCommand(options...).Exec()
+	return output, err
+}
+
+func (k *Kubectl) Patch(kind, ns, name, user, patch string) error {
+	options := []string{"patch", kind, name, "-p", patch}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).Exec()
+	return err
+}
+
+func (k *Kubectl) Delete(kind, ns, name, user string) error {
+	options := []string{"delete", kind, name}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).Exec()
+	return err
+}
+
+func (k *Kubectl) Replace(yaml, ns, user string) error {
+	options := []string{"replace", "-f", "-"}
+	if user != "" {
+			options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+			options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
