@@ -88,8 +88,8 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 	var f = framework.NewDefaultFramework("cnx-per-tier-rbac")
 
 	var (
-		kubectl *testKubectlCNXRBAC
-	)
+		kubectl *calico.Kubectl
+       )
 	Context("[Feature:CNX-v3-RBAC-PerTier] Test CNX Per-Tier Policy RBAC", func() {
 		var (
 			testNamespace      string
@@ -112,18 +112,18 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		})
 
 		AfterEach(func() {
-			kubectl.delete("globalnetworkpolicy.projectcalico.org", "", testGnpTierDefault, "")
-			kubectl.delete("globalnetworkpolicy.projectcalico.org", "", testGnpTier1, "")
-			kubectl.delete("networkpolicy.projectcalico.org", testNamespace, testNpTierDefault, "")
-			kubectl.delete("networkpolicy.projectcalico.org", testNamespace, testNpTier1, "")
-			kubectl.delete("clusterrolebinding", "", "ee-calico-tiered-policy-passthru", "")
-			kubectl.delete("clusterrole", "", "ee-calico-tiered-policy-passthru", "")
-			kubectl.delete("clusterrolebinding", "", "ee-calico-user-tiered-policy-tiers-and-gnp", "")
-			kubectl.delete("clusterrolebinding", "", "ee-calico-user-tiered-policy-np", "")
-			kubectl.delete("rolebinding", testNamespace, "ee-calico-user-tiered-policy-np", "")
-			kubectl.delete("clusterrole", "", "ee-calico-user-tiered-policy-tiers-and-gnp", "")
-			kubectl.delete("clusterrole", "", "ee-calico-user-tiered-policy-np", "")
-			kubectl.delete("tier.projectcalico.org", "", testTier1, "")
+			kubectl.Delete("globalnetworkpolicy.projectcalico.org", "", testGnpTierDefault, "")
+			kubectl.Delete("globalnetworkpolicy.projectcalico.org", "", testGnpTier1, "")
+			kubectl.Delete("networkpolicy.projectcalico.org", testNamespace, testNpTierDefault, "")
+			kubectl.Delete("networkpolicy.projectcalico.org", testNamespace, testNpTier1, "")
+			kubectl.Delete("clusterrolebinding", "", "ee-calico-tiered-policy-passthru", "")
+			kubectl.Delete("clusterrole", "", "ee-calico-tiered-policy-passthru", "")
+			kubectl.Delete("clusterrolebinding", "", "ee-calico-user-tiered-policy-tiers-and-gnp", "")
+			kubectl.Delete("clusterrolebinding", "", "ee-calico-user-tiered-policy-np", "")
+			kubectl.Delete("rolebinding", testNamespace, "ee-calico-user-tiered-policy-np", "")
+			kubectl.Delete("clusterrole", "", "ee-calico-user-tiered-policy-tiers-and-gnp", "")
+			kubectl.Delete("clusterrole", "", "ee-calico-user-tiered-policy-np", "")
+			kubectl.Delete("tier.projectcalico.org", "", testTier1, "")
 		})
 
 		errorMessage := func(verb, kind, tier, ns string, canGetTier bool) string {
@@ -179,12 +179,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		testCreate := func(file string, kind, ns, name, tier string, actions, tierActions Action, t *perTierRbacTest) {
 			By("creating " + kind + "(" + name + ")")
 			yaml := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier})
-			err := kubectl.create(yaml, ns, testUser)
+			err := kubectl.Create(yaml, ns, testUser)
 			checkCRUDError(err, "create", kind, tier, ns, actions&ACTION_CREATE != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
 				// Failed to create the resource using testUser access, so create using admin access.
-				err = kubectl.create(yaml, ns, "")
+				err = kubectl.Create(yaml, ns, "")
 				ExpectWithOffset(2, err).NotTo(HaveOccurred())
 			}
 		}
@@ -195,12 +195,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		testReplace := func(file string, kind, ns, name, tier string, actions, tierActions Action, t *perTierRbacTest) {
 			By("replacing " + kind + "(" + name + ")")
 			yaml := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier})
-			err := kubectl.replace(yaml, ns, testUser)
+			err := kubectl.Replace(yaml, ns, testUser)
 			checkCRUDError(err, "update", kind, tier, ns, actions&ACTION_REPLACE != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
 				// Failed to replace the resource using testUser access, so replace using admin access.
-				err = kubectl.replace(yaml, ns, "")
+				err = kubectl.Replace(yaml, ns, "")
 				ExpectWithOffset(2, err).NotTo(HaveOccurred())
 			}
 		}
@@ -215,12 +215,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				tier = strings.SplitN(name, ".", 2)[0]
 			}
 
-			err := kubectl.delete(kind+".projectcalico.org", ns, name, testUser)
+			err := kubectl.Delete(kind+".projectcalico.org", ns, name, testUser)
 			checkCRUDError(err, "delete", kind, tier, ns, actions&ACTION_DELETE != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
 				// Failed to delete the resource using testUser access, so delete using admin access.
-				err = kubectl.delete(kind+".projectcalico.org", ns, name, "")
+				err = kubectl.Delete(kind+".projectcalico.org", ns, name, "")
 				ExpectWithOffset(2, err).NotTo(HaveOccurred())
 			}
 		}
@@ -235,12 +235,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				tier = strings.SplitN(name, ".", 2)[0]
 			}
 
-			err := kubectl.get(kind+".projectcalico.org", ns, name, testUser, "", false)
+			_, err := kubectl.Get(kind+".projectcalico.org", ns, name, "", "yaml", testUser, false)
 			checkCRUDError(err, "get", kind, tier, ns, actions&ACTION_GET != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
 				// Failed to get the resource using testUser access, so get using admin access.
-				err = kubectl.get(kind+".projectcalico.org", ns, name, "", "", false)
+				_, err = kubectl.Get(kind+".projectcalico.org", ns, name, "", "yaml", "", false)
 				ExpectWithOffset(2, err).NotTo(HaveOccurred())
 			}
 		}
@@ -256,12 +256,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				label = fmt.Sprintf("projectcalico.org/tier==%s", tier)
 			}
 
-			err := kubectl.get(kind+".projectcalico.org", ns, "", testUser, label, false)
+			_, err := kubectl.Get(kind+".projectcalico.org", ns, "", label, "yaml", testUser, false)
 			checkCRUDError(err, "list", kind, tier, ns, actions&ACTION_LIST != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
 				// Failed to list the resource using testUser access, so list using admin access.
-				err = kubectl.get(kind+".projectcalico.org", ns, "", "", label, false)
+				_, err = kubectl.Get(kind+".projectcalico.org", ns, "", label, "yaml", "", false)
 				ExpectWithOffset(2, err).NotTo(HaveOccurred())
 			}
 		}
@@ -276,7 +276,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				Gnp:       testGnpTier1, // Our exact match GNP is in tier1.
 				Np:        testNpTier1,  // Our exact match NP is in tier1.
 			})
-			err := kubectl.apply(yaml, "", "")
+			err := kubectl.Apply(yaml, "", "")
 			ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 			// Create, replace, get and list the tiers.
@@ -517,3 +517,4 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		})
 	})
 })
+

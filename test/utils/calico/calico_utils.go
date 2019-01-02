@@ -1414,3 +1414,14 @@ func (k *Kubectl) Delete(kind, ns, name, user string) error {
 	return err
 }
 
+func (k *Kubectl) Replace(yaml, ns, user string) error {
+	options := []string{"replace", "-f", "-"}
+	if user != "" {
+			options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+			options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
