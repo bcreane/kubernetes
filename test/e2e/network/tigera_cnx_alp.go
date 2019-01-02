@@ -522,6 +522,9 @@ spec:
     source:
       serviceAccounts:
         names: ["svc-acct-a", "svc-acct-b"]
+  - action: Deny
+    http:
+      methods: ["GET"]
   egress:
   - action: Allow
 `, f.Namespace.Name)
@@ -540,6 +543,7 @@ spec:
 				}
 			})
 
+			// This test covers implicit end-of-tier Drops (putA) and explicit Drops (getB).
 			It("should handle requested DropActionOverride when CNX license is valid", func() {
 				defer setDropActionOverride(calicoctl, "")
 
