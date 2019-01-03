@@ -1,0 +1,149 @@
+{{ if .Rbac.ExcludePassThruManifest }}
+# Permissive access to Calico policy resource types is not included in this manifest.
+{{ else }}
+# This contains permissive access to the Calico policy resource types for all users.
+# This is applied when requiring per-tier RBAC defined using the pseudo tiered-policy resource
+# types.
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-tiered-policy-passthru
+rules:
+- apiGroups: ["projectcalico.org"]
+  resources: ["networkpolicies","globalnetworkpolicies"]
+  verbs: ["*"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-tiered-policy-passthru
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group
+  name: system:unauthenticated
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ee-calico-tiered-policy-passthru
+  apiGroup: rbac.authorization.k8s.io
+
+---
+{{ end }}
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-user-tiered-policy-tiers-and-gnp
+rules:
+# Include at least one entry to avoid validation errors if all conditional branches are removed
+# (and to avoid having to write a multi-value conditional).
+- apiGroups: ["projectcalico.org"]
+  resources: ["foo"]
+  verbs: ["*"]
+{{ if .Rbac.TierAll }}- apiGroups: ["projectcalico.org"]
+  resources: ["tiers"]
+  verbs: [{{ StringsList .Rbac.TierAll }}]
+{{ end }}{{ if .Rbac.TierDefault }}- apiGroups: ["projectcalico.org"]
+  resources: ["tiers"]
+  resourceNames: ["default"]
+  verbs: [{{ StringsList .Rbac.TierDefault }}]
+{{ end }}{{ if .Rbac.Tier1 }}- apiGroups: ["projectcalico.org"]
+  resources: ["tiers"]
+  resourceNames: ["{{ .Tier1 }}"]
+  verbs: [{{ StringsList .Rbac.Tier1 }}]
+{{ end }}{{ if .Rbac.GnpAll }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.globalnetworkpolicies"]
+  verbs: [{{ StringsList .Rbac.GnpAll }}]
+{{ end }}{{ if .Rbac.GnpTierDefaultAll }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.globalnetworkpolicies"]
+  resourceNames: ["default.*"]
+  verbs: [{{ StringsList .Rbac.GnpTierDefaultAll }}]
+{{ end }}{{ if .Rbac.GnpTier1All }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.globalnetworkpolicies"]
+  resourceNames: ["{{ .Tier1 }}.*"]
+  verbs: [{{ StringsList .Rbac.GnpTier1All }}]
+{{ end }}{{ if .Rbac.Gnp }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.globalnetworkpolicies"]
+  resourceNames: ["{{ .Gnp }}"]
+  verbs: [{{ StringsList .Rbac.Gnp }}]
+{{ end }}
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-user-tiered-policy-tiers-and-gnp
+subjects:
+- kind: User
+  name: {{ .User }}
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ee-calico-user-tiered-policy-tiers-and-gnp
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-user-tiered-policy-np
+rules:
+# Include at least one entry to avoid validation errors if all conditional branches are removed
+# (and to avoid having to write a multi-value conditional).
+- apiGroups: ["projectcalico.org"]
+  resources: ["foo"]
+  verbs: ["*"]
+{{ if .Rbac.NpAll }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.networkpolicies"]
+  verbs: [{{ StringsList .Rbac.NpAll }}]
+{{ end }}{{ if .Rbac.NpTierDefaultAll }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.networkpolicies"]
+  resourceNames: ["default.*"]
+  verbs: [{{ StringsList .Rbac.NpTierDefaultAll }}]
+{{ end }}{{ if .Rbac.NpTier1All }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.networkpolicies"]
+  resourceNames: ["{{ .Tier1 }}.*"]
+  verbs: [{{ StringsList .Rbac.NpTier1All }}]
+{{ end }}{{ if .Rbac.Np }}- apiGroups: ["projectcalico.org"]
+  resources: ["tier.networkpolicies"]
+  resourceNames: ["{{ .Np }}"]
+  verbs: [{{ StringsList .Rbac.Np }}]
+{{ end }}
+
+---
+
+{{ if .Rbac.UseClusterScopedNetworkPolicy }}
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-user-tiered-policy-np
+subjects:
+- kind: User
+  name: {{ .User }}
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ee-calico-user-tiered-policy-np
+  apiGroup: rbac.authorization.k8s.io
+{{ else }}
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-user-tiered-policy-np
+  namespace: {{ .Namespace }}
+subjects:
+- kind: User
+  name: {{ .User }}
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ee-calico-user-tiered-policy-np
+  apiGroup: rbac.authorization.k8s.io
+{{ end }}
