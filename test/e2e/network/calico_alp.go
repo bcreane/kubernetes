@@ -881,47 +881,15 @@ func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namesp
 
 // createIstioGetPutPodAndService works just like createServerPodAndService(), but with some Istio specific tweaks.
 func createIstioGetPutPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, port int, labels map[string]string) (*v1.Pod, *v1.Service) {
-	pod, service := createServerPodAndServiceX(f, namespace, podName, []int{port},
-		func(pod *v1.Pod) {
-			// Apply labels.
-			for k, v := range labels {
-				pod.Labels[k] = v
-			}
+	pod, service := createGetPutPodAndService(f, namespace, podName, port, labels)
 
-			oldContainers := pod.Spec.Containers
-			pod.Spec.Containers = []v1.Container{}
-			for _, container := range oldContainers {
-				// Strip out readiness probe because Istio doesn't support HTTP health probes when in mTLS mode.
-				container.ReadinessProbe = nil
-				container.Image = "quay.io/coreos/etcd:v2.2.0"
-				container.Args = []string{
-					"-advertise-client-urls",
-					fmt.Sprintf("http://svc-get-put:%d", port),
-					"-listen-client-urls",
-					fmt.Sprintf("http://0.0.0.0:%d", port),
-				}
-
-				pod.Spec.Containers = append(pod.Spec.Containers, container)
-			}
-		},
-		func(svc *v1.Service) {
-			oldPorts := svc.Spec.Ports
-			svc.Spec.Ports = []v1.ServicePort{}
-			for _, port := range oldPorts {
-				// Istio requires service ports to be named <protocol>[-<suffix>]
-				port.Name = fmt.Sprintf("http-%d", port.Port)
-				svc.Spec.Ports = append(svc.Spec.Ports, port)
-			}
-			svc.Name = "svc-get-put"
-		},
-	)
-
-	alp.VerifyContainersForPod(pod)
+        // Verify sidecar injection for pods.
+        alp.VerifyContainersForPod(pod)
 
 	return pod, service
 }
 
-// createGetPutPodAndService works just like createIstioGetPutPodAndService(), without verifying sidecar injection for pods.
+// createGetPutPodAndService works just like createServerPodAndService(), with some istio specific tweaks.
 func createGetPutPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, port int, labels map[string]string) (*v1.Pod, *v1.Service) {
 	pod, service := createServerPodAndServiceX(f, namespace, podName, []int{port},
 		func(pod *v1.Pod) {
