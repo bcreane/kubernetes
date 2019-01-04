@@ -409,7 +409,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 			}
 			BeforeEach(func() {
 				ncCleanupCmd = "rm -f e2e-listen; killall nc"
-				ncConnectCmd = "for i in $(seq 1 5); do timeout -t 1 nc -z %s && exit 0 || sleep 5; done; cat /etc/resolv.conf; exit 1"
+				ncConnectCmd = "for i in $(seq 1 5); do timeout 1 nc -z %s && exit 0 || sleep 5; done; cat /etc/resolv.conf; exit 1"
 				ncInstListenCmd = "nohup /bin/sh -c \"touch e2e-listen; while [ -f e2e-listen ]; do echo Hello from $HOSTNAME  | nc -l %s; done\" &>/dev/null &"
 				var err error
 				// Create command for Instance to run that will connect to the above server pod
