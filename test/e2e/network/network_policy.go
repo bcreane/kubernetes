@@ -614,7 +614,7 @@ func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, pod
 	return createNetworkClientPodX(f, namespace, podName, target, func(pod *v1.Pod) {})
 }
 func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podNameBase string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
-	var imageUrl string
+	var imageUrl, commandStr string
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
@@ -624,8 +624,8 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 
 	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
-		imageUrl = winctl.GetClientImage()
-		podArgs = append(podArgs, "powershell.exe", "-Command")
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
 		cmd = fmt.Sprintf("$sb={Invoke-WebRequest %s -UseBasicParsing -TimeoutSec 3}; For ($i=0; $i -lt 5; $i++) { sleep 5; try {& $sb} catch { echo failed loop $i ; continue }; exit 0 ; }; exit 1", target)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent

@@ -56,21 +56,21 @@ func GetPorterImage() string {
 	return ""
 }
 
-// Get client image based on windows OS version
-func GetClientImage() string {
+// Get client image and powershell command based on windows OS version
+func GetClientImageAndCommand() (string, string) {
 	os := os.Getenv("WINDOWS_OS")
 	if os == "" {
 		framework.Failf("WINDOWS_OS env not specified,Please set env properly")
-		return ""
+		return "", ""
 	}
 	if os == "1809" {
-		return "mcr.microsoft.com/windows/servercore:" + os
+		return "mcr.microsoft.com/windows/servercore:" + os, "powershell.exe"
 	} else if os == "1803" {
-		return "microsoft/powershell:nanoserver"
+		return "microsoft/powershell:nanoserver", "C:\\Program Files\\PowerShell\\pwsh.exe"
 	} else {
 		framework.Failf("OS Version currently not supported")
 	}
-	return ""
+	return "", ""
 }
 
 //This is a hack for windows to use EndpointIP instead of service's

@@ -460,14 +460,14 @@ func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
 }
 
 func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, labels map[string]string, port int) *v1.Pod {
-	var imageUrl string
+	var imageUrl, commandStr string
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
 	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
-		imageUrl = winctl.GetClientImage()
-		podArgs = append(podArgs, "powershell.exe", "-Command")
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
 		cmd = fmt.Sprintf("while($true){Write-Host Hello ping test on %s ;Start-Sleep -Seconds 10}", port)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
@@ -510,14 +510,14 @@ func CleanupServerPod(f *framework.Framework, pod *v1.Pod) {
 }
 
 func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {
-	var imageUrl string
+	var imageUrl, commandStr string
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
 	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
-		imageUrl = winctl.GetClientImage()
-		podArgs = append(podArgs, "powershell.exe", "-Command")
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
 		cmd = fmt.Sprintf("ping -n 2 -w 10 %s", targetPod.Status.PodIP)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
