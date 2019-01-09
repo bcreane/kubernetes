@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -35,6 +36,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	kerr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -131,7 +133,7 @@ func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
 // Creates a host networked hostexec pod in the appropriate namespace and then run a kubectl exec command on that pod
 // Cleanup exec pod.
 func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
-	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName + "-" + utilrand.String(5))
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName+"-"+utilrand.String(5))
 	defer func() {
 		// Clean up the pod
 		f.PodClient().Delete(cmdTestContainerPod.Name, metav1.NewDeleteOptions(0))
@@ -147,7 +149,7 @@ func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 // Creates a hostexec pod in the appropriate namespace with customizer and then run a kubectl exec command on that pod
 // Do not cleanup exec pod, we may need to collect logs for it.
 func ExecuteCmdInPodX(f *framework.Framework, cmd string, podCustomizer func(pod *v1.Pod)) (*v1.Pod, string, error) {
-	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName + "-" + utilrand.String(5))
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName+"-"+utilrand.String(5))
 	return executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, podCustomizer)
 }
 
@@ -1121,6 +1123,36 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
 	}
+	dockerCfgFile := framework.TestContext.CalicoCtlDockerCfg
+	if dockerCfgFile != "" {
+		secretName := "calicoctl-image-secret"
+		pod.Spec.ImagePullSecrets = []v1.LocalObjectReference{
+			{
+				Name: secretName,
+			},
+		}
+
+		dockerCfg, err := ioutil.ReadFile(dockerCfgFile)
+		if err != nil {
+			framework.Failf("unable to read CalicoCtlDockerCfg file %s: %v", dockerCfg, err)
+		}
+
+		secret := &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: f.Namespace.Name,
+			},
+			Type: v1.SecretTypeDockerConfigJson,
+			Data: map[string][]byte{
+				v1.DockerConfigJsonKey: dockerCfg,
+			},
+		}
+		framework.Logf("Image secret is %v", *secret)
+		_, err = f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Create(secret)
+		if err != nil && !kerr.IsAlreadyExists(err) {
+			framework.Failf("unable to create calicoctl secret %s in ns %s: %v", secretName, f.Namespace.Name, err)
+		}
+	}
 	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != "" {
 		framework.Logf("etcd is secured, adding certs to calicoctl pod")
 		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
@@ -1417,10 +1449,10 @@ func (k *Kubectl) Delete(kind, ns, name, user string) error {
 func (k *Kubectl) Replace(yaml, ns, user string) error {
 	options := []string{"replace", "-f", "-"}
 	if user != "" {
-			options = append(options, fmt.Sprintf("--as=%v", user))
+		options = append(options, fmt.Sprintf("--as=%v", user))
 	}
 	if ns != "" {
-			options = append(options, fmt.Sprintf("--namespace=%v", ns))
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
 	}
 	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
 	return err
