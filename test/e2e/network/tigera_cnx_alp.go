@@ -523,8 +523,6 @@ spec:
       serviceAccounts:
         names: ["svc-acct-a", "svc-acct-b"]
   - action: Deny
-    http:
-      methods: ["GET"]
   egress:
   - action: Allow
 `, f.Namespace.Name)
