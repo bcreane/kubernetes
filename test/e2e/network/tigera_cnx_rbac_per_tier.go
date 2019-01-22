@@ -89,7 +89,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 
 	var (
 		kubectl *calico.Kubectl
-       )
+	)
 	Context("[Feature:CNX-v3-RBAC-PerTier] Test CNX Per-Tier Policy RBAC", func() {
 		var (
 			testNamespace      string
@@ -126,33 +126,49 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			kubectl.Delete("tier.projectcalico.org", "", testTier1, "")
 		})
 
-		errorMessage := func(verb, kind, tier, ns string, canGetTier bool) string {
+		errorRegex := func(verb, kind, tier, ns string, canGetTier bool) string {
 			var msg string
 			switch tier {
 			case "":
 				// No tier, so these are the standard error messages.
+				// We need 2 versions of the regexs below because the format changed
+				// between K8s 1.11 and K8s 1.12.
 				if ns != "" {
-					msg = fmt.Sprintf("User %q cannot %s %s in namespace %q",
-						testUser, verb, kind+".projectcalico.org", ns,
+					v1_11 := fmt.Sprintf("User %q cannot %s %s in namespace %q",
+						testUser, verb, kind+"\\.projectcalico\\.org", ns,
 					)
+					// Note: When using %q on a string it will preserve multiple \ which create an invalid
+					// regex.
+					v1_12 := fmt.Sprintf("User %q cannot %s resource %q in API group %q in the namespace \"%s\"",
+						testUser, verb, kind, "crd\\.projectcalico\\.org", ns,
+					)
+
+					msg = fmt.Sprintf("(%s|%s)", v1_11, v1_12)
 				} else {
-					msg = fmt.Sprintf("User %q cannot %s %s at the cluster scope",
-						testUser, verb, kind+".projectcalico.org",
+					v1_11 := fmt.Sprintf("User %q cannot %s %s at the cluster scope",
+						testUser, verb, kind+"\\.projectcalico\\.org",
 					)
+					// Note: When using %q on a string it will preserve multiple \ which create an invalid
+					// regex.
+					v1_12 := fmt.Sprintf("User %q cannot %s resource %q in API group \"%s\" at the cluster scope",
+						testUser, verb, kind, "projectcalico\\.org",
+					)
+
+					msg = fmt.Sprintf("(%s|%s)", v1_11, v1_12)
 				}
 			default:
 				// There is a tier specified, so return the special policy messages.
 				if ns != "" {
 					msg = fmt.Sprintf("User %q cannot %s %s in tier %q and namespace %q",
-						testUser, verb, kind+".projectcalico.org", tier, ns,
+						testUser, verb, kind+"\\.projectcalico\\.org", tier, ns,
 					)
 				} else {
 					msg = fmt.Sprintf("User %q cannot %s %s in tier %q",
-						testUser, verb, kind+".projectcalico.org", tier,
+						testUser, verb, kind+"\\.projectcalico\\.org", tier,
 					)
 				}
 				if !canGetTier {
-					msg += " (user cannot get tier)"
+					msg += " \\(user cannot get tier\\)"
 				}
 			}
 			return msg
@@ -169,7 +185,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			// the tiered policy checks, or the RBAC for the real resource types. Easiest just not to validate
 			// the text in this case.
 			if !t.Rbac.ExcludePassThruManifest {
-				ExpectWithOffset(3, err.Error()).To(ContainSubstring(errorMessage(verb, kind, tier, ns, canGetTier)))
+				ExpectWithOffset(3, err.Error()).To(MatchRegexp(errorRegex(verb, kind, tier, ns, canGetTier)))
 			}
 		}
 
@@ -517,4 +533,3 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		})
 	})
 })
-
