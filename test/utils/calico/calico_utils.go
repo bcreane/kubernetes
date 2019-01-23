@@ -27,7 +27,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -58,6 +57,7 @@ const (
 	maxGeneratedNameLength = maxNameLength - randomLength
 	cmdTestPodName         = "cmd-test-container-pod"
 	calicoctlManifestPath  = "test/e2e/testing-manifests/calicoctl"
+	nodeIDLabelKey         = "kubernetes.io/hostname"
 )
 
 var (
@@ -221,23 +221,10 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 
 	By(fmt.Sprintf("Creating a logging pod %s in namespace %s", podName, f.Namespace.Name))
 
-	sv, err := f.ClientSet.Discovery().ServerVersion()
-	if err != nil {
-		return nil, err
-	}
-	// extract just the number part (sometimes we get strings like '10+')
-	var getNum = regexp.MustCompile(`(\d+)\+?`)
-	validMinor := getNum.FindStringSubmatch(sv.Minor)[1]
-	minor, err := strconv.Atoi(validMinor)
-	if err != nil {
-		return nil, err
-	}
-	var nodeID string
-	// We use ExternalID -which is getting deprecated-only for server side versions <= 10.
-	if sv.Major == "1" && minor <= 10 {
-		nodeID = node.Spec.ExternalID
-	} else {
-		nodeID = node.Name
+	nodeID, ok := node.Labels[nodeIDLabelKey]
+	if !ok {
+		framework.Failf("node %+v is missing label %s. can't create logging pod", *node, nodeIDLabelKey)
+		return nil, fmt.Errorf("node %+v is missing label %s. can't create logging pod", *node, nodeIDLabelKey)
 	}
 
 	pod := &v1.Pod{
@@ -245,8 +232,8 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 			Name:      podName,
 			Namespace: f.Namespace.Name,
 			Labels: map[string]string{
-				"pod-name":               podName,
-				"kubernetes.io/hostname": nodeID,
+				"pod-name":     podName,
+				nodeIDLabelKey: nodeID,
 			},
 		},
 		Spec: v1.PodSpec{
@@ -254,10 +241,11 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 			Volumes:       volumes,
 			RestartPolicy: v1.RestartPolicyNever,
 			NodeSelector: map[string]string{
-				"kubernetes.io/hostname": nodeID,
+				nodeIDLabelKey: nodeID,
 			},
 		},
 	}
+	var err error
 	pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
 	if err != nil {
 		return pod, err
@@ -1208,7 +1196,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 						{
 							MatchExpressions: []v1.NodeSelectorRequirement{
 								{
-									Key:      "kubernetes.io/hostname",
+									Key:      nodeIDLabelKey,
 									Operator: v1.NodeSelectorOpNotIn,
 									Values:   []string{c.nodeToAvoid},
 								},
