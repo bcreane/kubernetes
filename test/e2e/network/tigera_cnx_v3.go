@@ -3,6 +3,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -237,19 +238,37 @@ spec:
 				serverSyslogCount := calico.CountSyslogLines(f, serverNode)
 
 				By("Creating client-a-80 that tries to connect on port 80")
-				switch dropActionOverride {
-				case "Drop", "", "LogAndDrop":
-					testCannotConnect(f, ns, "client-a-80", service, 80)
-				case "Accept", "LogAndAccept":
-					testCanConnect(f, ns, "client-a-80", service, 80)
-				default:
-					panic("Unhandled override setting")
-				}
+				// Repeatedly generate traffic on a goroutine until we see denied
+				// packet metrics (or time out looking for metrics).  This
+				// prevents a race condition where Felix is still applying
+				// the drop action override when the traffic first arrives.
+				cxt, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				go func() {
+					defer GinkgoRecover()
+					for {
+						select {
+						case <-cxt.Done():
+							return
+						default:
+							// proceed
+						}
+						switch dropActionOverride {
+						case "Drop", "", "LogAndDrop":
+							testCannotConnect(f, ns, "client-a-80", service, 80)
+						case "Accept", "LogAndAccept":
+							testCanConnect(f, ns, "client-a-80", service, 80)
+						default:
+							panic("Unhandled override setting")
+						}
+					}
+				}()
 
 				// Regardless of DropActionOverride, there should always be an
 				// increase in the calico_denied_packets metric.
-				sumFn := func() int64 {return sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)}
-				Eventually(sumFn, 90 * time.Second).Should(BeNumerically(">", initPackets))
+				sumFn := func() int64 { return sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP) }
+				Eventually(sumFn, 90*time.Second).Should(BeNumerically(">", initPackets))
+				cancel()
 
 				// When DropActionOverride begins with "Log", there should be new
 				// syslogs for the packets to port 80.
