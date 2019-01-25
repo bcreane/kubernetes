@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -244,8 +245,13 @@ spec:
 				// the drop action override when the traffic first arrives.
 				cxt, cancel := context.WithCancel(context.Background())
 				defer cancel()
+				// Use a wait group to ensure the goroutine can finish before
+				// tearing down the test.
+				wg := sync.WaitGroup{}
+				wg.Add(1)
 				go func() {
 					defer GinkgoRecover()
+					defer wg.Done()
 					for {
 						select {
 						case <-cxt.Done():
@@ -289,6 +295,12 @@ spec:
 				calico.Calicoq("policy", "policydeny")
 				calico.Calicoq("host", serverNodeName)
 				calico.Calicoq("endpoint", "client")
+
+				// Wait until the now-cancelled traffic generation goroutine
+				// exits before tearing down this test.  If we tear down the
+				// test while the routine is still running, it can trigger a
+				// failure from within the goroutine.
+				wg.Wait()
 			}
 		}
 		It("not set, profileDeny", testFunc(
