@@ -2,7 +2,9 @@ package network
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -174,8 +176,8 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			return msg
 		}
 
-		checkCRUDError := func(err error, verb, kind, tier, ns string, succeed, canGetTier bool, t *perTierRbacTest) {
-			if succeed {
+		checkCRUDError := func(err error, verb, kind, tier, ns string, expectSuccess, canGetTier bool, t *perTierRbacTest) {
+			if expectSuccess {
 				ExpectWithOffset(3, err).NotTo(HaveOccurred())
 				return
 			}
@@ -189,13 +191,40 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			}
 		}
 
+		runCommandAndMaybeBackout := func(cmd func() error, expectSuccess bool, backout func() error) (err error) {
+			now := time.Now()
+			for time.Now().Sub(now) < 2*time.Second {
+				err = cmd()
+				if (err == nil) == expectSuccess {
+					// We got the expected error state, so exit.
+					break
+				}
+				if err == nil && backout != nil {
+					// The command was successful, so run the backout command to revert state.
+					err = backout()
+					Expect(err).NotTo(HaveOccurred())
+				}
+			}
+
+			return err
+		}
+
 		// testCreate checks whether the user is able to create the resource.
 		// This function always creates the resource, and defers to an admin user if the resource cannot
 		// be created by the user.
 		testCreate := func(file string, kind, ns, name, tier string, actions, tierActions Action, t *perTierRbacTest) {
 			By("creating " + kind + "(" + name + ")")
-			yaml := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier})
-			err := kubectl.Create(yaml, ns, testUser)
+			yaml := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier, Label: strconv.FormatInt(time.Now().Unix(), 16)})
+
+			err := runCommandAndMaybeBackout(
+				func() error {
+					return kubectl.Create(yaml, ns, testUser)
+				},
+				actions&ACTION_CREATE != 0,
+				func() error {
+					return kubectl.Delete(kind+".projectcalico.org", ns, name, "")
+				},
+			)
 			checkCRUDError(err, "create", kind, tier, ns, actions&ACTION_CREATE != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
@@ -210,8 +239,17 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		// be replaced by the user.
 		testReplace := func(file string, kind, ns, name, tier string, actions, tierActions Action, t *perTierRbacTest) {
 			By("replacing " + kind + "(" + name + ")")
-			yaml := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier})
-			err := kubectl.Replace(yaml, ns, testUser)
+			yaml := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier, Label: strconv.FormatInt(time.Now().Unix(), 16)})
+			yamlBackout := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier})
+			err := runCommandAndMaybeBackout(
+				func() error {
+					return kubectl.Replace(yaml, ns, testUser)
+				},
+				actions&ACTION_REPLACE != 0,
+				func() error {
+					return kubectl.Replace(yamlBackout, ns, "")
+				},
+			)
 			checkCRUDError(err, "update", kind, tier, ns, actions&ACTION_REPLACE != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
@@ -224,14 +262,19 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 		// testDelete checks whether the user is able to delete the resource.
 		// This function always deletes the resource, and defers to an admin user if the resource cannot
 		// be deleted by the user.
-		testDelete := func(kind, ns, name string, actions, tierActions Action, t *perTierRbacTest) {
+		testDelete := func(file string, kind, ns, name, tier string, actions, tierActions Action, t *perTierRbacTest) {
 			By("deleting " + kind + "(" + name + ")")
-			tier := ""
-			if kind == "globalnetworkpolicies" || kind == "networkpolicies" {
-				tier = strings.SplitN(name, ".", 2)[0]
-			}
+			yamlBackout := calico.ReadTestFileOrDie(file, yamlConfig{Name: name, TierName: tier, Label: strconv.FormatInt(time.Now().Unix(), 16)})
 
-			err := kubectl.Delete(kind+".projectcalico.org", ns, name, testUser)
+			err := runCommandAndMaybeBackout(
+				func() error {
+					return kubectl.Delete(kind+".projectcalico.org", ns, name, testUser)
+				},
+				actions&ACTION_DELETE != 0,
+				func() error {
+					return kubectl.Create(yamlBackout, ns, "")
+				},
+			)
 			checkCRUDError(err, "delete", kind, tier, ns, actions&ACTION_DELETE != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
@@ -251,7 +294,14 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				tier = strings.SplitN(name, ".", 2)[0]
 			}
 
-			_, err := kubectl.Get(kind+".projectcalico.org", ns, name, "", "yaml", testUser, false)
+			err := runCommandAndMaybeBackout(
+				func() error {
+					_, err := kubectl.Get(kind+".projectcalico.org", ns, name, "", "yaml", testUser, false)
+					return err
+				},
+				actions&ACTION_GET != 0,
+				nil,
+			)
 			checkCRUDError(err, "get", kind, tier, ns, actions&ACTION_GET != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
@@ -272,7 +322,14 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				label = fmt.Sprintf("projectcalico.org/tier==%s", tier)
 			}
 
-			_, err := kubectl.Get(kind+".projectcalico.org", ns, "", label, "yaml", testUser, false)
+			err := runCommandAndMaybeBackout(
+				func() error {
+					_, err := kubectl.Get(kind+".projectcalico.org", ns, "", label, "yaml", testUser, false)
+					return err
+				},
+				actions&ACTION_LIST != 0,
+				nil,
+			)
 			checkCRUDError(err, "list", kind, tier, ns, actions&ACTION_LIST != 0, tierActions&ACTION_GET != 0, t)
 
 			if err != nil {
@@ -310,32 +367,32 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			testReplace("cnx-np-2.yaml", "networkpolicies", testNamespace, testNpTierDefault, "default", t.NpTierDefault, t.TierDefault, t)
 			testGet("networkpolicies", testNamespace, testNpTierDefault, t.NpTierDefault, t.TierDefault, t)
 			testList("networkpolicies", testNamespace, "default", t.NpTierDefault, t.TierDefault, t)
-			testDelete("networkpolicies", testNamespace, testNpTierDefault, t.NpTierDefault, t.TierDefault, t)
+			testDelete("cnx-np-2.yaml", "networkpolicies", testNamespace, testNpTierDefault, "default", t.NpTierDefault, t.TierDefault, t)
 
 			// Perform full CRUD on a NetworkPolicy in tier1.
 			testCreate("cnx-np-1.yaml", "networkpolicies", testNamespace, testNpTier1, testTier1, t.NpTier1, t.Tier1, t)
 			testReplace("cnx-np-2.yaml", "networkpolicies", testNamespace, testNpTier1, testTier1, t.NpTier1, t.Tier1, t)
 			testGet("networkpolicies", testNamespace, testNpTier1, t.NpTier1, t.Tier1, t)
 			testList("networkpolicies", testNamespace, testTier1, t.NpTier1, t.Tier1, t)
-			testDelete("networkpolicies", testNamespace, testNpTier1, t.NpTier1, t.Tier1, t)
+			testDelete("cnx-np-2.yaml", "networkpolicies", testNamespace, testNpTier1, testTier1, t.NpTier1, t.Tier1, t)
 
 			// Perform full CRUD on a GlobalNetworkPolicy in the default tier.
 			testCreate("cnx-gnp-1.yaml", "globalnetworkpolicies", "", testGnpTierDefault, "default", t.GnpTierDefault, t.TierDefault, t)
 			testReplace("cnx-gnp-2.yaml", "globalnetworkpolicies", "", testGnpTierDefault, "default", t.GnpTierDefault, t.TierDefault, t)
 			testGet("globalnetworkpolicies", "", testGnpTierDefault, t.GnpTierDefault, t.TierDefault, t)
 			testList("globalnetworkpolicies", "", "default", t.GnpTierDefault, t.TierDefault, t)
-			testDelete("globalnetworkpolicies", "", testGnpTierDefault, t.GnpTierDefault, t.TierDefault, t)
+			testDelete("cnx-gnp-2.yaml", "globalnetworkpolicies", "", testGnpTierDefault, "default", t.GnpTierDefault, t.TierDefault, t)
 
 			// Perform full CRUD on a GlobalNetworkPolicy in tier1.
 			testCreate("cnx-gnp-1.yaml", "globalnetworkpolicies", "", testGnpTier1, testTier1, t.GnpTier1, t.Tier1, t)
 			testReplace("cnx-gnp-2.yaml", "globalnetworkpolicies", "", testGnpTier1, testTier1, t.GnpTier1, t.Tier1, t)
 			testGet("globalnetworkpolicies", "", testGnpTier1, t.GnpTier1, t.Tier1, t)
 			testList("globalnetworkpolicies", "", testTier1, t.GnpTier1, t.Tier1, t)
-			testDelete("globalnetworkpolicies", "", testGnpTier1, t.GnpTier1, t.Tier1, t)
+			testDelete("cnx-gnp-2.yaml", "globalnetworkpolicies", "", testGnpTier1, testTier1, t.GnpTier1, t.Tier1, t)
 
 			// Delete tier 1 now that all policies have been deleted from it. Do not attempt to delete the default
 			// tier, which will fail.
-			testDelete("tiers", "", testTier1, t.Tier1, 0, t)
+			testDelete("cnx-tier-2.yaml", "tiers", "", testTier1, "", t.Tier1, 0, t)
 		}
 
 		It("no permissions; only manageable by a sysadmin", func() {
