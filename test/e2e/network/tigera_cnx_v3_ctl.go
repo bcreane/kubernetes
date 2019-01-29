@@ -27,6 +27,7 @@ import (
 type yamlConfig struct {
 	Name     string
 	TierName string
+	Label    string
 }
 
 // These tests check the compatibility between calicoctl and kubectl for the resources that may be managed
