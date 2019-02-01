@@ -164,6 +164,28 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			By("Add ingress allow rule to one pod SG to allow traffic from RDS sg")
 			err = awsctl.Client.AuthorizeSGIngressSrcSG(podSG, "tcp", 0, 65535, []string{sgRds})
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the Security Group changes are reflected in Calico policies")
+			Eventually(func() error {
+				gnp, err := framework.RunKubectl("get", "globalnetworkpolicies",
+					fmt.Sprintf("sg-local.%s", sgRds), "-o", "yaml")
+				if err != nil {
+					return fmt.Errorf("GNP sg-local.%s for SG was not found: %v", sgRds, err)
+				}
+				if !strings.Contains(gnp, fmt.Sprintf("- %d", portInt64)) {
+					return fmt.Errorf("sg-local.%s does not contain port %d:\n%s", sgRds, portInt64, gnp)
+				}
+
+				gnp, err = framework.RunKubectl("get", "globalnetworkpolicies",
+					fmt.Sprintf("sg-local.%s", podSG), "-o", "yaml")
+				if err != nil {
+					return fmt.Errorf("GNP sg-local.%s for SG was not found: %v", podSG, err)
+				}
+				if !strings.Contains(gnp, sgRds) {
+					return fmt.Errorf("sg-local.%s does not contain %s:\n%s", podSG, sgRds, gnp)
+				}
+				return nil
+			}, 2*time.Minute).ShouldNot(HaveOccurred())
 		}
 
 		// runTest start numSGs goroutines to test connection from pods to rds instance.
@@ -224,7 +246,6 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			testCannotConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, podSgs)
 
 			allowOneSGToRdsSG(oneSG)
-			waitForSG()
 
 			By("client pod should be able to access rds service")
 			testCanConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, podSgs)
@@ -242,7 +263,6 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			oneSG := podSgs[randNum] // Select one random SG.
 
 			allowOneSGToRdsSG(oneSG)
-			waitForSG()
 
 			runTest(randNum)
 
