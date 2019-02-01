@@ -128,6 +128,18 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			kubectl.Delete("tier.projectcalico.org", "", testTier1, "")
 		})
 
+		JustAfterEach(func(){
+			// Grab api server diags if the test failed.
+			if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
+				logFunc := framework.Logf
+				framework.Logf("Dumping logs from calico api server pods (if present)...")
+				framework.LogPodsWithLabels(f.ClientSet, "kube-system", map[string]string{"k8s-app": "cnx-apiserver"}, logFunc)
+
+				framework.Logf("Dumping logs from kube api server pods (if present)...")
+				framework.LogPodsWithLabels(f.ClientSet, "kube-system", map[string]string{"component": "kube-apiserver"}, logFunc)
+			}
+		})
+
 		errorRegex := func(verb, kind, tier, ns string, canGetTier bool) string {
 			var msg string
 			switch tier {
