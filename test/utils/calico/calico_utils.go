@@ -58,6 +58,13 @@ const (
 	cmdTestPodName         = "cmd-test-container-pod"
 	calicoctlManifestPath  = "test/e2e/testing-manifests/calicoctl"
 	nodeIDLabelKey         = "kubernetes.io/hostname"
+
+	// Match a whitespace character after the prefix so a command containing
+	// this regex doesn't match itself.  This prevents spurious matches if,
+	// for example, kubelet logs API requests it receives to syslog, as these
+	// contain the command being run in the pod.
+	DropPrefix   = "calico-drop:\\s"
+	PacketPrefix = "calico-packet:\\s"
 )
 
 var (
@@ -294,7 +301,7 @@ func GetNewCalicoDropLogs(f *framework.Framework, node *v1.Node, since int64, lo
 	}()
 
 	By(fmt.Sprintf("Retrieving the %s log lines", logPfx))
-	cmd := fmt.Sprintf("journalctl --system | tail -n +%d | grep %s || true", since+1, logPfx)
+	cmd := fmt.Sprintf("journalctl --system | tail -n +%d | grep \"%s\" || true", since+1, logPfx)
 	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
 	if err != nil {
 		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
