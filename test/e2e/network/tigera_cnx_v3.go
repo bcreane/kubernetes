@@ -278,7 +278,7 @@ spec:
 
 				// When DropActionOverride begins with "Log", there should be new
 				// syslogs for the packets to port 80.
-				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-drop")
+				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, calico.DropPrefix)
 				framework.Logf("New drop logs: %#v", newDropLogs)
 				if strings.HasPrefix(dropActionOverride, "Log") {
 					if len(newDropLogs) >= 0 {
