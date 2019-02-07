@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"strings"
-
 	"github.com/ghodss/yaml"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -25,7 +23,7 @@ type clusterRoleBindConfigStruct struct {
 var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 	var f = framework.NewDefaultFramework("cnx-rbac")
 	var (
-		kubectl *testKubectlCNXRBAC
+		kubectl *calico.Kubectl
 	)
 	Context("Test CNX RBAC", func() {
 		type oracleKey struct {
@@ -39,7 +37,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 
 		BeforeEach(func() {
 			testNameSpace = f.Namespace.Name
-			kubectl = &testKubectlCNXRBAC{}
+			kubectl = &calico.Kubectl{}
 			// Bind test user to "test" cluster role (which will be created in the tests themselves)
 			clusterRoleBindConfig = &clusterRoleBindConfigStruct{
 				Name:            "test",
@@ -47,7 +45,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				ClusterRoleName: "test",
 			}
 			clusterRoleBind := calico.ReadTestFileOrDie("cnx-clusterrolebinding.yaml", clusterRoleBindConfig)
-			kubectl.apply(clusterRoleBind, "", "")
+			kubectl.Apply(clusterRoleBind, "", "")
 
 			// Create Policies within default Tier
 			npDefConfig = &yamlConfig{
@@ -55,7 +53,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				TierName: "default",
 			}
 			np := calico.ReadTestFileOrDie("cnx-np-1.yaml", npDefConfig)
-			kubectl.apply(np, testNameSpace, "")
+			kubectl.Apply(np, testNameSpace, "")
 
 			// Create GlobalNetworkPolicy within Tier
 			gnpDefConfig = &yamlConfig{
@@ -63,14 +61,14 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				TierName: "default",
 			}
 			gnp := calico.ReadTestFileOrDie("cnx-gnp-1.yaml", gnpDefConfig)
-			kubectl.apply(gnp, "", "")
+			kubectl.Apply(gnp, "", "")
 
 			// Create Tier
 			tierConfig = &yamlConfig{
 				Name: createName("e2e-test-tier"),
 			}
 			tier := calico.ReadTestFileOrDie("cnx-tier-1.yaml", tierConfig)
-			kubectl.apply(tier, "", "")
+			kubectl.Apply(tier, "", "")
 
 			// Create Policies within Tier
 			npConfig = &yamlConfig{
@@ -78,7 +76,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				TierName: tierConfig.Name,
 			}
 			np = calico.ReadTestFileOrDie("cnx-np-1.yaml", npConfig)
-			kubectl.apply(np, testNameSpace, "")
+			kubectl.Apply(np, testNameSpace, "")
 
 			// Create GlobalNetworkPolicy within Tier
 			gnpConfig = &yamlConfig{
@@ -86,19 +84,23 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 				TierName: tierConfig.Name,
 			}
 			gnp = calico.ReadTestFileOrDie("cnx-gnp-1.yaml", gnpConfig)
-			kubectl.apply(gnp, "", "")
+			kubectl.Apply(gnp, "", "")
 
+			// Allow fully permissive access to the pseudo Calico tiered policy resource types. This ensures
+			// CNX v2.2+ behaves like older versions.
+			permissiveRBAC := calico.ReadTestFileOrDie("cnx-rbac-permissive-tieredpolicy.yaml", clusterRoleBindConfig)
+			kubectl.Apply(permissiveRBAC, "", "")
 		})
 
 		AfterEach(func() {
-			kubectl.delete("globalnetworkpolicy.p", "", gnpConfig.Name, "")
-			kubectl.delete("globalnetworkpolicy.p", "", "default.e2e-test-gnp", "")
-			kubectl.delete("networkpolicy.p", testNameSpace, npConfig.Name, "")
-			kubectl.delete("networkpolicy.p", testNameSpace, "default.e2e-test-np", "")
+			kubectl.Delete("globalnetworkpolicy.p", "", gnpConfig.Name, "")
+			kubectl.Delete("globalnetworkpolicy.p", "", "default.e2e-test-gnp", "")
+			kubectl.Delete("networkpolicy.p", testNameSpace, npConfig.Name, "")
+			kubectl.Delete("networkpolicy.p", testNameSpace, "default.e2e-test-np", "")
 			time.Sleep(3 * time.Second)
-			kubectl.delete("tier.p", "", "test-tier2", "")
-			kubectl.delete("tier.p", "", tierConfig.Name, "")
-			kubectl.delete("clusterrolebinding", "", clusterRoleBindConfig.Name, "")
+			kubectl.Delete("tier.p", "", "test-tier2", "")
+			kubectl.Delete("tier.p", "", tierConfig.Name, "")
+			kubectl.Delete("clusterrolebinding", "", clusterRoleBindConfig.Name, "")
 		})
 
 		applyObject := func(object interface{}, user string) {
@@ -106,7 +108,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			bs, err := yaml.Marshal(object)
 			Expect(err).NotTo(HaveOccurred())
 			yamlString := string(bs)
-			kubectl.apply(yamlString, "", "")
+			kubectl.Apply(yamlString, "", "")
 		}
 
 		consultOracle := func(oracle map[oracleKey]bool, action string, object string, tier string, user string, err error) {
@@ -125,15 +127,15 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 
 				// NP tests
 				By(fmt.Sprintf("Checking user: %s can get networkpolicy %s in tier %s", user, np, tier))
-				err := kubectl.get("networkpolicy.p", testNameSpace, np, user, "", false)
+				_, err := kubectl.Get("networkpolicy.p", testNameSpace, np, "", "yaml", user, false)
 				consultOracle(oracle, "get", "np", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can watch networkpolicy in tier %s", user, tier))
-				err = kubectl.get("networkpolicy.p", testNameSpace, np, user, "", true)
+				_, err = kubectl.Get("networkpolicy.p", testNameSpace, np, "", "yaml", user, true)
 				consultOracle(oracle, "watch", "np", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can list networkpolicy in tier %s", user, tier))
-				err = kubectl.get("networkpolicy.p", testNameSpace, "", user, fmt.Sprintf("projectcalico.org/tier==%s", tier), false)
+				_, err = kubectl.Get("networkpolicy.p", testNameSpace, "", fmt.Sprintf("projectcalico.org/tier==%s", tier), "yaml", user, false)
 				consultOracle(oracle, "list", "np", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can update networkpolicy in tier %s", user, tier))
@@ -142,7 +144,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 					TierName: tier,
 				}
 				np2 := calico.ReadTestFileOrDie("cnx-np-2.yaml", npConfig2)
-				err = kubectl.apply(np2, testNameSpace, user)
+				err = kubectl.Apply(np2, testNameSpace, user)
 				consultOracle(oracle, "update", "np", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can create networkpolicy in tier %s", user, tier))
@@ -151,31 +153,31 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 					TierName: tier,
 				}
 				np3 := calico.ReadTestFileOrDie("cnx-np-1.yaml", npConfig3)
-				err = kubectl.create(np3, testNameSpace, user)
+				err = kubectl.Create(np3, testNameSpace, user)
 				consultOracle(oracle, "create", "np", tier, user, err)
 				// And now clean it up...
-				_ = kubectl.delete("networkpolicy.p", testNameSpace, npConfig3.Name, "")
+				_ = kubectl.Delete("networkpolicy.p", testNameSpace, npConfig3.Name, "")
 
 				By(fmt.Sprintf("Checking user: %s can patch networkpolicy in tier %s", user, tier))
 				patch := "{\"spec\":{\"order\":100.0}}"
-				err = kubectl.patch("networkpolicy.p", testNameSpace, np, user, patch)
+				err = kubectl.Patch("networkpolicy.p", testNameSpace, np, user, patch)
 				consultOracle(oracle, "patch", "np", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can delete networkpolicy in tier %s", user, tier))
-				err = kubectl.delete("networkpolicy.p", testNameSpace, np, user)
+				err = kubectl.Delete("networkpolicy.p", testNameSpace, np, user)
 				consultOracle(oracle, "delete", "np", tier, user, err)
 
 				// GNP tests
 				By(fmt.Sprintf("Checking user: %s can get GNP %s in tier %s", user, gnp, tier))
-				err = kubectl.get("globalnetworkpolicy.p", "", gnp, user, "", false)
+				_, err = kubectl.Get("globalnetworkpolicy.p", "", gnp, "", "yaml", user, false)
 				consultOracle(oracle, "get", "gnp", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can watch GNP in tier %s", user, tier))
-				err = kubectl.get("globalnetworkpolicy.p", "", gnp, user, "", true)
+				_, err = kubectl.Get("globalnetworkpolicy.p", "", gnp, "", "yaml", user, true)
 				consultOracle(oracle, "watch", "gnp", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can list GNP in tier %s", user, tier))
-				err = kubectl.get("globalnetworkpolicy.p", "", "", user, fmt.Sprintf("projectcalico.org/tier==%s", tier), false)
+				_, err = kubectl.Get("globalnetworkpolicy.p", "", "", fmt.Sprintf("projectcalico.org/tier==%s", tier), "yaml", user, false)
 				consultOracle(oracle, "list", "gnp", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can update GNP in tier %s", user, tier))
@@ -184,7 +186,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 					TierName: tier,
 				}
 				gnp2 := calico.ReadTestFileOrDie("cnx-gnp-2.yaml", gnpConfig2)
-				err = kubectl.apply(gnp2, "", user)
+				err = kubectl.Apply(gnp2, "", user)
 				consultOracle(oracle, "update", "gnp", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can create GNP in tier %s", user, tier))
@@ -193,31 +195,31 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 					TierName: tier,
 				}
 				gnp3 := calico.ReadTestFileOrDie("cnx-gnp-1.yaml", gnpConfig3)
-				err = kubectl.create(gnp3, "", user)
+				err = kubectl.Create(gnp3, "", user)
 				consultOracle(oracle, "create", "gnp", tier, user, err)
 				// And now clean it up...
-				_ = kubectl.delete("globalnetworkpolicy.p", "", gnpConfig3.Name, "")
+				_ = kubectl.Delete("globalnetworkpolicy.p", "", gnpConfig3.Name, "")
 
 				By(fmt.Sprintf("Checking user: %s can patch GNP in tier %s", user, tier))
 				patch = "{\"spec\":{\"order\":100.0}}"
-				err = kubectl.patch("globalnetworkpolicy.p", "", gnp, user, patch)
+				err = kubectl.Patch("globalnetworkpolicy.p", "", gnp, user, patch)
 				consultOracle(oracle, "patch", "gnp", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can delete GNP in tier %s", user, tier))
-				err = kubectl.delete("globalnetworkpolicy.p", "", gnp, user)
+				err = kubectl.Delete("globalnetworkpolicy.p", "", gnp, user)
 				consultOracle(oracle, "delete", "gnp", tier, user, err)
 
 				// Tier tests
 				By(fmt.Sprintf("Checking user: %s can get Tier %s", user, tier))
-				err = kubectl.get("tier.p", "", tier, user, "", false)
+				_, err = kubectl.Get("tier.p", "", tier, "", "yaml", user, false)
 				consultOracle(oracle, "get", "tier", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can watch Tier %s", user, tier))
-				err = kubectl.get("tier.p", "", tier, user, "", true)
+				_, err = kubectl.Get("tier.p", "", tier, "", "yaml", user, true)
 				consultOracle(oracle, "watch", "tier", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can list Tier %s", user, tier))
-				err = kubectl.get("tier.p", "", "", user, "", false)
+				_, err = kubectl.Get("tier.p", "", "", "", "yaml", user, false)
 				consultOracle(oracle, "list", "tier", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can update Tier %s", user, tier))
@@ -225,7 +227,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 					Name: tier,
 				}
 				tier2 := calico.ReadTestFileOrDie("cnx-tier-2.yaml", tierConfig2)
-				err = kubectl.apply(tier2, "", user)
+				err = kubectl.Apply(tier2, "", user)
 				consultOracle(oracle, "update", "tier", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can create Tier %s", user, tier))
@@ -233,23 +235,23 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 					Name: "test-tier2",
 				}
 				tier3 := calico.ReadTestFileOrDie("cnx-tier-1.yaml", tierConfig3)
-				err = kubectl.create(tier3, "", user)
+				err = kubectl.Create(tier3, "", user)
 				consultOracle(oracle, "create", "tier", tier, user, err)
 				// And now clean it up...
-				_ = kubectl.delete("tier.p", "", tierConfig3.Name, "")
+				_ = kubectl.Delete("tier.p", "", tierConfig3.Name, "")
 
 				By(fmt.Sprintf("Checking user: %s can patch Tier %s", user, tier))
 				patch = "{\"spec\":{\"order\":150.0}}"
-				err = kubectl.patch("tier.p", "", tier, user, patch)
+				err = kubectl.Patch("tier.p", "", tier, user, patch)
 				consultOracle(oracle, "patch", "tier", tier, user, err)
 
 				By(fmt.Sprintf("Checking user: %s can delete Tier %s", user, tier))
 				// Empty the tier first using the admin user (you can only delete an empty tier)
-				_ = kubectl.delete("networkpolicy.p", testNameSpace, np, "")
-				_ = kubectl.delete("globalnetworkpolicy.p", "", gnp, "")
+				_ = kubectl.Delete("networkpolicy.p", testNameSpace, np, "")
+				_ = kubectl.Delete("globalnetworkpolicy.p", "", gnp, "")
 				time.Sleep(3 * time.Second)
 				// Now do the 'real' test
-				err = kubectl.delete("tier.p", "", tier, user)
+				err = kubectl.Delete("tier.p", "", tier, user)
 				consultOracle(oracle, "delete", "tier", tier, user, err)
 			}
 		}
@@ -665,94 +667,3 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 	})
 })
 
-type testKubectlCNXRBAC struct {
-}
-
-func (k *testKubectlCNXRBAC) create(yaml string, ns string, user string) error {
-	options := []string{"create", "-f", "-"}
-	if user != "" {
-		options = append(options, fmt.Sprintf("--as=%v", user))
-	}
-	if ns != "" {
-		options = append(options, fmt.Sprintf("--namespace=%v", ns))
-	}
-	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
-	return err
-}
-
-func (k *testKubectlCNXRBAC) apply(yaml string, ns string, user string) error {
-	options := []string{"apply", "-f", "-"}
-	if user != "" {
-		options = append(options, fmt.Sprintf("--as=%v", user))
-	}
-	if ns != "" {
-		options = append(options, fmt.Sprintf("--namespace=%v", ns))
-	}
-	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
-	return err
-}
-
-func (k *testKubectlCNXRBAC) replace(yaml string, ns string, user string) error {
-	options := []string{"replace", "-f", "-"}
-	if user != "" {
-		options = append(options, fmt.Sprintf("--as=%v", user))
-	}
-	if ns != "" {
-		options = append(options, fmt.Sprintf("--namespace=%v", ns))
-	}
-	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
-	return err
-}
-
-func (k *testKubectlCNXRBAC) get(kind, ns, name string, user string, label string, watch bool) error {
-	options := []string{"get", kind, "-o", "yaml"}
-	if name != "" {
-		options = append(options, name)
-	}
-	if user != "" {
-		options = append(options, fmt.Sprintf("--as=%v", user))
-	}
-	if ns != "" {
-		options = append(options, fmt.Sprintf("--namespace=%v", ns))
-	}
-	if label != "" {
-		options = append(options, fmt.Sprintf("-l %s", label))
-	}
-	if watch {
-		options = append(options, "--watch")
-		_, err := framework.NewKubectlCommand(options...).WithTimeout(time.After(3 * time.Second)).Exec()
-		// Filter out all errors (timeout, single instance kdd watch error, etc.) except "Forbidden"
-		// Example: $ kubectl get po --as=nouser
-		// Error from server (Forbidden): pods is forbidden: User "nouser" cannot list pods in the namespace "default"
-		if strings.Contains(err.Error(), "Forbidden") {
-			return err
-		}
-		return nil
-	}
-	_, err := framework.NewKubectlCommand(options...).Exec()
-	return err
-}
-
-func (k *testKubectlCNXRBAC) patch(kind, ns, name string, user string, patch string) error {
-	options := []string{"patch", kind, name, "-p", patch}
-	if user != "" {
-		options = append(options, fmt.Sprintf("--as=%v", user))
-	}
-	if ns != "" {
-		options = append(options, fmt.Sprintf("--namespace=%v", ns))
-	}
-	_, err := framework.NewKubectlCommand(options...).Exec()
-	return err
-}
-
-func (k *testKubectlCNXRBAC) delete(kind, ns, name string, user string) error {
-	options := []string{"delete", kind, name}
-	if user != "" {
-		options = append(options, fmt.Sprintf("--as=%v", user))
-	}
-	if ns != "" {
-		options = append(options, fmt.Sprintf("--namespace=%v", ns))
-	}
-	_, err := framework.NewKubectlCommand(options...).Exec()
-	return err
-}

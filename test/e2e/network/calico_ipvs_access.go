@@ -21,6 +21,7 @@ import (
 	"k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -29,6 +30,10 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
+
+const DEFAULT_EXTERNAL_IP = "60.70.80.90"
+
+var serverVersion = utilversion.MustParseSemantic("v1.11.0")
 
 var _ = SIGDescribe("IPVSEgress", func() {
 
@@ -187,8 +192,11 @@ var _ = SIGDescribe("IPVSEgress", func() {
 					expectSNAT = true
 					target = fmt.Sprintf("%v:%v", nodeIPs[1], svcNodePort)
 				} else if c.accessType == "external IP" {
+					// External IP does not work properly for 1.10 and 1.9. It has been fixed in 1.11 by PR https://github.com/kubernetes/kubernetes/pull/63066.
+					framework.SkipUnlessServerVersionGTE(serverVersion, f.ClientSet.Discovery())
+
 					expectSNAT = true
-					target = fmt.Sprintf("%v:%v", nodeIPs[0], svcPort)
+					target = fmt.Sprintf("%v:%v", DEFAULT_EXTERNAL_IP, svcPort)
 				} else {
 					panic("Unhandled accessType: " + c.accessType)
 				}
@@ -283,7 +291,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	}
 
 	addExternalIPLocalOnly := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
 	}
 
@@ -292,7 +300,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	}
 
 	addExternalIPClusterWide := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
 	}
 
@@ -469,7 +477,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 	var calicoctl *calico.Calicoctl
 
 	addExternalIPClusterWide := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
 	}
 
@@ -614,7 +622,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 						target = fmt.Sprintf("%v:%v", hepNodeIP, svcNodePort)
 					} else if c.accessType == "external IP" {
 						expectSNAT = true
-						target = fmt.Sprintf("%v:%v", hepNodeIP, svcPort)
+						target = fmt.Sprintf("%v:%v", DEFAULT_EXTERNAL_IP, svcPort)
 					} else if c.accessType == "pod IP" {
 						expectSNAT = false
 						target = fmt.Sprintf("%v:%s", dstPod.Status.PodIP, "8080")

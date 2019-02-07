@@ -253,7 +253,7 @@ var _ = framework.KubeDescribe("[Feature:CNX-v1]", func() {
 
 				// When DropActionOverride begins with "LOG-", there should be new
 				// syslogs for the packets to port 80.
-				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-drop")
+				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, calico.DropPrefix)
 				framework.Logf("New drop logs: %#v", newDropLogs)
 				if strings.HasPrefix(dropActionOverride, "LOG-") {
 					if len(newDropLogs) >= 0 {

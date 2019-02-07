@@ -1053,7 +1053,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v1]", func() {
 		By("Creating a client that should not be able to connect to the server")
 		testCannotConnect(f, ns, "client", service, serverPort1)
 
-		newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-packet")
+		newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, calico.PacketPrefix)
 		framework.Logf("New drop logs: %#v", newDropLogs)
 		Expect(len(newDropLogs)).NotTo(BeZero())
 	})

@@ -370,13 +370,14 @@ func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, se
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
 func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod), onFailure func()) {
-	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
+	By(fmt.Sprintf("Creating client pod with base name %s that should successfully connect to %s.", podName, service.Name))
 	podClient := createNetworkClientPodX(f, ns, podName, target, podCustomizer)
 	defer func() {
-		By(fmt.Sprintf("Cleaning up the pod %s", podName))
+		By(fmt.Sprintf("Cleaning up the pod %s", podClient.Name))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
+
 	}()
 
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
@@ -396,7 +397,7 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 		}
 
 		// Collect pod logs when we see a failure.
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podName, fmt.Sprintf("%s-container", podName))
+		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
 		if logErr != nil {
 			framework.Failf("Error getting container logs: %s", logErr)
 		}
@@ -418,7 +419,7 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
 		}
 
-		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t%v\n\n", podName, service.Name, logs, policies.Items, pods)
+		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t%v\n\n", podClient.Name, service.Name, logs, policies.Items, pods)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -434,10 +435,10 @@ func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string,
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
 func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod)) {
-	By(fmt.Sprintf("Creating client pod %s that should not be able to connect to %s.", podName, service.Name))
+	By(fmt.Sprintf("Creating client pod with base name %s that should not be able to connect to %s.", podName, service.Name))
 	podClient := createNetworkClientPodX(f, ns, podName, target, podCustomizer)
 	defer func() {
-		By(fmt.Sprintf("Cleaning up the pod %s", podName))
+		By(fmt.Sprintf("Cleaning up the pod %s", podClient.Name))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
@@ -450,7 +451,7 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 	// Dump debug information if the error was nil.
 	if err == nil {
 		// Collect pod logs when we see a failure.
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podName, fmt.Sprintf("%s-container", podName))
+		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
 		if logErr != nil {
 			framework.Failf("Error getting container logs: %s", logErr)
 		}
@@ -472,7 +473,7 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
 		}
 
-		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t %v\n\n", podName, service.Name, logs, policies.Items, pods)
+		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t %v\n\n", podClient.Name, service.Name, logs, policies.Items, pods)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -499,7 +500,7 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 	var nodeselector = map[string]string{}
 	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
-		imageUrl = "caltigera/porter:first"
+		imageUrl = winctl.GetPorterImage()
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
 	} else {
@@ -612,16 +613,20 @@ func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, pod
 	target := fmt.Sprintf("%s.%s:%d", targetService.Name, targetService.Namespace, targetPort)
 	return createNetworkClientPodX(f, namespace, podName, target, func(pod *v1.Pod) {})
 }
-func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
-	var imageUrl string
+func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podNameBase string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
+	var imageUrl, commandStr string
 	var podArgs []string
 	var cmd string
 	var nodeselector = map[string]string{}
+
+	// Randomize pod names to avoid clashes with previous tests.
+	podName := calico.GenerateRandomName(podNameBase)
+
 	imagePull := v1.PullAlways
 	if winctl.RunningWindowsTest() {
-		imageUrl = "microsoft/powershell:nanoserver"
-		podArgs = append(podArgs, "C:\\Program Files\\PowerShell\\pwsh.exe", "-Command")
-		cmd = fmt.Sprintf("Invoke-WebRequest %s -UseBasicParsing", target)
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
+		cmd = fmt.Sprintf("$sb={Invoke-WebRequest %s -UseBasicParsing -TimeoutSec 3}; For ($i=0; $i -lt 5; $i++) { sleep 5; try {& $sb} catch { echo failed loop $i ; continue }; exit 0 ; }; exit 1", target)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
 	} else {
@@ -635,7 +640,7 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
 			Labels: map[string]string{
-				"pod-name": podName,
+				"pod-name": podNameBase,
 			},
 		},
 		Spec: v1.PodSpec{

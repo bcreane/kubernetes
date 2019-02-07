@@ -21,6 +21,8 @@ package winctl
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +37,40 @@ var ServiceEndpointIP = map[string]string{}
 
 // Check if we are running windows specific test cases.
 func RunningWindowsTest() bool {
-	return GinkgoConfig.FocusString == "WindowsPolicy"
+	return strings.Contains(GinkgoConfig.FocusString, "WindowsPolicy")
+}
+
+// Get Porter image based on windows OS version
+func GetPorterImage() string {
+	os := os.Getenv("WINDOWS_OS")
+	if os == "" {
+		framework.Failf("WINDOWS_OS env not specified,Please set env properly")
+		return ""
+	}
+	if os == "1809" || os == "1803" {
+		return "caltigera/porter:" + os
+	} else {
+		framework.Failf("OS Version currently not supported")
+	}
+
+	return ""
+}
+
+// Get client image and powershell command based on windows OS version
+func GetClientImageAndCommand() (string, string) {
+	os := os.Getenv("WINDOWS_OS")
+	if os == "" {
+		framework.Failf("WINDOWS_OS env not specified,Please set env properly")
+		return "", ""
+	}
+	if os == "1809" {
+		return "mcr.microsoft.com/windows/servercore:" + os, "powershell.exe"
+	} else if os == "1803" {
+		return "microsoft/powershell:nanoserver", "C:\\Program Files\\PowerShell\\pwsh.exe"
+	} else {
+		framework.Failf("OS Version currently not supported")
+	}
+	return "", ""
 }
 
 //This is a hack for windows to use EndpointIP instead of service's

@@ -144,6 +144,50 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 				testIstioCannotConnect(f, f.Namespace, "pod-cannot-connect", service, 80, podServer, sa)
 			})
 		})
+		Context("With GlobalNetworkPolicy matching service account selectors", func() {
+
+			BeforeEach(func() {
+				gnp := `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: svc-acct-can-connect
+  spec:
+    selector: pod-name == "server"
+    ingress:
+    - action: Allow
+      source:
+        serviceAccounts:
+          selector: can-connect == "true"
+    egress:
+    - action: Allow
+`
+
+				calicoctl.Apply(gnp)
+			})
+
+			AfterEach(func() {
+				calicoctl.DeleteGNP("svc-acct-can-connect")
+			})
+
+			It("should allow \"can-connect\" pod to connect", func() {
+				By("creating \"can-connect\" service account")
+				sa := alp.CreateServiceAccount(f, "can-connect", f.Namespace.Name, map[string]string{"can-connect": "true"})
+				defer alp.DeleteServiceAccount(f, sa)
+
+				By("testing connectivity with pod using \"can-connect\" service account")
+				testIstioCanConnect(f, f.Namespace, "client-can-connect", service, 80, podServer, sa)
+			})
+
+			It("should not allow \"cannot-connect\" pod to connect", func() {
+				By("creating \"cannot-connect\" service account")
+				sa := alp.CreateServiceAccount(f, "cannot-connect", f.Namespace.Name, map[string]string{"can-connect": "false"})
+				defer alp.DeleteServiceAccount(f, sa)
+
+				By("testing connectivity with pod using \"cannot-connect\" service account")
+				testIstioCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80, podServer, sa)
+			})
+		})
 	})
 
 	Describe("ALP http-method test", func() {
@@ -685,6 +729,176 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy"
 	})
 })
 
+var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] prevent sidecar injection with per-pod override annotation ", func() {
+
+	f := framework.NewDefaultFramework("sidecar-injection-override")
+
+	BeforeEach(func() {
+		var err error
+
+		// See if Istio is installed. If not, then skip these tests so we don't cause spurious failures on non-Istio
+		// test environments.
+		istioInstalled, err := alp.CheckIstioInstall(f)
+		if err != nil {
+			framework.Skipf("Checking istio install failed. Skip ALP tests.")
+		}
+		if !istioInstalled {
+			framework.Skipf("Istio not installed. ALP tests not supported.")
+		}
+
+		// Namespace for the test, labeled so that Istio Sidecar Injector will add the Dikastes & Envoy sidecars.
+		alp.EnableIstioInjectionForNamespace(f, f.Namespace)
+	})
+
+	JustAfterEach(func() {
+		if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
+			framework.Logf(alp.GetIstioDiags(f))
+		}
+	})
+
+	Describe("Tests to verify pod annotation overrides namespace label and prevents sidecar injection for that pod", func() {
+
+		It("should prevent sidecar injection for pod with annotation: \"sidecar.istio.io/inject:false\" in istio enabled namespace", func() {
+			By("Creating pod in istio enabled namespace with override annotation")
+			setAnnotation := func(pod *v1.Pod) {
+				if pod.Annotations == nil {
+					pod.Annotations = make(map[string]string)
+				}
+				pod.Annotations["sidecar.istio.io/inject"] = "false"
+			}
+			podName := framework.CreateExecPodOrFail(f.ClientSet, f.Namespace.Name, "alpexec-", setAnnotation)
+			pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(podName, metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			defer func() {
+				framework.DeletePodOrFail(f.ClientSet, f.Namespace.Name, podName)
+				alp.WaitForPodNotFoundInNamespace(f, f.Namespace, podName)
+			} ()
+
+			By("Verify sidecar containers for pod")
+			sidecars := alp.VerifySideCarsForPod(pod)
+			Expect(sidecars).To(BeFalse())
+		})
+	})
+})
+
+var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy for pod that is not running dikastes", func() {
+        var calicoctl *calico.Calicoctl
+
+        f := framework.NewDefaultFramework("calico-alp-without-dikastes")
+
+        BeforeEach(func() {
+		var err error
+
+		// See if Istio is installed. If not, then skip these tests so we don't cause spurious failures on non-Istio
+		// test environments.
+		istioInstalled, err := alp.CheckIstioInstall(f)
+		if err != nil {
+			framework.Skipf("Checking istio install failed. Skip ALP tests.")
+		}
+		if !istioInstalled {
+			framework.Skipf("Istio not installed. ALP tests not supported.")
+		}
+	})
+
+	BeforeEach(func() {
+		// The following code tries to get config information for calicoctl from k8s ConfigMap.
+		// A framework clientset is needed to access k8s configmap but it will only be created in the context of BeforeEach or IT.
+		// Current solution is to use BeforeEach because this function is not a test case.
+		// This will avoid complexity of creating a client by ourself.
+		calicoctl = calico.ConfigureCalicoctl(f)
+		calicoctl.SetEnv("ALPHA_FEATURES", "serviceaccounts,httprules")
+	})
+
+	JustAfterEach(func() {
+		if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
+			framework.Logf(alp.GetIstioDiags(f))
+		}
+	})
+
+	Describe("HTTP based policy tests for pods not running dikastes", func() {
+		var service *v1.Service
+		var podServer *v1.Pod
+
+		BeforeEach(func() {
+
+			// Create Server with Service
+			By("Creating a server which support GET/PUT and does not run dikastes.")
+			podServer, service = createGetPutPodAndService(f, f.Namespace, "server", 2379, nil)
+			framework.Logf("Waiting for Server to come up.")
+			err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Creating client which will be able to GET/PUT the server since no policies are present.")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
+		})
+		AfterEach(func() {
+			cleanupServerPodAndService(f, podServer, service)
+			calicoctl.Cleanup()
+		})
+		It("should ignore policy with http method rule", func() {
+
+			By("creating policy which allow only GET")
+			gnp := `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: http-method
+  spec:
+    selector: pod-name == "server"
+    ingress:
+      - action: Allow
+        http:
+          methods: ["GET"]
+    egress:
+      - action: Allow
+`
+			calicoctl.Apply(gnp)
+			defer calicoctl.DeleteGNP("http-method")
+
+			By("testing http method with pod using default service account, allow Get")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, nil)
+
+			By("testing http method with pod using default service account, allow Put")
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, nil)
+
+		})
+		It("should ignore policy with both http method and service account rule", func() {
+			By("creating \"connect\" service account")
+			connect := alp.CreateServiceAccount(f, "connect", f.Namespace.Name, map[string]string{"connect": "true"})
+			defer alp.DeleteServiceAccount(f, connect)
+
+			By("creating policy which allow only GET with service account \"connect\"")
+			gnp := `
+- apiVersion: projectcalico.org/v3
+  kind: GlobalNetworkPolicy
+  metadata:
+    name: http-sa
+  spec:
+    selector: pod-name == "server"
+    ingress:
+      - action: Allow
+        http:
+          methods: ["GET"]
+        source:
+          serviceAccounts:
+            names: ["connect"]
+    egress:
+      - action: Allow
+`
+			calicoctl.Apply(gnp)
+			defer calicoctl.DeleteGNP("http-sa")
+
+			By("allow client with service account \"connect\" to GET")
+			testIstioCanGetPut(f, f.Namespace, http.MethodGet, service, podServer, connect)
+			By("allow client with service account \"connect\" to PUT as the policy should be ignored")
+			testIstioCanGetPut(f, f.Namespace, http.MethodPut, service, podServer, connect)
+
+		})
+	})
+})
+
 // createIstioServerPodAndService works just like createServerPodAndService(), but with some Istio specific tweaks.
 func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, labels map[string]string) (*v1.Pod, *v1.Service) {
 	pod, service := createServerPodAndServiceX(f, namespace, podName, ports,
@@ -720,6 +934,16 @@ func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namesp
 
 // createIstioGetPutPodAndService works just like createServerPodAndService(), but with some Istio specific tweaks.
 func createIstioGetPutPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, port int, labels map[string]string) (*v1.Pod, *v1.Service) {
+	pod, service := createGetPutPodAndService(f, namespace, podName, port, labels)
+
+        // Verify sidecar injection for pods.
+        alp.VerifyContainersForPod(pod)
+
+	return pod, service
+}
+
+// createGetPutPodAndService works just like createServerPodAndService(), with some istio specific tweaks.
+func createGetPutPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, port int, labels map[string]string) (*v1.Pod, *v1.Service) {
 	pod, service := createServerPodAndServiceX(f, namespace, podName, []int{port},
 		func(pod *v1.Pod) {
 			// Apply labels.
@@ -754,8 +978,6 @@ func createIstioGetPutPodAndService(f *framework.Framework, namespace *v1.Namesp
 			svc.Name = "svc-get-put"
 		},
 	)
-
-	alp.VerifyContainersForPod(pod)
 
 	return pod, service
 }
