@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -84,18 +85,11 @@ func (mounter *Mounter) Mount(source string, target string, fstype string, optio
 			`$Credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $User, $PWord`,
 			options[0], options[1])
 
-		driverLetter, err := getAvailableDriveLetter()
-		if err != nil {
-			return err
-		}
-		bindSource = driverLetter + ":"
-		cmdLine += fmt.Sprintf(";New-SmbGlobalMapping -LocalPath %s -RemotePath %s -Credential $Credential", bindSource, source)
+		bindSource = source
+		cmdLine += fmt.Sprintf(";New-SmbGlobalMapping -RemotePath %s -Credential $Credential", source)
 
 		if output, err := exec.Command("powershell", "/c", cmdLine).CombinedOutput(); err != nil {
-			// we don't return error here, even though New-SmbGlobalMapping failed, we still make it successful,
-			// will return error when Windows 2016 RS3 is ready on azure
-			glog.Errorf("azureMount: SmbGlobalMapping failed: %v, only SMB mount is supported now, output: %q", err, string(output))
-			return os.MkdirAll(target, 0755)
+			return fmt.Errorf("azureMount: SmbGlobalMapping failed: %v, only SMB mount is supported now, output: %q", err, string(output))
 		}
 	}
 
@@ -116,6 +110,16 @@ func (mounter *Mounter) Unmount(target string) error {
 		return err
 	}
 	return nil
+}
+
+// GetMountRefs finds all other references to the device(drive) referenced
+// by mountPath; returns a list of paths.
+func GetMountRefs(mounter Interface, mountPath string) ([]string, error) {
+	refs, err := getAllParentLinks(normalizeWindowsPath(mountPath))
+	if err != nil {
+		return nil, err
+	}
+	return refs, nil
 }
 
 // List returns a list of all mounted filesystems. todo
@@ -152,6 +156,33 @@ func (mounter *Mounter) GetDeviceNameFromMount(mountPath, pluginDir string) (str
 	return getDeviceNameFromMount(mounter, mountPath, pluginDir)
 }
 
+// getDeviceNameFromMount find the device(drive) name in which
+// the mount path reference should match the given plugin directory. In case no mount path reference
+// matches, returns the volume name taken from its given mountPath
+func getDeviceNameFromMount(mounter Interface, mountPath, pluginDir string) (string, error) {
+	refs, err := GetMountRefs(mounter, mountPath)
+	if err != nil {
+		glog.V(4).Infof("GetMountRefs failed for mount path %q: %v", mountPath, err)
+		return "", err
+	}
+	if len(refs) == 0 {
+		return "", fmt.Errorf("directory %s is not mounted", mountPath)
+	}
+	basemountPath := normalizeWindowsPath(path.Join(pluginDir, MountsInGlobalPDPath))
+	for _, ref := range refs {
+		if strings.Contains(ref, basemountPath) {
+			volumeID, err := filepath.Rel(normalizeWindowsPath(basemountPath), ref)
+			if err != nil {
+				glog.Errorf("Failed to get volume id from mount %s - %v", mountPath, err)
+				return "", err
+			}
+			return volumeID, nil
+		}
+	}
+
+	return path.Base(mountPath), nil
+}
+
 // DeviceOpened determines if the device is in use elsewhere
 func (mounter *Mounter) DeviceOpened(pathname string) (bool, error) {
 	return false, nil
@@ -170,31 +201,7 @@ func (mounter *Mounter) MakeRShared(path string) error {
 
 // GetFileType checks for sockets/block/character devices
 func (mounter *Mounter) GetFileType(pathname string) (FileType, error) {
-	var pathType FileType
-	info, err := os.Stat(pathname)
-	if os.IsNotExist(err) {
-		return pathType, fmt.Errorf("path %q does not exist", pathname)
-	}
-	// err in call to os.Stat
-	if err != nil {
-		return pathType, err
-	}
-
-	mode := info.Sys().(*syscall.Win32FileAttributeData).FileAttributes
-	switch mode & syscall.S_IFMT {
-	case syscall.S_IFSOCK:
-		return FileTypeSocket, nil
-	case syscall.S_IFBLK:
-		return FileTypeBlockDev, nil
-	case syscall.S_IFCHR:
-		return FileTypeCharDev, nil
-	case syscall.S_IFDIR:
-		return FileTypeDirectory, nil
-	case syscall.S_IFREG:
-		return FileTypeFile, nil
-	}
-
-	return pathType, fmt.Errorf("only recognise file, directory, socket, block device and character device")
+	return getFileType(pathname)
 }
 
 // MakeFile creates a new directory
@@ -229,6 +236,123 @@ func (mounter *Mounter) ExistsPath(pathname string) bool {
 	return true
 }
 
+// check whether hostPath is within volume path
+// this func will lock all intermediate subpath directories, need to close handle outside of this func after container started
+func lockAndCheckSubPath(volumePath, hostPath string) ([]uintptr, error) {
+	if len(volumePath) == 0 || len(hostPath) == 0 {
+		return []uintptr{}, nil
+	}
+
+	finalSubPath, err := filepath.EvalSymlinks(hostPath)
+	if err != nil {
+		return []uintptr{}, fmt.Errorf("cannot read link %s: %s", hostPath, err)
+	}
+	finalVolumePath, err := filepath.EvalSymlinks(volumePath)
+	if err != nil {
+		return []uintptr{}, fmt.Errorf("cannot read link %s: %s", volumePath, err)
+	}
+
+	return lockAndCheckSubPathWithoutSymlink(finalVolumePath, finalSubPath)
+}
+
+// lock all intermediate subPath directories and check they are all within volumePath
+// volumePath & subPath should not contain any symlink, otherwise it will return error
+func lockAndCheckSubPathWithoutSymlink(volumePath, subPath string) ([]uintptr, error) {
+	if len(volumePath) == 0 || len(subPath) == 0 {
+		return []uintptr{}, nil
+	}
+
+	// get relative path to volumePath
+	relSubPath, err := filepath.Rel(volumePath, subPath)
+	if err != nil {
+		return []uintptr{}, fmt.Errorf("Rel(%s, %s) error: %v", volumePath, subPath, err)
+	}
+	if startsWithBackstep(relSubPath) {
+		return []uintptr{}, fmt.Errorf("SubPath %q not within volume path %q", subPath, volumePath)
+	}
+
+	if relSubPath == "." {
+		// volumePath and subPath are equal
+		return []uintptr{}, nil
+	}
+
+	fileHandles := []uintptr{}
+	var errorResult error
+
+	currentFullPath := volumePath
+	dirs := strings.Split(relSubPath, string(os.PathSeparator))
+	for _, dir := range dirs {
+		// lock intermediate subPath directory first
+		currentFullPath = filepath.Join(currentFullPath, dir)
+		handle, err := lockPath(currentFullPath)
+		if err != nil {
+			errorResult = fmt.Errorf("cannot lock path %s: %s", currentFullPath, err)
+			break
+		}
+		fileHandles = append(fileHandles, handle)
+
+		// make sure intermediate subPath directory does not contain symlink any more
+		stat, err := os.Lstat(currentFullPath)
+		if err != nil {
+			errorResult = fmt.Errorf("Lstat(%q) error: %v", currentFullPath, err)
+			break
+		}
+		if stat.Mode()&os.ModeSymlink != 0 {
+			errorResult = fmt.Errorf("subpath %q is an unexpected symlink after EvalSymlinks", currentFullPath)
+			break
+		}
+
+		if !pathWithinBase(currentFullPath, volumePath) {
+			errorResult = fmt.Errorf("SubPath %q not within volume path %q", currentFullPath, volumePath)
+			break
+		}
+	}
+
+	return fileHandles, errorResult
+}
+
+// unlockPath unlock directories
+func unlockPath(fileHandles []uintptr) {
+	if fileHandles != nil {
+		for _, handle := range fileHandles {
+			syscall.CloseHandle(syscall.Handle(handle))
+		}
+	}
+}
+
+// lockPath locks a directory or symlink, return handle, exec "syscall.CloseHandle(handle)" to unlock the path
+func lockPath(path string) (uintptr, error) {
+	if len(path) == 0 {
+		return uintptr(syscall.InvalidHandle), syscall.ERROR_FILE_NOT_FOUND
+	}
+	pathp, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return uintptr(syscall.InvalidHandle), err
+	}
+	access := uint32(syscall.GENERIC_READ)
+	sharemode := uint32(syscall.FILE_SHARE_READ)
+	createmode := uint32(syscall.OPEN_EXISTING)
+	flags := uint32(syscall.FILE_FLAG_BACKUP_SEMANTICS | syscall.FILE_FLAG_OPEN_REPARSE_POINT)
+	fd, err := syscall.CreateFile(pathp, access, sharemode, nil, createmode, flags, 0)
+	return uintptr(fd), err
+}
+
+// Lock all directories in subPath and check they're not symlinks.
+func (mounter *Mounter) PrepareSafeSubpath(subPath Subpath) (newHostPath string, cleanupAction func(), err error) {
+	handles, err := lockAndCheckSubPath(subPath.VolumePath, subPath.Path)
+
+	// Unlock the directories when the container starts
+	cleanupAction = func() {
+		unlockPath(handles)
+	}
+	return subPath.Path, cleanupAction, err
+}
+
+// No bind-mounts for subpaths are necessary on Windows
+func (mounter *Mounter) CleanSubPaths(podDir string, volumeName string) error {
+	return nil
+}
+
 func (mounter *SafeFormatAndMount) formatAndMount(source string, target string, fstype string, options []string) error {
 	// Try to mount the disk
 	glog.V(4).Infof("Attempting to formatAndMount disk: %s %s %s", fstype, source, target)
@@ -260,20 +384,6 @@ func normalizeWindowsPath(path string) string {
 	return normalizedPath
 }
 
-func getAvailableDriveLetter() (string, error) {
-	cmd := "$used = Get-PSDrive | Select-Object -Expand Name | Where-Object { $_.Length -eq 1 }"
-	cmd += ";$drive = 67..90 | ForEach-Object { [string][char]$_ } | Where-Object { $used -notcontains $_ } | Select-Object -First 1;$drive"
-	output, err := exec.Command("powershell", "/c", cmd).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("getAvailableDriveLetter failed: %v, output: %q", err, string(output))
-	}
-
-	if len(output) == 0 {
-		return "", fmt.Errorf("azureMount: there is no available drive letter now")
-	}
-	return string(output)[:1], nil
-}
-
 // ValidateDiskNumber : disk number should be a number in [0, 99]
 func ValidateDiskNumber(disk string) error {
 	diskNum, err := strconv.Atoi(disk)
@@ -299,4 +409,153 @@ func getDriveLetterByDiskNumber(diskNum string, exec Exec) (string, error) {
 		return "", fmt.Errorf("azureMount: Get Drive Letter failed, output is empty")
 	}
 	return string(output)[:1], nil
+}
+
+// getAllParentLinks walks all symbolic links and return all the parent targets recursively
+func getAllParentLinks(path string) ([]string, error) {
+	const maxIter = 255
+	links := []string{}
+	for {
+		links = append(links, path)
+		if len(links) > maxIter {
+			return links, fmt.Errorf("unexpected length of parent links: %v", links)
+		}
+
+		fi, err := os.Lstat(path)
+		if err != nil {
+			return links, fmt.Errorf("Lstat: %v", err)
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			break
+		}
+
+		path, err = os.Readlink(path)
+		if err != nil {
+			return links, fmt.Errorf("Readlink error: %v", err)
+		}
+	}
+
+	return links, nil
+}
+
+func (mounter *Mounter) GetSELinuxSupport(pathname string) (bool, error) {
+	// Windows does not support SELinux.
+	return false, nil
+}
+
+// SafeMakeDir makes sure that the created directory does not escape given base directory mis-using symlinks.
+func (mounter *Mounter) SafeMakeDir(pathname string, base string, perm os.FileMode) error {
+	return doSafeMakeDir(pathname, base, perm)
+}
+
+func doSafeMakeDir(pathname string, base string, perm os.FileMode) error {
+	glog.V(4).Infof("Creating directory %q within base %q", pathname, base)
+
+	if !pathWithinBase(pathname, base) {
+		return fmt.Errorf("path %s is outside of allowed base %s", pathname, base)
+	}
+
+	// Quick check if the directory already exists
+	s, err := os.Stat(pathname)
+	if err == nil {
+		// Path exists
+		if s.IsDir() {
+			// The directory already exists. It can be outside of the parent,
+			// but there is no race-proof check.
+			glog.V(4).Infof("Directory %s already exists", pathname)
+			return nil
+		}
+		return &os.PathError{Op: "mkdir", Path: pathname, Err: syscall.ENOTDIR}
+	}
+
+	// Find all existing directories
+	existingPath, toCreate, err := findExistingPrefix(base, pathname)
+	if err != nil {
+		return fmt.Errorf("error opening directory %s: %s", pathname, err)
+	}
+	if len(toCreate) == 0 {
+		return nil
+	}
+
+	// Ensure the existing directory is inside allowed base
+	fullExistingPath, err := filepath.EvalSymlinks(existingPath)
+	if err != nil {
+		return fmt.Errorf("error opening existing directory %s: %s", existingPath, err)
+	}
+	fullBasePath, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return fmt.Errorf("cannot read link %s: %s", base, err)
+	}
+	if !pathWithinBase(fullExistingPath, fullBasePath) {
+		return fmt.Errorf("path %s is outside of allowed base %s", fullExistingPath, err)
+	}
+
+	// lock all intermediate directories from fullBasePath to fullExistingPath (top to bottom)
+	fileHandles, err := lockAndCheckSubPathWithoutSymlink(fullBasePath, fullExistingPath)
+	defer unlockPath(fileHandles)
+	if err != nil {
+		return err
+	}
+
+	glog.V(4).Infof("%q already exists, %q to create", fullExistingPath, filepath.Join(toCreate...))
+	currentPath := fullExistingPath
+	// create the directories one by one, making sure nobody can change
+	// created directory into symlink by lock that directory immediately
+	for _, dir := range toCreate {
+		currentPath = filepath.Join(currentPath, dir)
+		glog.V(4).Infof("Creating %s", dir)
+		if err := os.Mkdir(currentPath, perm); err != nil {
+			return fmt.Errorf("cannot create directory %s: %s", currentPath, err)
+		}
+		handle, err := lockPath(currentPath)
+		if err != nil {
+			return fmt.Errorf("cannot lock path %s: %s", currentPath, err)
+		}
+		defer syscall.CloseHandle(syscall.Handle(handle))
+		// make sure newly created directory does not contain symlink after lock
+		stat, err := os.Lstat(currentPath)
+		if err != nil {
+			return fmt.Errorf("Lstat(%q) error: %v", currentPath, err)
+		}
+		if stat.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("subpath %q is an unexpected symlink after Mkdir", currentPath)
+		}
+	}
+
+	return nil
+}
+
+// findExistingPrefix finds prefix of pathname that exists. In addition, it
+// returns list of remaining directories that don't exist yet.
+func findExistingPrefix(base, pathname string) (string, []string, error) {
+	rel, err := filepath.Rel(base, pathname)
+	if err != nil {
+		return base, nil, err
+	}
+
+	if startsWithBackstep(rel) {
+		return base, nil, fmt.Errorf("pathname(%s) is not within base(%s)", pathname, base)
+	}
+
+	if rel == "." {
+		// base and pathname are equal
+		return pathname, []string{}, nil
+	}
+
+	dirs := strings.Split(rel, string(filepath.Separator))
+
+	parent := base
+	currentPath := base
+	for i, dir := range dirs {
+		parent = currentPath
+		currentPath = filepath.Join(parent, dir)
+		if _, err := os.Lstat(currentPath); err != nil {
+			if os.IsNotExist(err) {
+				return parent, dirs[i:], nil
+			}
+			return base, nil, err
+		}
+	}
+
+	return pathname, []string{}, nil
 }

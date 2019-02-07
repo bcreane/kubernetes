@@ -25,6 +25,7 @@ go_test(
         "replace_map_list_test.go",
         "replace_map_test.go",
         "replace_primitive_list_test.go",
+        "retain_keys_test.go",
         "suite_test.go",
         "utils_test.go",
     ],
@@ -32,7 +33,6 @@ go_test(
         ":swagger-spec",
         "//api/openapi-spec:swagger-spec",
     ],
-    importpath = "k8s.io/kubernetes/pkg/kubectl/apply/strategy_test",
     deps = [
         ":go_default_library",
         "//pkg/kubectl/apply:go_default_library",

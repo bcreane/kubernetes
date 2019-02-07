@@ -17,7 +17,7 @@ var _ = SIGDescribe("[Feature:CNX-APIServer]", func() {
 	var jsonData interface{}
 
 	testCNXCRUDAPI := func(resName, resKind, resYamlFile, namespace, patch string, resConfig *yamlConfig) {
-		// Test kubectl can 'Create' the CNX resource 		
+		// Test kubectl can 'Create' the CNX resource
 		By(fmt.Sprintf("Checking kubectl command can create a %s %s", resName, resConfig.Name))
 		resManifest := calico.ReadTestFileOrDie(resYamlFile, resConfig)
 		error := kubectl.Create(resManifest, namespace, "")
@@ -87,14 +87,12 @@ var _ = SIGDescribe("[Feature:CNX-APIServer]", func() {
 	Context("Test CNX API server with 'NetworkPolicy' and 'GlobalNetworkPolicy'", func() {
 		var (
 			tierConfig, npConfig, gnpConfig *yamlConfig
-			testNamespace                   string
 		)
 
 		// Get a framework object with a new namespace for testing
-		var f = framework.NewDefaultFramework("cnx-apiserver")
+		framework.NewDefaultFramework("cnx-apiserver")
 
 		BeforeEach(func() {
-			testNamespace = f.Namespace.Name
 			kubectl = &calico.Kubectl{}
 
 			// Create a Tier
@@ -132,4 +130,3 @@ var _ = SIGDescribe("[Feature:CNX-APIServer]", func() {
 		})
 	})
 })
-
