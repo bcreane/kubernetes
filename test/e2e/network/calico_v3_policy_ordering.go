@@ -120,7 +120,13 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
 		//This is a hack for windows to use PodIP instead of Service's ClusterIP
 		if winctl.RunningWindowsTest() {
-			target = winctl.GetTarget(f, service, 80)
+			podTarget, serviceTarget := winctl.GetTarget(f, service, 80)
+			//check connectivity with podIP
+			fmt.Printf("Checking connectivity with podIP :%s \n",podTarget)
+			testCanConnectX(f, f.Namespace, "client-can-connect", service, podTarget, podCustomizer, logServerDiags)
+			//assign service ClusterIP to check connectivity
+			target = serviceTarget
+			fmt.Printf("Checking connectivity with serviceIP :%s \n",target)
 		}
 		testCanConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer, logServerDiags)
 	}
@@ -132,7 +138,13 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
 		//This is a hack for windows to use PodIP instead of Service's ClusterIP
 		if winctl.RunningWindowsTest() {
-			target = winctl.GetTarget(f, service, 80)
+			podTarget, serviceTarget := winctl.GetTarget(f, service, 80)
+			//check connectivity with podIP
+			fmt.Printf("Checking connectivity with podIP :%s \n",podTarget)
+			testCannotConnectX(f, f.Namespace, "client-can-connect", service, podTarget, podCustomizer)
+			//assign service ClusterIP to check connectivity
+			target = serviceTarget
+			fmt.Printf("Checking connectivity with serviceIP :%s \n",target)
 		}
 		testCannotConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer)
 	}

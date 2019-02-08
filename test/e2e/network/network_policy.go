@@ -365,7 +365,13 @@ func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, se
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
 	//This is a hack for windows to use PodIP instead of Service's ClusterIP
 	if winctl.RunningWindowsTest() {
-		target = winctl.GetTarget(f, service, targetPort)
+		podTarget, serviceTarget := winctl.GetTarget(f, service, targetPort)
+		//use podIP to check connectivity with server
+		fmt.Printf("Checking connectivity with podIP :%s \n",podTarget)
+		testCanConnectX(f, ns, podName, service, podTarget, func(pod *v1.Pod) {}, func() {})
+		//assign service ClusterIP to check connectivity
+		target = serviceTarget
+		fmt.Printf("Checking connectivity with serviceIP :%s \n",target)
 	}
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
@@ -427,7 +433,13 @@ func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string,
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
 	//This is a hack for windows to use PodIP instead of Service's ClusterIP
 	if winctl.RunningWindowsTest() {
-		target = winctl.GetTarget(f, service, targetPort)
+		podTarget, serviceTarget := winctl.GetTarget(f, service, targetPort)
+		//use podIP to check connectivity with server
+		fmt.Printf("Checking connectivity with podIP :%s \n",podTarget)
+		testCannotConnectX(f, ns, podName, service, podTarget, func(pod *v1.Pod) {})
+		//assign service ClusterIP to check connectivity
+		target = serviceTarget
+		fmt.Printf("Checking connectivity with serviceIP :%s \n",target)
 	}
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }

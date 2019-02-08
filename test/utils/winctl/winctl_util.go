@@ -47,7 +47,7 @@ func GetPorterImage() string {
 		framework.Failf("WINDOWS_OS env not specified,Please set env properly")
 		return ""
 	}
-	if os == "1809" || os == "1803" {
+	if os == "1809" || os == "1803" || os == "1903" {
 		return "caltigera/porter:" + os
 	} else {
 		framework.Failf("OS Version currently not supported")
@@ -67,6 +67,8 @@ func GetClientImageAndCommand() (string, string) {
 		return "mcr.microsoft.com/windows/servercore:" + os, "powershell.exe"
 	} else if os == "1803" {
 		return "microsoft/powershell:nanoserver", "C:\\Program Files\\PowerShell\\pwsh.exe"
+	} else if os == "1903" {
+		return "mcr.microsoft.com/windows/servercore/insider:10.0.18317.1000", "powershell.exe"
 	} else {
 		framework.Failf("OS Version currently not supported")
 	}
@@ -75,7 +77,7 @@ func GetClientImageAndCommand() (string, string) {
 
 //This is a hack for windows to use EndpointIP instead of service's
 //ClusterIP, Since we have known issue with service's ClusterIP
-func GetTarget(f *framework.Framework, service *v1.Service, targetPort int) string {
+func GetTarget(f *framework.Framework, service *v1.Service, targetPort int) (string, string) {
 	var targetIP string
 	//check if serviceEndpointIP is already present in map,else
 	//raise a request to get it
@@ -86,7 +88,10 @@ func GetTarget(f *framework.Framework, service *v1.Service, targetPort int) stri
 		targetIP = getServiceEndpointIP(f, service.Namespace, service.Name)
 		ServiceEndpointIP[key] = targetIP
 	}
-	return fmt.Sprintf("http://%s:%d", targetIP, targetPort)
+	serviceTarget := fmt.Sprintf("http://%s:%d", service.Spec.ClusterIP, targetPort)
+	podTarget := fmt.Sprintf("http://%s:%d", targetIP, targetPort)
+	fmt.Printf("podTarget :%s and serviceTarget :%s \n",podTarget,serviceTarget)
+	return podTarget, serviceTarget
 }
 
 //Since we have a known issue related to service ClusterIP on windows,hence using EndpointIP
