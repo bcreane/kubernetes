@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	batch "k8s.io/api/batch/v1"
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	kerr "k8s.io/apimachinery/pkg/api/errors"
@@ -58,6 +59,7 @@ const (
 	cmdTestPodName         = "cmd-test-container-pod"
 	calicoctlManifestPath  = "test/e2e/testing-manifests/calicoctl"
 	nodeIDLabelKey         = "kubernetes.io/hostname"
+	calicoctlContainerName = "calicoctl-container"
 
 	// Match a whitespace character after the prefix so a command containing
 	// this regex doesn't match itself.  This prevents spurious matches if,
@@ -1092,36 +1094,40 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		env = append(env, v1.EnvVar{Name: name, Value: value})
 	}
 
-	podName := GenerateRandomName("calicoctl")
-	pod := &v1.Pod{
+	jobName := GenerateRandomName("calicoctl")
+	job := &batch.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: podName,
+			Name: jobName,
 			Labels: map[string]string{
 				"pod-name": "calicoctl",
 			},
 			Namespace: f.Namespace.Name,
 		},
-		Spec: v1.PodSpec{
-			HostNetwork:   true,
-			RestartPolicy: v1.RestartPolicyNever,
-			Containers: []v1.Container{
-				{
-					Name:    "calicoctl-container",
-					Image:   image,
-					Command: []string{cmd},
-					Args:    args,
-					Env:     env,
+		Spec: batch.JobSpec{
+			Template: v1.PodTemplateSpec{
+				Spec: v1.PodSpec{
+					HostNetwork:   true,
+					RestartPolicy: v1.RestartPolicyOnFailure,
+					Containers: []v1.Container{
+						{
+							Name:    calicoctlContainerName,
+							Image:   image,
+							Command: []string{cmd},
+							Args:    args,
+							Env:     env,
+						},
+					},
+					ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
+					//Since calico policy would be applied from master, hence made NodeSelector as linux
+					NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 				},
 			},
-			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
-			//Since calico policy would be applied from master, hence made NodeSelector as linux
-			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
 	}
 	dockerCfgFile := framework.TestContext.CalicoCtlDockerCfg
 	if dockerCfgFile != "" {
 		secretName := "calicoctl-image-secret"
-		pod.Spec.ImagePullSecrets = []v1.LocalObjectReference{
+		job.Spec.Template.Spec.ImagePullSecrets = []v1.LocalObjectReference{
 			{
 				Name: secretName,
 			},
@@ -1150,13 +1156,13 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	}
 	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != "" {
 		framework.Logf("etcd is secured, adding certs to calicoctl pod")
-		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
+		job.Spec.Template.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
 			{
 				Name:      "etcd-certs",
 				MountPath: "/calico-secrets",
 			},
 		}
-		pod.Spec.Volumes = []v1.Volume{
+		job.Spec.Template.Spec.Volumes = []v1.Volume{
 			{
 				Name: "etcd-certs",
 				VolumeSource: v1.VolumeSource{
@@ -1191,12 +1197,12 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 
 	if c.node != "" {
 		framework.Logf("calicoctl will be running on node %s.", c.node)
-		pod.Spec.NodeName = c.node
+		job.Spec.Template.Spec.NodeName = c.node
 	}
 
 	if c.nodeToAvoid != "" {
 		framework.Logf("calicoctl will avoid running on node %v", c.nodeToAvoid)
-		pod.Spec.Affinity = &v1.Affinity{
+		job.Spec.Template.Spec.Affinity = &v1.Affinity{
 			NodeAffinity: &v1.NodeAffinity{
 				RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
 					NodeSelectorTerms: []v1.NodeSelectorTerm{
@@ -1215,30 +1221,33 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		}
 	}
 
-	podClient, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
+	jobClient, err := f.ClientSet.BatchV1().Jobs(f.Namespace.Name).Create(job)
 	Expect(err).NotTo(HaveOccurred())
 	defer func() {
-		if err := f.ClientSet.CoreV1().Pods(podClient.Namespace).Delete(podClient.Name, nil); err != nil {
-			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
+		if err := f.ClientSet.BatchV1().Jobs(jobClient.Namespace).Delete(jobClient.Name, nil); err != nil {
+			framework.Failf("unable to cleanup job %v: %v", jobClient.Name, err)
 		}
 	}()
 
-	err = framework.WaitTimeoutForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name, 6*time.Minute)
-	if err != nil {
-		framework.Logf("calicoctl pod %v got error %v, %#", podClient, err)
+	jobErr := framework.WaitForJobFinish(f.ClientSet, jobClient.Namespace, jobClient.Name, 1)
+	if jobErr != nil {
+		framework.Logf("calicoctl job %v got error %v, %#", jobClient, err)
 	}
-	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
-
-	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
 
 	// Collect pod logs regardless of execution result.
-	logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, "calicoctl-container")
-	if logErr != nil {
-		framework.Failf("Error getting container logs: %s", logErr)
+	pl, err := framework.GetJobPods(f.ClientSet, jobClient.Namespace, jobClient.Name)
+	Expect(err).NotTo(HaveOccurred(), "could not get pods in calicoctl job")
+	allLogs := ""
+	for _, pod := range pl.Items {
+		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, pod.Name, calicoctlContainerName)
+		if logErr != nil {
+			framework.Failf("Error getting container logs: %s", logErr)
+		}
+		allLogs += fmt.Sprintf("STARTLOG\n%s\nENDLOG for container %s:%s:%s\n\n", logs, f.Namespace.Name, pod.Name, calicoctlContainerName)
 	}
-	framework.Logf("Getting current log for calicoctl: %s", logs)
+	framework.Logf("Getting current log for calicoctl: %s", allLogs)
 
-	return logs, exeErr
+	return allLogs, jobErr
 }
 
 func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
