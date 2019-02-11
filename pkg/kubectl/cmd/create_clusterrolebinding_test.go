@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	cmdtesting "k8s.io/kubernetes/pkg/kubectl/cmd/testing"
 )
@@ -68,17 +67,18 @@ func TestCreateClusterRoleBinding(t *testing.T) {
 		},
 	}
 
-	f, tf, _, ns := cmdtesting.NewAPIFactory()
+	tf := cmdtesting.NewTestFactory()
+	defer tf.Cleanup()
+
+	ns := legacyscheme.Codecs
 
 	info, _ := runtime.SerializerInfoForMediaType(ns.SupportedMediaTypes(), runtime.ContentTypeJSON)
 	encoder := ns.EncoderForVersion(info.Serializer, groupVersion)
 	decoder := ns.DecoderToVersion(info.Serializer, groupVersion)
 
 	tf.Namespace = "test"
-	tf.Printer = &testPrinter{}
 	tf.Client = &ClusterRoleBindingRESTClient{
 		RESTClient: &fake.RESTClient{
-			GroupVersion:         legacyscheme.Registry.GroupOrDie(api.GroupName).GroupVersion,
 			NegotiatedSerializer: ns,
 			Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 				switch p, m := req.URL.Path, req.Method; {
@@ -110,9 +110,9 @@ func TestCreateClusterRoleBinding(t *testing.T) {
 		},
 	}
 
-	expectedOutput := "clusterrolebinding/" + expectBinding.Name + "\n"
+	expectedOutput := "clusterrolebinding.rbac.authorization.k8s.io/" + expectBinding.Name + "\n"
 	buf := bytes.NewBuffer([]byte{})
-	cmd := NewCmdCreateClusterRoleBinding(f, buf)
+	cmd := NewCmdCreateClusterRoleBinding(tf, buf)
 	cmd.Flags().Set("clusterrole", "fake-clusterrole")
 	cmd.Flags().Set("user", "fake-user")
 	cmd.Flags().Set("group", "fake-group")
@@ -131,7 +131,6 @@ type ClusterRoleBindingRESTClient struct {
 func (c *ClusterRoleBindingRESTClient) Post() *restclient.Request {
 	config := restclient.ContentConfig{
 		ContentType:          runtime.ContentTypeJSON,
-		GroupVersion:         &schema.GroupVersion{Group: "rbac.authorization.k8s.io", Version: "v1beta1"},
 		NegotiatedSerializer: c.NegotiatedSerializer,
 	}
 
@@ -144,5 +143,5 @@ func (c *ClusterRoleBindingRESTClient) Post() *restclient.Request {
 		serializers.StreamingSerializer = info.StreamSerializer.Serializer
 		serializers.Framer = info.StreamSerializer.Framer
 	}
-	return restclient.NewRequest(c, "POST", &url.URL{Host: "localhost"}, c.VersionedAPIPath, config, serializers, nil, nil)
+	return restclient.NewRequest(c, "POST", &url.URL{Host: "localhost"}, c.VersionedAPIPath, config, serializers, nil, nil, 0)
 }

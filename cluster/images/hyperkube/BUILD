@@ -11,16 +11,12 @@ docker_build(
         for path in [
             "/apiserver",
             "/controller-manager",
-            "/federation-apiserver",
-            "/federation-controller-manager",
             "/kubectl",
             "/kubelet",
             "/proxy",
             "/scheduler",
             "/usr/local/bin/kube-apiserver",
             "/usr/local/bin/kube-controller-manager",
-            "/usr/local/bin/federation-apiserver",
-            "/usr/local/bin/federation-controller-manager",
             "/usr/local/bin/kubectl",
             "/usr/local/bin/kubelet",
             "/usr/local/bin/kube-proxy",
@@ -31,7 +27,7 @@ docker_build(
 
 docker_bundle(
     name = "hyperkube",
-    images = {"gcr.io/google-containers/hyperkube-amd64:{STABLE_DOCKER_TAG}": "hyperkube-internal"},
+    images = {"k8s.gcr.io/hyperkube-amd64:{STABLE_DOCKER_TAG}": "hyperkube-internal"},
     stamp = True,
 )
 

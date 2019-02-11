@@ -36,7 +36,7 @@ const (
 	DikastesContainerName = "dikastes"
 	ProxyContainerName    = "istio-proxy"
 	IstioNamespace        = "istio-system"
-	PilotDiscoveryPort    = 15003
+	PilotDiscoveryPort    = 15011
 	NumberOfRetries       = 50
 )
 
@@ -49,6 +49,8 @@ func CheckIstioInstall(f *framework.Framework) (bool, error) {
 		framework.Logf("Checking istio install failed with error: %s.", err)
 		return false, err // with error
 	}
+	err = framework.WaitForPodsRunningReadyOrSucceeded(f.ClientSet, IstioNamespace, 3, 0, 20*time.Minute, nil)
+	Expect(err).ToNot(HaveOccurred())
 	return true, nil // installed.
 }
 
@@ -272,6 +274,10 @@ func VerifyContainersForPod(pod *v1.Pod) {
 	if !checkPodSideCars(pod) {
 		framework.Failf("Pod does not have valid istio side cars")
 	}
+}
+
+func VerifySideCarsForPod(pod *v1.Pod) bool {
+	return checkPodSideCars(pod)
 }
 
 func checkPodSideCars(pod *v1.Pod) bool {

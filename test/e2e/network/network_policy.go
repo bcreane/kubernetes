@@ -25,6 +25,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	"fmt"
 
@@ -68,7 +69,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			cleanupServerPodAndService(f, podServer, service)
 		})
 
-		It("should support a 'default-deny' policy", func() {
+		It("should support a 'default-deny' policy [Feature:WindowsPolicy]", func() {
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "deny-all",
@@ -88,7 +89,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCannotConnect(f, f.Namespace, "client-cannot-connect", service, 80)
 		})
 
-		It("should enforce policy based on PodSelector", func() {
+		It("should enforce policy based on PodSelector [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy for the server which allows traffic from the pod 'client-a'.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -126,7 +127,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			})
 		})
 
-		It("should enforce policy based on NamespaceSelector", func() {
+		It("should enforce policy based on NamespaceSelector [Feature:WindowsPolicy]", func() {
 			nsA := f.Namespace
 			nsBName := f.BaseName + "-b"
 			// The CreateNamespace helper uses the input name as a Name Generator, so the namespace itself
@@ -175,7 +176,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, nsB, "client-b", service, 80)
 		})
 
-		It("should enforce policy based on Ports", func() {
+		It("should enforce policy based on Ports [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -205,7 +206,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should enforce multiple, stacked policies with overlapping podSelectors", func() {
+		It("should enforce multiple, stacked policies with overlapping podSelectors [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy for the Service which allows traffic only to one port.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -259,7 +260,7 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 			testCanConnect(f, f.Namespace, "client-b", service, 81)
 		})
 
-		It("should support allow-all policy", func() {
+		It("should support allow-all policy [Feature:WindowsPolicy]", func() {
 			By("Creating a network policy which allows all traffic.")
 			policy := &networkingv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
@@ -361,16 +362,22 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 })
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	testCanConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {}, func() {})
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	//This is a hack for windows to use PodIP instead of Service's ClusterIP
+	if winctl.RunningWindowsTest() {
+		target = winctl.GetTarget(f, service, targetPort)
+	}
+	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
-func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod), onFailure func()) {
-	By(fmt.Sprintf("Creating client pod %s that should successfully connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
+func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod), onFailure func()) {
+	By(fmt.Sprintf("Creating client pod with base name %s that should successfully connect to %s.", podName, service.Name))
+	podClient := createNetworkClientPodX(f, ns, podName, target, podCustomizer)
 	defer func() {
-		By(fmt.Sprintf("Cleaning up the pod %s", podName))
+		By(fmt.Sprintf("Cleaning up the pod %s", podClient.Name))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
+
 	}()
 
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
@@ -390,7 +397,7 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 		}
 
 		// Collect pod logs when we see a failure.
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podName, fmt.Sprintf("%s-container", podName))
+		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
 		if logErr != nil {
 			framework.Failf("Error getting container logs: %s", logErr)
 		}
@@ -412,7 +419,7 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
 		}
 
-		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t%v\n\n", podName, service.Name, logs, policies.Items, pods)
+		framework.Failf("Pod %s should be able to connect to service %s, but was not able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t%v\n\n", podClient.Name, service.Name, logs, policies.Items, pods)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -420,13 +427,18 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 }
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
-	testCannotConnectX(f, ns, podName, service, targetPort, func(pod *v1.Pod) {})
+	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
+	//This is a hack for windows to use PodIP instead of Service's ClusterIP
+	if winctl.RunningWindowsTest() {
+		target = winctl.GetTarget(f, service, targetPort)
+	}
+	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
-func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) {
-	By(fmt.Sprintf("Creating client pod %s that should not be able to connect to %s.", podName, service.Name))
-	podClient := createNetworkClientPodX(f, ns, podName, service, targetPort, podCustomizer)
+func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, target string, podCustomizer func(pod *v1.Pod)) {
+	By(fmt.Sprintf("Creating client pod with base name %s that should not be able to connect to %s.", podName, service.Name))
+	podClient := createNetworkClientPodX(f, ns, podName, target, podCustomizer)
 	defer func() {
-		By(fmt.Sprintf("Cleaning up the pod %s", podName))
+		By(fmt.Sprintf("Cleaning up the pod %s", podClient.Name))
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
@@ -439,7 +451,7 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 	// Dump debug information if the error was nil.
 	if err == nil {
 		// Collect pod logs when we see a failure.
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podName, fmt.Sprintf("%s-container", podName))
+		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
 		if logErr != nil {
 			framework.Failf("Error getting container logs: %s", logErr)
 		}
@@ -461,7 +473,7 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
 		}
 
-		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t %v\n\n", podName, service.Name, logs, policies.Items, pods)
+		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t %v\n\n", podClient.Name, service.Name, logs, policies.Items, pods)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -482,13 +494,25 @@ func createHostNetworkedServerPodAndService(f *framework.Framework, namespace *v
 func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace, podName string, ports []int, podCustomizer func(pod *v1.Pod), serviceCustomizer func(svc *v1.Service)) (*v1.Pod, *v1.Service) {
 	// Because we have a variable amount of ports, we'll first loop through and generate our Containers for our pod,
 	// and ServicePorts.for our Service.
+	var imageUrl string
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
+	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
+	if winctl.RunningWindowsTest() {
+		imageUrl = winctl.GetPorterImage()
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
-			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageutils.GetE2EImage(imageutils.Porter),
+			Name:            fmt.Sprintf("%s-container-%d", podName, port),
+			Image:           imageUrl,
+			ImagePullPolicy: imagePull,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -533,10 +557,13 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 		Spec: v1.PodSpec{
 			Containers:    containers,
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 		},
 	}
 	// Allow customization of the pod spec before creation.
-	podCustomizer(pod)
+	if podCustomizer != nil {
+		podCustomizer(pod)
+	}
 	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 	Expect(err).NotTo(HaveOccurred())
 	framework.Logf("Created pod %v", pod.ObjectMeta.Name)
@@ -567,6 +594,12 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 	if err := f.ClientSet.CoreV1().Pods(pod.Namespace).Delete(pod.Name, nil); err != nil {
 		framework.Failf("unable to cleanup pod %v: %v", pod.Name, err)
 	}
+	//This is a hack again to clear map created for Servicename and endpointIP
+	//Clean up winctl service endpoint map here
+	if winctl.RunningWindowsTest() {
+		By("Cleaning up the ServiceEndpointIP map.")
+		winctl.CleanupServiceEndpointMap()
+	}
 	By("Cleaning up the server's service.")
 	if err := f.ClientSet.CoreV1().Services(service.Namespace).Delete(service.Name, nil); err != nil {
 		framework.Failf("unable to cleanup svc %v: %v", service.Name, err)
@@ -577,33 +610,55 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 // This client will attempt a one-shot connection, then die, without restarting the pod.
 // Test can then be asserted based on whether the pod quit with an error or not.
 func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int) *v1.Pod {
-	return createNetworkClientPodX(f, namespace, podName, targetService, targetPort, func(pod *v1.Pod) {})
+	target := fmt.Sprintf("%s.%s:%d", targetService.Name, targetService.Namespace, targetPort)
+	return createNetworkClientPodX(f, namespace, podName, target, func(pod *v1.Pod) {})
 }
-func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int, podCustomizer func(pod *v1.Pod)) *v1.Pod {
+func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, podNameBase string, target string, podCustomizer func(pod *v1.Pod)) *v1.Pod {
+	var imageUrl, commandStr string
+	var podArgs []string
+	var cmd string
+	var nodeselector = map[string]string{}
+
+	// Randomize pod names to avoid clashes with previous tests.
+	podName := calico.GenerateRandomName(podNameBase)
+
+	imagePull := v1.PullAlways
+	if winctl.RunningWindowsTest() {
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
+		cmd = fmt.Sprintf("$sb={Invoke-WebRequest %s -UseBasicParsing -TimeoutSec 3}; For ($i=0; $i -lt 5; $i++) { sleep 5; try {& $sb} catch { echo failed loop $i ; continue }; exit 0 ; }; exit 1", target)
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
+	} else {
+		imageUrl = "busybox"
+		podArgs = append(podArgs, "/bin/sh", "-c")
+		cmd = fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1", target)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
+	podArgs = append(podArgs, cmd)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
 			Labels: map[string]string{
-				"pod-name": podName,
+				"pod-name": podNameBase,
 			},
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("%s-container", podName),
-					Image: "busybox",
-					Args: []string{
-						"/bin/sh",
-						"-c",
-						fmt.Sprintf("for i in $(seq 1 5); do wget -T 5 %s.%s:%d -O - && exit 0 || sleep 1; done; cat /etc/resolv.conf; exit 1",
-							targetService.Name, targetService.Namespace, targetPort),
-					},
+					Name:            fmt.Sprintf("%s-container", podName),
+					Image:           imageUrl,
+					Args:            podArgs,
+					ImagePullPolicy: imagePull,
 				},
 			},
 		},
 	}
-	podCustomizer(pod)
+	if podCustomizer != nil {
+		podCustomizer(pod)
+	}
 	var err error
 	pod, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
 

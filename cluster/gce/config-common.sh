@@ -95,11 +95,25 @@ function get-cluster-ip-range {
   if [[ "${NUM_NODES}" -gt 4000 ]]; then
     suggested_range="10.64.0.0/11"
   fi
-  echo "${suggested_range}" 
+  echo "${suggested_range}"
 }
 
-if [[ "${FEDERATION:-}" == true ]]; then
-    NODE_SCOPES="${NODE_SCOPES:-monitoring,logging-write,storage-ro,https://www.googleapis.com/auth/ndev.clouddns.readwrite}"
-else
-    NODE_SCOPES="${NODE_SCOPES:-monitoring,logging-write,storage-ro}"
-fi
+# Calculate ip alias range based on max number of pods.
+# Let pow be the smallest integer which is bigger than log2($1 * 2).
+# (32 - pow) will be returned.
+#
+# $1: The number of max pods limitation.
+function get-alias-range-size() {
+  for pow in {0..31}; do
+    if (( 1 << $pow > $1 * 2 )); then
+      echo $((32 - pow))
+      return 0
+    fi
+  done
+  echo -e "${color_red}Error finding an alias range for $1 IPs." >&2
+  exit 1
+}
+
+# NOTE: Avoid giving nodes empty scopes, because kubelet needs a service account
+# in order to initialize properly.
+NODE_SCOPES="${NODE_SCOPES:-monitoring,logging-write,storage-ro}"

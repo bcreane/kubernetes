@@ -21,24 +21,30 @@ import (
 	"net/http"
 	"testing"
 
+	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest/fake"
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	cmdtesting "k8s.io/kubernetes/pkg/kubectl/cmd/testing"
+	"k8s.io/kubernetes/pkg/kubectl/scheme"
 )
 
 func TestCreateSecretGeneric(t *testing.T) {
-	secretObject := &api.Secret{
+	secretObject := &v1.Secret{
 		Data: map[string][]byte{
 			"password": []byte("includes,comma"),
 			"username": []byte("test_user"),
 		},
 	}
 	secretObject.Name = "my-secret"
-	f, tf, codec, ns := cmdtesting.NewAPIFactory()
-	tf.Printer = &testPrinter{}
+	tf := cmdtesting.NewTestFactory()
+	defer tf.Cleanup()
+
+	codec := legacyscheme.Codecs.LegacyCodec(scheme.Versions...)
+	ns := legacyscheme.Codecs
+
 	tf.Client = &fake.RESTClient{
-		GroupVersion:         legacyscheme.Registry.GroupOrDie(api.GroupName).GroupVersion,
+		GroupVersion:         schema.GroupVersion{Version: "v1"},
 		NegotiatedSerializer: ns,
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			switch p, m := req.URL.Path, req.Method; {
@@ -52,7 +58,7 @@ func TestCreateSecretGeneric(t *testing.T) {
 	}
 	tf.Namespace = "test"
 	buf := bytes.NewBuffer([]byte{})
-	cmd := NewCmdCreateSecretGeneric(f, buf)
+	cmd := NewCmdCreateSecretGeneric(tf, buf)
 	cmd.Flags().Set("output", "name")
 	cmd.Flags().Set("from-literal", "password=includes,comma")
 	cmd.Flags().Set("from-literal", "username=test_user")
@@ -64,12 +70,14 @@ func TestCreateSecretGeneric(t *testing.T) {
 }
 
 func TestCreateSecretDockerRegistry(t *testing.T) {
-	secretObject := &api.Secret{}
+	secretObject := &v1.Secret{}
 	secretObject.Name = "my-secret"
-	f, tf, codec, ns := cmdtesting.NewAPIFactory()
-	tf.Printer = &testPrinter{}
+	tf := cmdtesting.NewTestFactory()
+	codec := legacyscheme.Codecs.LegacyCodec(scheme.Versions...)
+	ns := legacyscheme.Codecs
+
 	tf.Client = &fake.RESTClient{
-		GroupVersion:         legacyscheme.Registry.GroupOrDie(api.GroupName).GroupVersion,
+		GroupVersion:         schema.GroupVersion{Version: "v1"},
 		NegotiatedSerializer: ns,
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			switch p, m := req.URL.Path, req.Method; {
@@ -83,7 +91,7 @@ func TestCreateSecretDockerRegistry(t *testing.T) {
 	}
 	tf.Namespace = "test"
 	buf := bytes.NewBuffer([]byte{})
-	cmd := NewCmdCreateSecretDockerRegistry(f, buf)
+	cmd := NewCmdCreateSecretDockerRegistry(tf, buf)
 	cmd.Flags().Set("docker-username", "test-user")
 	cmd.Flags().Set("docker-password", "test-pass")
 	cmd.Flags().Set("docker-email", "test-email")

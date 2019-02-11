@@ -20,7 +20,10 @@ import (
 	"fmt"
 	"strings"
 
+	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
+	"k8s.io/kubernetes/cmd/kubeadm/app/features"
 	"k8s.io/kubernetes/cmd/kubeadm/app/phases/addons/dns"
+	etcdutil "k8s.io/kubernetes/cmd/kubeadm/app/util/etcd"
 	"k8s.io/kubernetes/pkg/util/version"
 )
 
@@ -47,6 +50,19 @@ func (u *Upgrade) CanUpgradeKubelets() bool {
 	return !sameVersionFound
 }
 
+// CanUpgradeEtcd returns whether an upgrade of etcd is possible
+func (u *Upgrade) CanUpgradeEtcd() bool {
+	return u.Before.EtcdVersion != u.After.EtcdVersion
+}
+
+// ActiveDNSAddon returns the version of CoreDNS or kube-dns
+func ActiveDNSAddon(featureGates map[string]bool) string {
+	if features.Enabled(featureGates, features.CoreDNS) {
+		return kubeadmconstants.CoreDNS
+	}
+	return kubeadmconstants.KubeDNS
+}
+
 // ClusterState describes the state of certain versions for a cluster
 type ClusterState struct {
 	// KubeVersion describes the version of the Kubernetes API Server, Controller Manager, Scheduler and Proxy.
@@ -57,12 +73,14 @@ type ClusterState struct {
 	KubeadmVersion string
 	// KubeletVersions is a map with a version number linked to the amount of kubelets running that version in the cluster
 	KubeletVersions map[string]uint16
+	// EtcdVersion represents the version of etcd used in the cluster
+	EtcdVersion string
 }
 
 // GetAvailableUpgrades fetches all versions from the specified VersionGetter and computes which
 // kinds of upgrades can be performed
-func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesAllowed, rcUpgradesAllowed bool) ([]Upgrade, error) {
-	fmt.Println("[upgrade] Fetching available versions to upgrade to:")
+func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesAllowed, rcUpgradesAllowed bool, etcdClient etcdutil.ClusterInterrogator, featureGates map[string]bool) ([]Upgrade, error) {
+	fmt.Println("[upgrade] Fetching available versions to upgrade to")
 
 	// Collect the upgrades kubeadm can do in this list
 	upgrades := []Upgrade{}
@@ -70,33 +88,42 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 	// Get the cluster version
 	clusterVersionStr, clusterVersion, err := versionGetterImpl.ClusterVersion()
 	if err != nil {
-		return nil, err
+		return upgrades, err
 	}
 
 	// Get current kubeadm CLI version
 	kubeadmVersionStr, kubeadmVersion, err := versionGetterImpl.KubeadmVersion()
 	if err != nil {
-		return nil, err
+		return upgrades, err
 	}
 
 	// Get and output the current latest stable version
 	stableVersionStr, stableVersion, err := versionGetterImpl.VersionFromCILabel("stable", "stable version")
 	if err != nil {
-		return nil, err
+		fmt.Printf("[upgrade/versions] WARNING: %v\n", err)
+		fmt.Println("[upgrade/versions] WARNING: Falling back to current kubeadm version as latest stable version")
+		stableVersionStr, stableVersion = kubeadmVersionStr, kubeadmVersion
 	}
 
 	// Get the kubelet versions in the cluster
 	kubeletVersions, err := versionGetterImpl.KubeletVersions()
 	if err != nil {
-		return nil, err
+		return upgrades, err
+	}
+
+	// Get current etcd version
+	etcdVersion, err := etcdClient.GetVersion()
+	if err != nil {
+		return upgrades, err
 	}
 
 	// Construct a descriptor for the current state of the world
 	beforeState := ClusterState{
 		KubeVersion:     clusterVersionStr,
-		DNSVersion:      dns.GetKubeDNSVersion(clusterVersion),
+		DNSVersion:      dns.GetDNSVersion(clusterVersion, ActiveDNSAddon(featureGates)),
 		KubeadmVersion:  kubeadmVersionStr,
 		KubeletVersions: kubeletVersions,
+		EtcdVersion:     etcdVersion,
 	}
 
 	// Do a "dumb guess" that a new minor upgrade is available just because the latest stable version is higher than the cluster version
@@ -107,7 +134,6 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 	// in the case that a user is trying to upgrade from, let's say, v1.8.0-beta.2 to v1.8.0-rc.1 (given we support such upgrades experimentally)
 	// a stable-1.8 branch doesn't exist yet. Hence this check.
 	if patchVersionBranchExists(clusterVersion, stableVersion) {
-
 		currentBranch := getBranchFromVersion(clusterVersionStr)
 		versionLabel := fmt.Sprintf("stable-%s", currentBranch)
 		description := fmt.Sprintf("version in the v%s series", currentBranch)
@@ -115,34 +141,35 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 		// Get and output the latest patch version for the cluster branch
 		patchVersionStr, patchVersion, err := versionGetterImpl.VersionFromCILabel(versionLabel, description)
 		if err != nil {
-			return nil, err
-		}
+			fmt.Printf("[upgrade/versions] WARNING: %v\n", err)
+		} else {
+			// Check if a minor version upgrade is possible when a patch release exists
+			// It's only possible if the latest patch version is higher than the current patch version
+			// If that's the case, they must be on different branches => a newer minor version can be upgraded to
+			canDoMinorUpgrade = minorUpgradePossibleWithPatchRelease(stableVersion, patchVersion)
 
-		// Check if a minor version upgrade is possible when a patch release exists
-		// It's only possible if the latest patch version is higher than the current patch version
-		// If that's the case, they must be on different branches => a newer minor version can be upgraded to
-		canDoMinorUpgrade = minorUpgradePossibleWithPatchRelease(stableVersion, patchVersion)
+			// If the cluster version is lower than the newest patch version, we should inform about the possible upgrade
+			if patchUpgradePossible(clusterVersion, patchVersion) {
 
-		// If the cluster version is lower than the newest patch version, we should inform about the possible upgrade
-		if patchUpgradePossible(clusterVersion, patchVersion) {
+				// The kubeadm version has to be upgraded to the latest patch version
+				newKubeadmVer := patchVersionStr
+				if kubeadmVersion.AtLeast(patchVersion) {
+					// In this case, the kubeadm CLI version is new enough. Don't display an update suggestion for kubeadm by making .NewKubeadmVersion equal .CurrentKubeadmVersion
+					newKubeadmVer = kubeadmVersionStr
+				}
 
-			// The kubeadm version has to be upgraded to the latest patch version
-			newKubeadmVer := patchVersionStr
-			if kubeadmVersion.AtLeast(patchVersion) {
-				// In this case, the kubeadm CLI version is new enough. Don't display an update suggestion for kubeadm by making .NewKubeadmVersion equal .CurrentKubeadmVersion
-				newKubeadmVer = kubeadmVersionStr
+				upgrades = append(upgrades, Upgrade{
+					Description: description,
+					Before:      beforeState,
+					After: ClusterState{
+						KubeVersion:    patchVersionStr,
+						DNSVersion:     dns.GetDNSVersion(patchVersion, ActiveDNSAddon(featureGates)),
+						KubeadmVersion: newKubeadmVer,
+						EtcdVersion:    getSuggestedEtcdVersion(patchVersionStr),
+						// KubeletVersions is unset here as it is not used anywhere in .After
+					},
+				})
 			}
-
-			upgrades = append(upgrades, Upgrade{
-				Description: description,
-				Before:      beforeState,
-				After: ClusterState{
-					KubeVersion:    patchVersionStr,
-					DNSVersion:     dns.GetKubeDNSVersion(patchVersion),
-					KubeadmVersion: newKubeadmVer,
-					// KubeletVersions is unset here as it is not used anywhere in .After
-				},
-			})
 		}
 	}
 
@@ -152,8 +179,9 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 			Before:      beforeState,
 			After: ClusterState{
 				KubeVersion:    stableVersionStr,
-				DNSVersion:     dns.GetKubeDNSVersion(stableVersion),
+				DNSVersion:     dns.GetDNSVersion(stableVersion, ActiveDNSAddon(featureGates)),
 				KubeadmVersion: stableVersionStr,
+				EtcdVersion:    getSuggestedEtcdVersion(stableVersionStr),
 				// KubeletVersions is unset here as it is not used anywhere in .After
 			},
 		})
@@ -178,7 +206,7 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 		// Get and output the current latest unstable version
 		latestVersionStr, latestVersion, err := versionGetterImpl.VersionFromCILabel("latest", "experimental version")
 		if err != nil {
-			return nil, err
+			return upgrades, err
 		}
 
 		minorUnstable := latestVersion.Components()[1]
@@ -186,7 +214,7 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 		previousBranch := fmt.Sprintf("latest-1.%d", minorUnstable-1)
 		previousBranchLatestVersionStr, previousBranchLatestVersion, err := versionGetterImpl.VersionFromCILabel(previousBranch, "")
 		if err != nil {
-			return nil, err
+			return upgrades, err
 		}
 
 		// If that previous latest version is an RC, RCs are allowed and the cluster version is lower than the RC version, show the upgrade
@@ -196,8 +224,9 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 				Before:      beforeState,
 				After: ClusterState{
 					KubeVersion:    previousBranchLatestVersionStr,
-					DNSVersion:     dns.GetKubeDNSVersion(previousBranchLatestVersion),
+					DNSVersion:     dns.GetDNSVersion(previousBranchLatestVersion, ActiveDNSAddon(featureGates)),
 					KubeadmVersion: previousBranchLatestVersionStr,
+					EtcdVersion:    getSuggestedEtcdVersion(previousBranchLatestVersionStr),
 					// KubeletVersions is unset here as it is not used anywhere in .After
 				},
 			})
@@ -208,12 +237,12 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 
 			// Default to assume that the experimental version to show is the unstable one
 			unstableKubeVersion := latestVersionStr
-			unstableKubeDNSVersion := dns.GetKubeDNSVersion(latestVersion)
+			unstableKubeDNSVersion := dns.GetDNSVersion(latestVersion, ActiveDNSAddon(featureGates))
 
 			// Ẃe should not display alpha.0. The previous branch's beta/rc versions are more relevant due how the kube branching process works.
 			if latestVersion.PreRelease() == "alpha.0" {
 				unstableKubeVersion = previousBranchLatestVersionStr
-				unstableKubeDNSVersion = dns.GetKubeDNSVersion(previousBranchLatestVersion)
+				unstableKubeDNSVersion = dns.GetDNSVersion(previousBranchLatestVersion, ActiveDNSAddon(featureGates))
 			}
 
 			upgrades = append(upgrades, Upgrade{
@@ -223,6 +252,7 @@ func GetAvailableUpgrades(versionGetterImpl VersionGetter, experimentalUpgradesA
 					KubeVersion:    unstableKubeVersion,
 					DNSVersion:     unstableKubeDNSVersion,
 					KubeadmVersion: unstableKubeVersion,
+					EtcdVersion:    getSuggestedEtcdVersion(unstableKubeVersion),
 					// KubeletVersions is unset here as it is not used anywhere in .After
 				},
 			})
@@ -253,4 +283,13 @@ func rcUpgradePossible(clusterVersion, previousBranchLatestVersion *version.Vers
 
 func minorUpgradePossibleWithPatchRelease(stableVersion, patchVersion *version.Version) bool {
 	return patchVersion.LessThan(stableVersion)
+}
+
+func getSuggestedEtcdVersion(kubernetesVersion string) string {
+	etcdVersion, err := kubeadmconstants.EtcdSupportedVersion(kubernetesVersion)
+	if err != nil {
+		fmt.Printf("[upgrade/versions] WARNING: No recommended etcd for requested kubernetes version (%s)\n", kubernetesVersion)
+		return "N/A"
+	}
+	return etcdVersion.String()
 }

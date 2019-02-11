@@ -27,7 +27,7 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/api"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/cloudprovider/providers/azure"
 	"k8s.io/kubernetes/pkg/util/mount"
 	"k8s.io/kubernetes/pkg/util/strings"
@@ -35,8 +35,9 @@ import (
 )
 
 const (
-	defaultFSType             = "ext4"
-	defaultStorageAccountType = storage.StandardLRS
+	defaultStorageAccountType       = storage.StandardLRS
+	defaultAzureDiskKind            = v1.AzureSharedBlobDisk
+	defaultAzureDataDiskCachingMode = v1.AzureDataDiskCachingNone
 )
 
 type dataDisk struct {
@@ -57,7 +58,7 @@ var (
 		string(api.AzureDedicatedBlobDisk),
 		string(api.AzureManagedDisk))
 
-	supportedStorageAccountTypes = sets.NewString("Premium_LRS", "Standard_LRS")
+	supportedStorageAccountTypes = sets.NewString("Premium_LRS", "Standard_LRS", "Standard_GRS", "Standard_RAGRS")
 )
 
 func getPath(uid types.UID, volName string, host volume.VolumeHost) string {
@@ -106,17 +107,9 @@ func getVolumeSource(spec *volume.Spec) (*v1.AzureDiskVolumeSource, error) {
 	return nil, fmt.Errorf("azureDisk - Spec does not reference an Azure disk volume type")
 }
 
-func normalizeFsType(fsType string) string {
-	if fsType == "" {
-		return defaultFSType
-	}
-
-	return fsType
-}
-
 func normalizeKind(kind string) (v1.AzureDataDiskKind, error) {
 	if kind == "" {
-		return v1.AzureDedicatedBlobDisk, nil
+		return defaultAzureDiskKind, nil
 	}
 
 	if !supportedDiskKinds.Has(kind) {
@@ -140,7 +133,7 @@ func normalizeStorageAccountType(storageAccountType string) (storage.SkuName, er
 
 func normalizeCachingMode(cachingMode v1.AzureDataDiskCachingMode) (v1.AzureDataDiskCachingMode, error) {
 	if cachingMode == "" {
-		return v1.AzureDataDiskCachingReadWrite, nil
+		return defaultAzureDataDiskCachingMode, nil
 	}
 
 	if !supportedCachingModes.Has(string(cachingMode)) {

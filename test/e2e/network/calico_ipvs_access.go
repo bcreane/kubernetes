@@ -21,6 +21,7 @@ import (
 	"k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -29,6 +30,10 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
+
+const DEFAULT_EXTERNAL_IP = "60.70.80.90"
+
+var serverVersion = utilversion.MustParseSemantic("v1.11.0")
 
 var _ = SIGDescribe("IPVSEgress", func() {
 
@@ -187,8 +192,11 @@ var _ = SIGDescribe("IPVSEgress", func() {
 					expectSNAT = true
 					target = fmt.Sprintf("%v:%v", nodeIPs[1], svcNodePort)
 				} else if c.accessType == "external IP" {
+					// External IP does not work properly for 1.10 and 1.9. It has been fixed in 1.11 by PR https://github.com/kubernetes/kubernetes/pull/63066.
+					framework.SkipUnlessServerVersionGTE(serverVersion, f.ClientSet.Discovery())
+
 					expectSNAT = true
-					target = fmt.Sprintf("%v:%v", nodeIPs[0], svcPort)
+					target = fmt.Sprintf("%v:%v", DEFAULT_EXTERNAL_IP, svcPort)
 				} else {
 					panic("Unhandled accessType: " + c.accessType)
 				}
@@ -283,7 +291,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	}
 
 	addExternalIPLocalOnly := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
 	}
 
@@ -292,7 +300,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	}
 
 	addExternalIPClusterWide := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
 	}
 
@@ -469,7 +477,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 	var calicoctl *calico.Calicoctl
 
 	addExternalIPClusterWide := func(svc *v1.Service) {
-		svc.Spec.ExternalIPs = []string{nodeIPs[0]}
+		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
 	}
 
@@ -614,7 +622,7 @@ var _ = SIGDescribe("IPVSHostEndpoint", func() {
 						target = fmt.Sprintf("%v:%v", hepNodeIP, svcNodePort)
 					} else if c.accessType == "external IP" {
 						expectSNAT = true
-						target = fmt.Sprintf("%v:%v", hepNodeIP, svcPort)
+						target = fmt.Sprintf("%v:%v", DEFAULT_EXTERNAL_IP, svcPort)
 					} else if c.accessType == "pod IP" {
 						expectSNAT = false
 						target = fmt.Sprintf("%v:%s", dstPod.Status.PodIP, "8080")
@@ -1031,7 +1039,7 @@ var _ = SIGDescribe("IPVSIngress", func() {
 
 		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
 		It("10 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
-			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
+			testIngressPolicy(ipvsTC.node1Name, true, ipvsTC.node1IP, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
 		It("11 Test accessing NodePort (Node not running server pod) from a pod on a third node [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
@@ -1042,6 +1050,11 @@ var _ = SIGDescribe("IPVSIngress", func() {
 			testIngressPolicy(ipvsTC.node0Name, true, ipvsTC.node1Name, ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
 		})
 
+		// TODO: Enable this test when we figure out what is wrong with accessing a NodePort using 127.0.0.1 with IPVS
+		// Nodeport should always SNAT, but when hostnetworked, SNAT changes IP to host's IP (i.e. no change)
+		// It("13 Test accessing NodePort (Node not running server pod) from a pod running host network on the same node using localhost [Feature:IPVSIngress][Feature:IPVSNodePort]", func() {
+		// 	testIngressPolicy(ipvsTC.node1Name, true, "127.0.0.1", ipvsTC.svcNodePort, expectSnatNoWorkingPolicy)
+		// })
 	})
 
 })
@@ -1189,8 +1202,6 @@ func testConnection(f *framework.Framework, client interface{}, target string, r
 		}
 	}
 
-	calico.MaybeWaitForInvestigation()
-
 	Fail("Failed to establish expected connectivity after retries: " + reason)
 }
 
@@ -1237,7 +1248,7 @@ func checkForwardAccept(f *framework.Framework, nodeName string) bool {
 	fieldSelector := fields.SelectorFromSet(fields.Set{"spec.nodeName": nodeName})
 	options := metav1.ListOptions{LabelSelector: labelSelector.String(), FieldSelector: fieldSelector.String()}
 
-	pods, err := f.ClientSet.Core().Pods("kube-system").List(options)
+	pods, err := f.ClientSet.CoreV1().Pods("kube-system").List(options)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pods.Items).To(HaveLen(1), fmt.Sprintf("Failed to find calico/node pod on node %v when trying to check iptables policy", nodeName))
 	pod := &pods.Items[0]
@@ -1254,7 +1265,7 @@ func checkForwardAccept(f *framework.Framework, nodeName string) bool {
 }
 
 func checkNodeIsMaster(f *framework.Framework, ips []string) bool {
-	endpoints, err := f.ClientSet.Core().Endpoints("default").Get("kubernetes", metav1.GetOptions{})
+	endpoints, err := f.ClientSet.CoreV1().Endpoints("default").Get("kubernetes", metav1.GetOptions{})
 	if err != nil {
 		framework.Failf("Get endpoints for service kubernetes failed (%s)", err)
 	}

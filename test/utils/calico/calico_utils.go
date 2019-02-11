@@ -20,8 +20,10 @@ package calico
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -30,26 +32,39 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/crypto/ssh"
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	kerr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/uuid"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/generated"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	"k8s.io/kubernetes/test/utils/winctl"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 const (
-	cmdTestPodName        = "cmd-test-container-pod"
-	calicoctlManifestPath = "test/e2e/testing-manifests/calicoctl"
-	pauseFilePath         = "/report/pause"
+	maxNameLength          = 63
+	randomLength           = 5
+	maxGeneratedNameLength = maxNameLength - randomLength
+	cmdTestPodName         = "cmd-test-container-pod"
+	calicoctlManifestPath  = "test/e2e/testing-manifests/calicoctl"
+	nodeIDLabelKey         = "kubernetes.io/hostname"
+
+	// Match a whitespace character after the prefix so a command containing
+	// this regex doesn't match itself.  This prevents spurious matches if,
+	// for example, kubelet logs API requests it receives to syslog, as these
+	// contain the command being run in the pod.
+	DropPrefix   = "calico-drop:\\s"
+	PacketPrefix = "calico-packet:\\s"
 )
 
 var (
@@ -61,12 +76,19 @@ var (
 	serverPort1             = 80
 )
 
+func GenerateRandomName(base string) string {
+	if len(base) > maxGeneratedNameLength {
+		base = base[:maxGeneratedNameLength]
+	}
+	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
+}
+
 func ReadTestFileOrDie(file string, config ...interface{}) string {
 	v := string(generated.ReadOrDie(path.Join(calicoctlManifestPath, file)))
 	if len(config) == 1 {
 		// A config object has been supplied. We can use this to substitute configuration into the file using
 		// go templates.
-		tmpl, err := template.New("temp").Parse(v)
+		tmpl, err := template.New("temp").Funcs(template.FuncMap{"StringsList": stringsList}).Parse(v)
 		Expect(err).NotTo(HaveOccurred())
 		substituted := new(bytes.Buffer)
 		err = tmpl.Execute(substituted, config[0])
@@ -74,6 +96,13 @@ func ReadTestFileOrDie(file string, config ...interface{}) string {
 		v = substituted.String()
 	}
 	return v
+}
+
+func stringsList(v []string) string {
+	if len(v) == 0 {
+		return ""
+	}
+	return "\"" + strings.Join(v, "\",\"") + "\""
 }
 
 func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
@@ -111,7 +140,7 @@ func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
 // Creates a host networked hostexec pod in the appropriate namespace and then run a kubectl exec command on that pod
 // Cleanup exec pod.
 func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
-	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName+"-"+utilrand.String(5))
 	defer func() {
 		// Clean up the pod
 		f.PodClient().Delete(cmdTestContainerPod.Name, metav1.NewDeleteOptions(0))
@@ -127,7 +156,7 @@ func ExecuteCmdInPod(f *framework.Framework, cmd string) (string, error) {
 // Creates a hostexec pod in the appropriate namespace with customizer and then run a kubectl exec command on that pod
 // Do not cleanup exec pod, we may need to collect logs for it.
 func ExecuteCmdInPodX(f *framework.Framework, cmd string, podCustomizer func(pod *v1.Pod)) (*v1.Pod, string, error) {
-	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName)
+	cmdTestContainerPod := framework.NewHostExecPodSpec(f.Namespace.Name, cmdTestPodName+"-"+utilrand.String(5))
 	return executeCmdInPodWithCustomizer(f, cmd, cmdTestContainerPod, podCustomizer)
 }
 
@@ -155,7 +184,7 @@ func executeCmdInPodWithCustomizer(f *framework.Framework, cmd string, cmdTestCo
 }
 
 func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
-	podName := "logging-" + string(uuid.NewUUID())
+	podName := GenerateRandomName("logging")
 
 	volumes := []v1.Volume{
 		{
@@ -198,13 +227,20 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	}
 
 	By(fmt.Sprintf("Creating a logging pod %s in namespace %s", podName, f.Namespace.Name))
+
+	nodeID, ok := node.Labels[nodeIDLabelKey]
+	if !ok {
+		framework.Failf("node %+v is missing label %s. can't create logging pod", *node, nodeIDLabelKey)
+		return nil, fmt.Errorf("node %+v is missing label %s. can't create logging pod", *node, nodeIDLabelKey)
+	}
+
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
 			Namespace: f.Namespace.Name,
 			Labels: map[string]string{
-				"pod-name":               podName,
-				"kubernetes.io/hostname": node.Spec.ExternalID,
+				"pod-name":     podName,
+				nodeIDLabelKey: nodeID,
 			},
 		},
 		Spec: v1.PodSpec{
@@ -212,11 +248,12 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 			Volumes:       volumes,
 			RestartPolicy: v1.RestartPolicyNever,
 			NodeSelector: map[string]string{
-				"kubernetes.io/hostname": node.Spec.ExternalID,
+				nodeIDLabelKey: nodeID,
 			},
 		},
 	}
-	pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
+	var err error
+	pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
 	if err != nil {
 		return pod, err
 	}
@@ -264,7 +301,7 @@ func GetNewCalicoDropLogs(f *framework.Framework, node *v1.Node, since int64, lo
 	}()
 
 	By(fmt.Sprintf("Retrieving the %s log lines", logPfx))
-	cmd := fmt.Sprintf("journalctl --system | tail -n +%d | grep %s || true", since+1, logPfx)
+	cmd := fmt.Sprintf("journalctl --system | tail -n +%d | grep \"%s\" || true", since+1, logPfx)
 	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
 	if err != nil {
 		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
@@ -414,10 +451,28 @@ func RestartCalicoNodePods(clientset clientset.Interface, specificNode string) {
 			clientset.CoreV1().Pods("kube-system").Delete(calicoNodePod.ObjectMeta.Name, deleteImmediately)
 		}
 	}
-	framework.WaitForPodsRunningReady(clientset, "kube-system", int32(numKubeSys),0, 5*time.Minute, map[string]string{})
+	framework.WaitForPodsRunningReady(clientset, "kube-system", int32(numKubeSys), 0, 5*time.Minute, map[string]string{})
 }
 
 func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, podName string, labels map[string]string, port int) *v1.Pod {
+	var imageUrl, commandStr string
+	var podArgs []string
+	var cmd string
+	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
+	if winctl.RunningWindowsTest() {
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
+		cmd = fmt.Sprintf("while($true){Write-Host Hello ping test on %s ;Start-Sleep -Seconds 10}", port)
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
+	} else {
+		imageUrl = "gcr.io/google_containers/redis:e2e"
+		podArgs = append(podArgs, "/bin/sh", "-c")
+		cmd = fmt.Sprintf(serviceCmd, port)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
+	podArgs = append(podArgs, cmd)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -425,16 +480,14 @@ func CreateServerPodWithLabels(f *framework.Framework, namespace *v1.Namespace, 
 			Labels:    labels,
 		},
 		Spec: v1.PodSpec{
+			NodeSelector: nodeselector,
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("%s-container-%d", podName, port),
-					Image: "gcr.io/google_containers/redis:e2e",
-					Args: []string{
-						"/bin/sh",
-						"-c",
-						fmt.Sprintf(serviceCmd, port),
-					},
-					Ports: []v1.ContainerPort{{ContainerPort: int32(port)}},
+					Name:            fmt.Sprintf("%s-container-%d", podName, port),
+					Image:           imageUrl,
+					Args:            podArgs,
+					ImagePullPolicy: imagePull,
+					Ports:           []v1.ContainerPort{{ContainerPort: int32(port)}},
 				},
 			},
 		},
@@ -452,6 +505,25 @@ func CleanupServerPod(f *framework.Framework, pod *v1.Pod) {
 }
 
 func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {
+	var imageUrl, commandStr string
+	var podArgs []string
+	var cmd string
+	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
+	if winctl.RunningWindowsTest() {
+		imageUrl, commandStr = winctl.GetClientImageAndCommand()
+		podArgs = append(podArgs, commandStr, "-Command")
+		cmd = fmt.Sprintf("ping -n 2 -w 10 %s", targetPod.Status.PodIP)
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
+	} else {
+		imageUrl = "gcr.io/google_containers/redis:e2e"
+		podArgs = append(podArgs, "/bin/sh", "-c")
+		cmd = fmt.Sprintf("ping -c 3 -W 2 -w 10 %s", targetPod.Status.PodIP)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
+	podArgs = append(podArgs, cmd)
+
 	pod, err := f.ClientSet.CoreV1().Pods(namespace.Name).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -461,15 +533,13 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 			Containers: []v1.Container{
 				{
-					Name:  fmt.Sprintf("%s-container", podName),
-					Image: "gcr.io/google_containers/redis:e2e",
-					Args: []string{
-						"/bin/sh",
-						"-c",
-						fmt.Sprintf("ping -c 3 -W 2 -w 10 %s", targetPod.Status.PodIP),
-					},
+					Name:            fmt.Sprintf("%s-container", podName),
+					Image:           imageUrl,
+					Args:            podArgs,
+					ImagePullPolicy: imagePull,
 				},
 			},
 		},
@@ -525,11 +595,23 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 	// and ServicePorts.for our Service.
 	containers := []v1.Container{}
 	servicePorts := []v1.ServicePort{}
+	var imageUrl string
+	var nodeselector = map[string]string{}
+	imagePull := v1.PullAlways
+	if winctl.RunningWindowsTest() {
+		imageUrl = winctl.GetPorterImage()
+		nodeselector["beta.kubernetes.io/os"] = "windows"
+		imagePull = v1.PullIfNotPresent
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Porter)
+		nodeselector["beta.kubernetes.io/os"] = "linux"
+	}
 	for _, port := range ports {
 		// Build the containers for the server pod.
 		containers = append(containers, v1.Container{
-			Name:  fmt.Sprintf("%s-container-%d", podName, port),
-			Image: imageutils.GetE2EImage(imageutils.Porter),
+			Name:            fmt.Sprintf("%s-container-%d", podName, port),
+			Image:           imageUrl,
+			ImagePullPolicy: imagePull,
 			Env: []v1.EnvVar{
 				{
 					Name:  fmt.Sprintf("SERVE_PORT_%d", port),
@@ -578,6 +660,7 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		Spec: v1.PodSpec{
 			Containers:    containers,
 			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
 		},
 	})
 	Expect(err).NotTo(HaveOccurred())
@@ -630,6 +713,9 @@ type Calicoctl struct {
 	opts           CalicoctlOptions
 	datastore      string
 	endPoints      string
+	etcdCaFile     string
+	etcdKeyFile    string
+	etcdCertFile   string
 	framework      *framework.Framework
 	serviceAccount *v1.ServiceAccount
 	role           *rbacv1.ClusterRole
@@ -645,14 +731,20 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 	ctl.framework = f
 	ctl.datastore = "kubernetes"
 	ctl.endPoints = "unused"
+	ctl.etcdCaFile = ""
+	ctl.etcdKeyFile = ""
+	ctl.etcdCertFile = ""
 	if len(opts) == 1 {
 		ctl.opts = opts[0]
 	}
-	cfg, err := GetCalicoConfigMapData(f, []string{"calico-config", "canal-config"})
+	cfg, err := GetCalicoConfigMapData(f, []string{"calico-config", "canal-config", "tigera-aws-config"})
 	Expect(err).NotTo(HaveOccurred(), "Unable to get config map: %v", err)
 	if v, ok := (*cfg)["etcd_endpoints"]; ok {
 		ctl.datastore = "etcdv3"
 		ctl.endPoints = v
+		ctl.etcdCaFile = (*cfg)["etcd_ca"]
+		ctl.etcdKeyFile = (*cfg)["etcd_key"]
+		ctl.etcdCertFile = (*cfg)["etcd_cert"]
 	}
 
 	// The following resources are created for RBAC permissions for KDD tests. They do not affect etcd tests.
@@ -707,11 +799,37 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 				},
 				Resources: []string{
 					"namespaces",
+					"serviceaccounts",
+					"nodes",
 				},
 				Verbs: []string{
 					"get",
 					"list",
 					"watch",
+					"update",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods/status",
+				},
+				Verbs: []string{
+					"update",
 				},
 			},
 		},
@@ -774,6 +892,40 @@ func (c *Calicoctl) Cleanup() {
 
 func (c *Calicoctl) DatastoreType() string {
 	return c.datastore
+}
+
+// GetAsMapReturnError queries the requested resource using calicoctl, returning the value of the resource as
+// a map[string]interface{} (using standard JSON unmarshaling).
+func (c *Calicoctl) GetAsMapReturnError(kind, name, namespace string) (map[string]interface{}, error) {
+	var y string
+	var err error
+	// Use the export option when querying the resource since we want it in a format where
+	// it can be easily reapplied.
+	if namespace == "" {
+		y, err = c.ExecReturnError("get", kind, name, "-o", "json", "--export")
+	} else {
+		y, err = c.ExecReturnError("get", kind, name, "-n", namespace, "-o", "json", "--export")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	m := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(y), &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// ApplyFromMapReturnError applies the resource as specificed in the map. The map will be
+// marshaled into JSON and applied using calicoctl.
+func (c *Calicoctl) ApplyFromMapReturnError(r map[string]interface{}, args ...string) error {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = c.actionCtlWithError(string(b), "apply")
+	return err
 }
 
 func (c *Calicoctl) Apply(yaml string, args ...string) {
@@ -857,8 +1009,7 @@ func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
 func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
-		"cat <<EOF > /$HOME/e2e-test-resource.yaml; "+
-			"/calicoctl %s %s --file=/$HOME/e2e-test-resource.yaml\n"+
+		"/calicoctl %s %s -f - <<EOF\n"+
 			"%s\n"+
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
@@ -933,14 +1084,18 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	env := []v1.EnvVar{
 		{Name: "DATASTORE_TYPE", Value: c.datastore},
 		{Name: "ETCD_ENDPOINTS", Value: c.endPoints},
+		{Name: "ETCD_CA_CERT_FILE", Value: c.etcdCaFile},
+		{Name: "ETCD_KEY_FILE", Value: c.etcdKeyFile},
+		{Name: "ETCD_CERT_FILE", Value: c.etcdCertFile},
 	}
 	for name, value := range c.env {
 		env = append(env, v1.EnvVar{Name: name, Value: value})
 	}
 
+	podName := GenerateRandomName("calicoctl")
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "calicoctl",
+			Name: podName,
 			Labels: map[string]string{
 				"pod-name": "calicoctl",
 			},
@@ -959,7 +1114,79 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 				},
 			},
 			ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
+			//Since calico policy would be applied from master, hence made NodeSelector as linux
+			NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 		},
+	}
+	dockerCfgFile := framework.TestContext.CalicoCtlDockerCfg
+	if dockerCfgFile != "" {
+		secretName := "calicoctl-image-secret"
+		pod.Spec.ImagePullSecrets = []v1.LocalObjectReference{
+			{
+				Name: secretName,
+			},
+		}
+
+		dockerCfg, err := ioutil.ReadFile(dockerCfgFile)
+		if err != nil {
+			framework.Failf("unable to read CalicoCtlDockerCfg file %s: %v", dockerCfg, err)
+		}
+
+		secret := &v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: f.Namespace.Name,
+			},
+			Type: v1.SecretTypeDockerConfigJson,
+			Data: map[string][]byte{
+				v1.DockerConfigJsonKey: dockerCfg,
+			},
+		}
+		framework.Logf("Image secret is %v", *secret)
+		_, err = f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Create(secret)
+		if err != nil && !kerr.IsAlreadyExists(err) {
+			framework.Failf("unable to create calicoctl secret %s in ns %s: %v", secretName, f.Namespace.Name, err)
+		}
+	}
+	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != "" {
+		framework.Logf("etcd is secured, adding certs to calicoctl pod")
+		pod.Spec.Containers[0].VolumeMounts = []v1.VolumeMount{
+			{
+				Name:      "etcd-certs",
+				MountPath: "/calico-secrets",
+			},
+		}
+		pod.Spec.Volumes = []v1.Volume{
+			{
+				Name: "etcd-certs",
+				VolumeSource: v1.VolumeSource{
+					Secret: &v1.SecretVolumeSource{
+						SecretName: "calico-etcd-secrets",
+					},
+				},
+			},
+		}
+		// Check that etcd-certs exists in this namespace, copy it over from kube-system if not.
+		_, err := f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Get("calico-etcd-secrets", metav1.GetOptions{})
+		if err != nil {
+			originalSecret, err := f.ClientSet.CoreV1().Secrets("kube-system").Get("calico-etcd-secrets", metav1.GetOptions{})
+			if err != nil {
+				framework.Failf("unable to find secret %v in ns %v: %v", originalSecret.Name, originalSecret.Namespace, err)
+			}
+			// Copy the bits we want out of the old secret
+			modifiedSecret := &v1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      originalSecret.Name,
+					Namespace: f.Namespace.Name,
+				},
+				Type: originalSecret.Type,
+				Data: originalSecret.Data,
+			}
+			newSecret, err := f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Create(modifiedSecret)
+			if err != nil {
+				framework.Failf("unable to create secret %v in ns %v: %v", newSecret.Name, newSecret.Namespace, err)
+			}
+		}
 	}
 
 	if c.node != "" {
@@ -976,7 +1203,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 						{
 							MatchExpressions: []v1.NodeSelectorRequirement{
 								{
-									Key:      "kubernetes.io/hostname",
+									Key:      nodeIDLabelKey,
 									Operator: v1.NodeSelectorOpNotIn,
 									Values:   []string{c.nodeToAvoid},
 								},
@@ -999,14 +1226,13 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 	err = framework.WaitTimeoutForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name, 6*time.Minute)
 	if err != nil {
 		framework.Logf("calicoctl pod %v got error %v, %#", podClient, err)
-		MaybeWaitForInvestigation()
 	}
 	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
 
 	exeErr := framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, f.Namespace.Name)
 
 	// Collect pod logs regardless of execution result.
-	logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podClient.Name))
+	logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, "calicoctl-container")
 	if logErr != nil {
 		framework.Failf("Error getting container logs: %s", logErr)
 	}
@@ -1029,7 +1255,7 @@ func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
 			for _, cmd := range []string{
 				"ip route",
 				"ipset save",
-				"iptables-save -c",
+				"sudo iptables-save -c",
 				"/sbin/versions",
 			} {
 				out, err := framework.RunHostCmd("kube-system", calicoNodePod.Name, cmd)
@@ -1081,29 +1307,148 @@ func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) error {
 	return LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
 }
 
-func MaybeWaitForInvestigation() {
-	// If pause file exist, stop for investigation.
-	count := 0
-	for {
-		if _, err := os.Stat(pauseFilePath); os.IsNotExist(err) {
-			break
-		}
-		time.Sleep(5 * time.Second)
-		if count == 0 {
-			fmt.Println("Pausing to allow investigation by pause file.")
-		}
-		count++
-	}
-	if count > 0 {
-		fmt.Println("Now continuing test")
+func RunSSHCommand(cmd, host, user string, timeout time.Duration) (stdout, stderr string, rc int, err error) {
+	signer, err := framework.GetSigner(framework.TestContext.Provider)
+	if err != nil {
+		return "", "", 1, fmt.Errorf("error getting signer for provider %s: '%v'", framework.TestContext.Provider, err)
 	}
 
-	// If env is set, stop for investigation.
-	if os.Getenv("CALICO_DEBUG") != "true" {
-		return
+	config := &ssh.ClientConfig{
+		User:            user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         timeout,
 	}
-	fmt.Println("Pausing to allow investigation.  Press Enter to continue.")
-	var input string
-	fmt.Scanln(&input)
-	fmt.Println("Now continuing test")
+
+	client, err := ssh.Dial("tcp", host, config)
+	if err != nil {
+		return "", "", 1, fmt.Errorf("error getting SSH client to host %s: '%v'", host, err)
+	}
+
+	// Run the command
+	framework.Logf("Executing '%s' on %v", cmd, client.RemoteAddr())
+	session, err := client.NewSession()
+	if err != nil {
+		return "", "", 0, fmt.Errorf("error creating session to host %s: '%v'", client.RemoteAddr(), err)
+	}
+	defer session.Close()
+
+	// Run the command.
+	code := 0
+	var bout, berr bytes.Buffer
+
+	session.Stdout, session.Stderr = &bout, &berr
+	err = session.Run(cmd)
+	if err != nil {
+		// Check whether the command failed to run or didn't complete.
+		if exiterr, ok := err.(*ssh.ExitError); ok {
+			// If we got an ExitError and the exit code is nonzero, we'll
+			// consider the SSH itself successful (just that the command run
+			// errored on the host).
+			if code = exiterr.ExitStatus(); code != 0 {
+				err = nil
+			}
+		} else {
+			// Some other kind of error happened (e.g. an IOError); consider the
+			// SSH unsuccessful.
+			err = fmt.Errorf("failed running `%s` on %s: '%v'", cmd, client.RemoteAddr(), err)
+		}
+	}
+	return bout.String(), berr.String(), code, err
+}
+
+type Kubectl struct {
+}
+
+func (k *Kubectl) Create(yaml, ns, user string) error {
+	options := []string{"create", "-f", "-"}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
+
+func (k *Kubectl) Apply(yaml, ns, user string) error {
+	options := []string{"apply", "-f", "-"}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
+
+func (k *Kubectl) Get(kind, ns, name, label, outputOption, user string, watch bool) (string, error) {
+	options := []string{"get", kind}
+	if name != "" {
+		options = append(options, name)
+	}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	if label != "" {
+		options = append(options, fmt.Sprintf("-l %s", label))
+	}
+	if outputOption != "" {
+		options = append(options, fmt.Sprintf("-o=%s", outputOption))
+	}
+	if watch {
+		options = append(options, "--watch")
+		output, err := framework.NewKubectlCommand(options...).WithTimeout(time.After(3 * time.Second)).Exec()
+		// Filter out all errors (timeout, single instance kdd watch error, etc.) except "Forbidden"
+		// Example: $ kubectl get po --as=nouser
+		// Error from server (Forbidden): pods is forbidden: User "nouser" cannot list pods in the namespace "default"
+		if strings.Contains(err.Error(), "Forbidden") {
+			return "", err
+		}
+		return output, nil
+	}
+
+	output, err := framework.NewKubectlCommand(options...).Exec()
+	return output, err
+}
+
+func (k *Kubectl) Patch(kind, ns, name, user, patch string) error {
+	options := []string{"patch", kind, name, "-p", patch}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).Exec()
+	return err
+}
+
+func (k *Kubectl) Delete(kind, ns, name, user string) error {
+	options := []string{"delete", kind, name}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).Exec()
+	return err
+}
+
+func (k *Kubectl) Replace(yaml, ns, user string) error {
+	options := []string{"replace", "-f", "-"}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
 }

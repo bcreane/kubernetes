@@ -1,0 +1,29 @@
+# This contains permissive access to the Calico pseudo tiered-policy resource types for all users.
+# This is applied when requiring the original Calico policy RBAC scheme.
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-tiered-policy-passthru
+rules:
+- apiGroups: ["projectcalico.org"]
+  resources: ["tier.networkpolicies","tier.globalnetworkpolicies"]
+  verbs: ["*"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: ee-calico-tiered-policy-passthru
+subjects:
+- kind: Group
+  name: system:authenticated
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group
+  name: system:unauthenticated
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ee-calico-tiered-policy-passthru
+  apiGroup: rbac.authorization.k8s.io

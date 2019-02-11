@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/discovery"
-	kubeaggrcs "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/test/e2e/framework"
 	customclient "k8s.io/metrics/pkg/client/custom_metrics"
 )
@@ -50,13 +49,11 @@ var _ = instrumentation.SIGDescribe("Stackdriver Monitoring", func() {
 
 	f := framework.NewDefaultFramework("stackdriver-monitoring")
 	var kubeClient clientset.Interface
-	var kubeAggrClient kubeaggrcs.Interface
 	var customMetricsClient customclient.CustomMetricsClient
 	var discoveryClient *discovery.DiscoveryClient
 
 	It("should run Custom Metrics - Stackdriver Adapter [Feature:StackdriverCustomMetrics]", func() {
 		kubeClient = f.ClientSet
-		kubeAggrClient = f.AggregatorClient
 		config, err := framework.LoadConfig()
 		if err != nil {
 			framework.Failf("Failed to load config: %s", err)
@@ -103,6 +100,9 @@ func testAdapter(f *framework.Framework, kubeClient clientset.Interface, customM
 		framework.Failf("Failed to set up: %s", err)
 	}
 	defer CleanupAdapter()
+
+	_, err = kubeClient.RbacV1().ClusterRoleBindings().Create(HPAPermissions)
+	defer kubeClient.RbacV1().ClusterRoleBindings().Delete("custom-metrics-reader", &metav1.DeleteOptions{})
 
 	// Run application that exports the metric
 	err = createSDExporterPods(f, kubeClient)
@@ -161,21 +161,21 @@ func testAdapter(f *framework.Framework, kubeClient clientset.Interface, customM
 }
 
 func cleanupSDExporterPod(f *framework.Framework, cs clientset.Interface) {
-	err := cs.Core().Pods(f.Namespace.Name).Delete(stackdriverExporterPod1, &metav1.DeleteOptions{})
+	err := cs.CoreV1().Pods(f.Namespace.Name).Delete(stackdriverExporterPod1, &metav1.DeleteOptions{})
 	if err != nil {
 		framework.Logf("Failed to delete %s pod: %v", stackdriverExporterPod1, err)
 	}
-	err = cs.Core().Pods(f.Namespace.Name).Delete(stackdriverExporterPod2, &metav1.DeleteOptions{})
+	err = cs.CoreV1().Pods(f.Namespace.Name).Delete(stackdriverExporterPod2, &metav1.DeleteOptions{})
 	if err != nil {
 		framework.Logf("Failed to delete %s pod: %v", stackdriverExporterPod2, err)
 	}
 }
 
 func createSDExporterPods(f *framework.Framework, cs clientset.Interface) error {
-	_, err := cs.Core().Pods(f.Namespace.Name).Create(StackdriverExporterPod(stackdriverExporterPod1, f.Namespace.Name, stackdriverExporterLabel, CustomMetricName, CustomMetricValue))
+	_, err := cs.CoreV1().Pods(f.Namespace.Name).Create(StackdriverExporterPod(stackdriverExporterPod1, f.Namespace.Name, stackdriverExporterLabel, CustomMetricName, CustomMetricValue))
 	if err != nil {
 		return err
 	}
-	_, err = cs.Core().Pods(f.Namespace.Name).Create(StackdriverExporterPod(stackdriverExporterPod2, f.Namespace.Name, stackdriverExporterLabel, UnusedMetricName, UnusedMetricValue))
+	_, err = cs.CoreV1().Pods(f.Namespace.Name).Create(StackdriverExporterPod(stackdriverExporterPod2, f.Namespace.Name, stackdriverExporterLabel, UnusedMetricName, UnusedMetricValue))
 	return err
 }
