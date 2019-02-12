@@ -2,7 +2,10 @@ package ids
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,14 +14,39 @@ import (
 	flowsynth "github.com/tigera/flowsynth/pkg/out"
 )
 
-const DefaultElasticURI = "http://elasticsearch-tigera-elasticsearch.calico-monitoring.svc.cluster.local:9200"
+const DefaultElasticScheme = "http"
+const DefaultElasticHost = "elasticsearch-tigera-elasticsearch.calico-monitoring.svc.cluster.local"
+const DefaultElasticPort = 9200
 const JobTimeout = 180
 const JobPollInterval = 1
 
 func InitClient() *elastic.Client {
 	uri := os.Getenv("ELASTIC_URI")
 	if uri == "" {
-		uri = DefaultElasticURI
+		scheme := os.Getenv("ELASTIC_SCHEME")
+		if scheme == "" {
+			scheme = DefaultElasticScheme
+		}
+
+		host := os.Getenv("ELASTIC_HOST")
+		if host == "" {
+			host = DefaultElasticHost
+		}
+
+		portStr := os.Getenv("ELASTIC_PORT")
+		var port int64
+		if portStr == "" {
+			port = DefaultElasticPort
+		} else {
+			var err error
+			port, err = strconv.ParseInt(portStr, 10, 16)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		uri = (&url.URL{
+			Scheme:     scheme,
+			Host:       fmt.Sprintf("%s:%d", host, port),
+		}).String()
 	}
 
 	client, err := elastic.NewClient(
