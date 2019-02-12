@@ -1,0 +1,33 @@
+NumNodes: 3
+PodNetwork: "10.10.1.0/25"
+StartTime: "2018-09-14"
+EndTime: "2018-09-16"
+Outs:
+#  - Type: Elastic
+#    Spec:
+#      URL: https://elasticsearch:9200
+#      Username: elastic
+#      Password: letmein
+#      PathToCA: /path/to/elastic.ca.pem
+  - Type: JSON
+    Spec:
+      Stdout: true
+Apps:
+  - Type: WrappedApp
+    Spec:
+      App:
+        Type: Scaling
+        Spec:
+          Namespace: "default"
+          Name: "basic"
+          NumPods: 64
+          FlowsPerSec: 1.0
+          Scaler:
+            Weekly: [{Amp: 0.4, Phase: 2.5}]
+            Daily: [{Amp: 0.5, Phase: 0}]
+            Constant: 0.3
+            Noise: 0.05
+          Threshold: 0.35
+      Events:
+        - {At: "2018-09-14 15:54:00", PortScan: {Service: "basic"}}
+        - {At: "2018-09-14 17:21:00", IPSweep: {Service: "basic"}}
