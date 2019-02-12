@@ -2,7 +2,7 @@ package ids
 
 import (
 	"context"
-	"fmt"
+	"k8s.io/kubernetes/test/e2e/framework"
 	"os"
 	"strings"
 	"time"
@@ -149,7 +149,7 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 			break
 		}
 
-		fmt.Printf("Waiting on %v...\n", ts.Datafeed)
+		framework.Logf("Waiting on %v...\n", ts.Datafeed)
 		time.Sleep(1)
 	}
 
