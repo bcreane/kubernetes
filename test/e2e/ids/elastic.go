@@ -59,43 +59,43 @@ func MachineLearningEnabled(client *elastic.Client) {
 func CheckExtraJobs(client *elastic.Client, tests []TestSpec) {
 	ctx := context.Background()
 
-	job_ids := make([]string, 0)
+	jobIDs := make([]string, 0)
 	for _, tSpec := range tests {
-		job_ids = append(job_ids, tSpec.Job)
+		jobIDs = append(jobIDs, tSpec.Job)
 	}
 
 	jobs, err := GetJobs(ctx, client)
 	Expect(err).NotTo(HaveOccurred())
 	for _, job := range jobs {
-		Expect(job_ids).To(ContainElement(job.Id))
+		Expect(jobIDs).To(ContainElement(job.Id))
 	}
 }
 
 func CheckExtraDatafeeds(client *elastic.Client, tests []TestSpec) {
 	ctx := context.Background()
 
-	feed_ids := make([]string, 0)
+	feedIDs := make([]string, 0)
 	for _, tSpec := range tests {
-		feed_ids = append(feed_ids, tSpec.Datafeed)
+		feedIDs = append(feedIDs, tSpec.Datafeed)
 	}
 
 	datafeeds, err := GetDatafeeds(ctx, client)
 	Expect(err).NotTo(HaveOccurred())
 	for _, datafeed := range datafeeds {
-		Expect(feed_ids).To(ContainElement(datafeed.Id))
+		Expect(feedIDs).To(ContainElement(datafeed.Id))
 	}
 }
 
-func DatafeedExists(client *elastic.Client, feed_id string) {
+func DatafeedExists(client *elastic.Client, feedID string) {
 	ctx := context.Background()
-	datafeeds, err := GetDatafeeds(ctx, client, feed_id)
+	datafeeds, err := GetDatafeeds(ctx, client, feedID)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(len(datafeeds)).To(Equal(1))
 }
 
-func JobExists(client *elastic.Client, job_id string) {
+func JobExists(client *elastic.Client, jobID string) {
 	ctx := context.Background()
-	jobs, err := GetJobs(ctx, client, job_id)
+	jobs, err := GetJobs(ctx, client, jobID)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(len(jobs)).To(Equal(1))
 }
