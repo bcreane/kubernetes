@@ -111,6 +111,9 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 			testNpTier1 = testTier1 + ".e2e-test-np-" + utilrand.String(5)
 			testGnpTierDefault = "default.e2e-test-gnp-" + utilrand.String(5)
 			testGnpTier1 = testTier1 + ".e2e-test-gnp-" + utilrand.String(5)
+
+			// Remove the permissive binding - the tests will create this as required.
+			kubectl.Delete("clusterrolebinding", "", "ee-calico-tiered-policy-passthru", "")
 		})
 
 		AfterEach(func() {
@@ -205,7 +208,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-RBAC]", func() {
 
 		runCommandAndMaybeBackout := func(cmd func() error, expectSuccess bool, backout func() error) (err error) {
 			now := time.Now()
-			for time.Now().Sub(now) < 2*time.Second {
+			for time.Now().Sub(now) < 5*time.Second {
 				err = cmd()
 				if (err == nil) == expectSuccess {
 					// We got the expected error state, so exit.
