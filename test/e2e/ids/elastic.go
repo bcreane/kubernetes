@@ -2,7 +2,6 @@ package ids
 
 import (
 	"context"
-	"k8s.io/kubernetes/test/e2e/framework"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +12,8 @@ import (
 )
 
 const DefaultElasticURI = "http://elasticsearch-tigera-elasticsearch.calico-monitoring.svc.cluster.local:9200"
+const JobTimeout = 180
+const JobPollInterval = 1
 
 func InitClient() *elastic.Client {
 	uri := os.Getenv("ELASTIC_URI")
@@ -140,17 +141,11 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 		Expect(stopped).To(BeTrue())
 	}()
 
-	for {
+	Eventually(func() bool {
 		dfStats, err := GetDatafeedStats(ctx, client, ts.Datafeed)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(dfStats)).To(Equal(1))
 
-		if dfStats[0].State == "closed" {
-			break
-		}
-
-		framework.Logf("Waiting on %v...\n", ts.Datafeed)
-		time.Sleep(1)
-	}
-
+		return dfStats[0].State == "closed"
+	}, JobTimeout, JobPollInterval)
 }
