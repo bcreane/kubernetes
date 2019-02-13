@@ -61,6 +61,33 @@ type ServiceConfig struct {
 	Upstreams []UpstreamConfig
 }
 
+func (s ServiceConfig) MarshalYAML() (interface{}, error) {
+	var ingressNets []string
+	for _, net := range s.IngressNets {
+		ingressNets = append(ingressNets, net.String())
+	}
+	sc := struct {
+		Name               string           `yaml:"Name"`
+		Port               int              `yaml:"Port"`
+		FlowsPerSecPod     float64          `yaml:"FlowsPerSecPod"`
+		Threshold          float64          `yaml:"Threshold"`
+		IngressFlowsPerSec float64          `yaml:"IngressFlowsPerSec"`
+		Scaler             TrafficScaler    `yaml:"Scaler"`
+		IngressNets        []string         `yaml:"IngressNets"`
+		Upstreams          []UpstreamConfig `yaml:"Upstreams"`
+	}{
+		s.Name,
+		s.Port,
+		s.FlowsPerSecPod,
+		s.Threshold,
+		s.IngressFlowsPerSec,
+		s.Scaler,
+		ingressNets,
+		s.Upstreams,
+	}
+	return &sc, nil
+}
+
 func (s *ServiceConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	sc := struct {
@@ -118,6 +145,28 @@ type UpstreamConfig struct {
 	// with `Service`
 	ExternalNets []*net.IPNet
 	ExternalPort int
+}
+
+func (c UpstreamConfig) MarshalYAML() (interface{},error) {
+	var externalNets []string
+	for _, net := range c.ExternalNets {
+		externalNets = append(externalNets, net.String())
+	}
+	es := struct {
+		Weight              float64  `yaml:"Weight"`
+		ConstantFlowsPerSec float64  `yaml:"ConstantFlowsPerSec"`
+		Service             string   `yaml:"Service"`
+		ExternalNets        []string `yaml:"ExternalNets"`
+		ExternalPort        int      `yaml:"ExternalPort"`
+	}{
+		c.Weight,
+		c.ConstantFlowsPerSec,
+		c.Service,
+		externalNets,
+		c.ExternalPort,
+	}
+
+	return &es, nil
 }
 
 func (c *UpstreamConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {

@@ -15,14 +15,12 @@ import (
 )
 
 type Config struct {
-	NumNodes       int             `yaml:"NumNodes"`
-	PodNetwork     string          `yaml:"PodNetwork"`
-	StartTime      string          `yaml:"StartTime"`
-	EndTime        string          `yaml:"EndTime"`
-	Apps           []app.AppConfig `yaml:"Apps"`
-	Outs           []out.OutConfig `yaml:"Outs"`
-	CPUProfilePath string          `yaml:"CPUProfilePath"`
-	TracePath      string          `yaml:"TracePath"`
+	NumNodes   int             `yaml:"NumNodes"`
+	PodNetwork string          `yaml:"PodNetwork"`
+	StartTime  string          `yaml:"StartTime"`
+	EndTime    string          `yaml:"EndTime"`
+	Apps       []app.AppConfig `yaml:"Apps"`
+	Outs       []out.OutConfig `yaml:"Outs"`
 }
 
 func parseConfig(path string) Config {

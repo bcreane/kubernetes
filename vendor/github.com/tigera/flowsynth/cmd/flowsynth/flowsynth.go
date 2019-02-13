@@ -7,14 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"os"
-	"runtime/pprof"
-	"runtime/trace"
+
+	"github.com/tigera/flowsynth/pkg/synthesizer"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/tigera/flowsynth/pkg/scheduler"
-	"github.com/tigera/flowsynth/pkg/synthesizer"
 )
 
 func main() {
@@ -25,25 +23,6 @@ func main() {
 	log.SetLevel(log.InfoLevel)
 
 	config := parseConfig(configPath)
-
-	if config.CPUProfilePath != "" {
-		p, err := os.Create("cpuprofile")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer p.Close()
-		pprof.StartCPUProfile(p)
-		defer pprof.StopCPUProfile()
-	}
-	if config.TracePath != "" {
-		t, err := os.Create("trace.out")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer t.Close()
-		trace.Start(t)
-		defer trace.Stop()
-	}
 	nodes := []string{}
 	for i := 0; i < config.NumNodes; i++ {
 		nodes = append(nodes, fmt.Sprintf("node%02d", i))

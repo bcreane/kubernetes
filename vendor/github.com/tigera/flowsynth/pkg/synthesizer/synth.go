@@ -13,8 +13,6 @@ import (
 	"github.com/tigera/flowsynth/pkg/out"
 )
 
-const UpdateChannelBufferSize = 1000
-
 type Synthesizer interface {
 	RegisterApp(a app.Application)
 	RegisterOutput(o out.Output)
@@ -100,7 +98,7 @@ func (s *synth) StopOutputs() {
 func (s *synth) startAggregation() map[string]chan<- *flows.FlowUpdate {
 	fChans := make(map[string]chan<- *flows.FlowUpdate)
 	for node, a := range s.aggs {
-		ch := make(chan *flows.FlowUpdate, UpdateChannelBufferSize)
+		ch := make(chan *flows.FlowUpdate)
 		fChans[node] = ch
 
 		// Kick off a goroutine that fans out the updates
