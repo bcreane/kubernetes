@@ -128,17 +128,25 @@ func GetProbeAndTargetDiags(f *framework.Framework, probePod, targetPod *v1.Pod,
 	}
 
 	return fmt.Sprintf(`
+STARTLOG
 Probe Logs:
 %s
+ENDLOG for container %s:%s:%s
 
+STARTLOG
 Probe Proxy Logs:
 %s
+ENDLOG for container %s:%s:%s
 
+STARTLOG:
 Target Dikastes Logs:
 %s
+ENDLOG for container %s:%s:%s
 
+STARTLOG:
 Target Proxy Logs:
 %s
+ENDLOG for container %s:%s:%s
 
 Current NetworkPolicies:
 	%v
@@ -146,7 +154,11 @@ Current NetworkPolicies:
 Pods:
 	%v
 
-`, probeLogs, probeProxyLogs, dikastesLogs, proxyLogs, policies.Items, pods)
+`, probeLogs, probePod.Namespace, probePod.Name, probeContainerName,
+		probeProxyLogs, probePod.Namespace, probePod.Name, ProxyContainerName,
+		dikastesLogs, targetPod.Namespace, targetPod.Name, DikastesContainerName,
+		proxyLogs, targetPod.Namespace, targetPod.Name, ProxyContainerName,
+		policies.Items, pods)
 }
 
 func GetIstioDiags(f *framework.Framework) string {
@@ -164,7 +176,7 @@ func GetIstioDiags(f *framework.Framework) string {
 			if err != nil {
 				framework.Logf("Error getting %s %s logs: %s", p.Name, ics.Name, err)
 			}
-			cOut = append(cOut, fmt.Sprintf("%s/%s logs:\n%s\n\n", p.Name, ics.Name, l))
+			cOut = append(cOut, fmt.Sprintf("STARTLOG\n%s\nENDLOG for container %s:%s:%s\n", l, IstioNamespace, p.Name, ics.Name))
 		}
 		for _, cs := range p.Status.ContainerStatuses {
 			out = append(out, fmt.Sprintf("        %-40s  %s", cs.Name, containerStateString(&cs.State)))
@@ -172,7 +184,7 @@ func GetIstioDiags(f *framework.Framework) string {
 			if err != nil {
 				framework.Logf("Error getting %s %s logs: %s", p.Name, cs.Name, err)
 			}
-			cOut = append(cOut, fmt.Sprintf("%s/%s logs:\n%s", p.Name, cs.Name, l))
+			cOut = append(cOut, fmt.Sprintf("STARTLOG\n%s\nENDLOG for container %s:%s:%s\n", l, IstioNamespace, p.Name, cs.Name))
 		}
 	}
 	return strings.Join(out, "\n") + "\n\n" + strings.Join(cOut, "\n\n")
