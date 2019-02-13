@@ -2,53 +2,19 @@ package ids
 
 import (
 	"context"
-	"fmt"
-	"net/url"
-	"os"
-	"strconv"
+	"k8s.io/kubernetes/test/e2e/framework"
 	"strings"
 	"time"
 
 	"github.com/olivere/elastic"
 	. "github.com/onsi/gomega"
-	flowsynth "github.com/tigera/flowsynth/pkg/out"
+	"github.com/tigera/flowsynth/pkg/out"
 )
 
-const DefaultElasticScheme = "http"
-const DefaultElasticHost = "elasticsearch-tigera-elasticsearch.calico-monitoring.svc.cluster.local"
-const DefaultElasticPort = 9200
 const JobTimeout = 180
 const JobPollInterval = 1
 
-func InitClient() *elastic.Client {
-	uri := os.Getenv("ELASTIC_URI")
-	if uri == "" {
-		scheme := os.Getenv("ELASTIC_SCHEME")
-		if scheme == "" {
-			scheme = DefaultElasticScheme
-		}
-
-		host := os.Getenv("ELASTIC_HOST")
-		if host == "" {
-			host = DefaultElasticHost
-		}
-
-		portStr := os.Getenv("ELASTIC_PORT")
-		var port int64
-		if portStr == "" {
-			port = DefaultElasticPort
-		} else {
-			var err error
-			port, err = strconv.ParseInt(portStr, 10, 16)
-			Expect(err).NotTo(HaveOccurred())
-		}
-
-		uri = (&url.URL{
-			Scheme:     scheme,
-			Host:       fmt.Sprintf("%s:%d", host, port),
-		}).String()
-	}
-
+func InitClient(uri string) *elastic.Client {
 	client, err := elastic.NewClient(
 		elastic.SetURL(uri),
 	)
@@ -64,7 +30,7 @@ func DeleteIndices(client *elastic.Client) {
 
 	toDelete := []string{}
 	for _, indexName := range indexNames {
-		if strings.HasPrefix(indexName, flowsynth.FlowLogIndexPrefix) {
+		if strings.HasPrefix(indexName, out.FlowLogIndexPrefix) {
 			toDelete = append(toDelete, indexName)
 		}
 	}
@@ -132,6 +98,21 @@ func JobExists(client *elastic.Client, jobID string) {
 func RunJob(client *elastic.Client, ts TestSpec) {
 	ctx := context.Background()
 
+	// Perform a sanity check on the test. The events need to be within the flowsynth
+	// interval or else they will not occur in the test data.
+	for _, event := range ts.Config.Events() {
+		Expect(event.At).To(BeTemporally(">=", ts.Config.StartTime))
+		Expect(event.At).To(BeTemporally("<=", ts.Config.EndTime))
+	}
+
+	framework.Logf("Clearing data in Elastic for %v", ts.Job)
+	DeleteIndices(client)
+	framework.Logf("Running Flowsynth for %v.", ts.Job)
+	RunFlowSynth(ctx, ts.Config)
+	framework.Logf("Complete. Sleeping.")
+	time.Sleep(30 * time.Second)
+	framework.Logf("Proceeding.")
+
 	jobStats, err := GetJobStats(ctx, client, ts.Job)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(len(jobStats)).To(Equal(1))
@@ -176,4 +157,14 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 
 		return dfStats[0].State == "closed"
 	}, JobTimeout, JobPollInterval)
+
+	records, err := GetRecords(ctx, client, ts.Job, &GetRecordsOptions{
+		Start:          &ts.Config.StartTime,
+		End:            &ts.Config.EndTime,
+		RecordScore:    75,
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(len(records) >= len(ts.Config.Events())).To(BeTrue(),
+	"At least %d anomalies were detected with score >= 75", len(ts.Config.Events()))
 }

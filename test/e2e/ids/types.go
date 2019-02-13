@@ -1,7 +1,9 @@
 package ids
 
 import (
-	"k8s.io/kubernetes/staging/src/k8s.io/apimachinery/pkg/util/json"
+	"encoding/json"
+	"reflect"
+	"strings"
 	"time"
 )
 
@@ -174,9 +176,102 @@ type DatafeedCountsSpec struct {
 	State string `json:"state"`
 }
 
+type GetBucketsResponseSpec struct {
+	Count int `json:"count"`
+	Buckets []BucketSpec `json:"buckets"`
+}
+
+type BucketSpec struct {
+	AnomalyScore float64 `json:"anomaly_score"`
+	BucketInfluencers []string `json:"bucket_influencers"`
+	BucketSpan int `json:"bucket_span"`
+	EventCount int `json:"event_count"`
+	InitialAnomalyScore float64 `json:"initial_anomaly_score"`
+	IsInterim bool `json:"is_interim"`
+	Id string `json:"job_id"`
+	ResultType string `json:"result_type"`
+	Timestamp Time `json:"timestamp"`
+}
+
+type GetRecordsResponseSpec struct {
+	Count int `json:"count"`
+	Records []RecordSpec `json:"records"`
+}
+
+type RecordSpec struct {
+	Actual []interface{} `json:"actual"`
+	BucketSpan int `json:"bucket_span"`
+	ByFieldName string `json:"by_field_name"`
+	ByFieldValue string `json:"by_field_value"`
+	Causes []interface{} `json:"causes"`
+	DetectorIndex int `json:"detector_index"`
+	FieldName string `json:"field_name"`
+	Function string `json:"function"`
+	FunctionDescription string `json:"function_description"`
+	Influencers []InfluencerSpec `json:"influencers"`
+	InitialRecordScore float64 `json:"initial_record_score"`
+	IsInterim bool `json:"is_interim"`
+	Id string `json:"job_id"`
+	OverFieldName string `json:"over_field_name"`
+	OverFieldValue string `json:"over_field_value"`
+	PartitionFieldName string `json:"partition_field_name"`
+	PartitionFieldValue string `json:"partition_field_value"`
+	Probability float64 `json:"probability"`
+	MultiBucketImpact float64 `json:"multi_bucket_impact"`
+	RecordScore float64 `json:"record_score"`
+	ResultType string `json:"result_type"`
+	Timestamp Time `json:"timestamp"`
+	Typical []interface{} `json:"typical"`
+	Fields map[string]interface{}
+}
+
+type _recordSpec *RecordSpec
+
+func (rs *RecordSpec) UnmarshalJSON(data []byte) error {
+	r := _recordSpec(rs)
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	rs.Fields = make(map[string]interface{})
+
+	objValue := reflect.ValueOf(rs).Elem()
+	fields := make(map[string]reflect.Value)
+	for i := 0; i != objValue.NumField(); i++ {
+		fieldName := strings.Split(objValue.Type().Field(i).Tag.Get("json"), ",")[0]
+		fields[fieldName] = objValue.Field(i)
+	}
+
+	f := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+
+	for key, chunk := range f {
+		if _, found := fields[key]; !found {
+			var i interface{}
+			if err := json.Unmarshal(chunk, &i); err != nil {
+				return err
+			}
+			rs.Fields[key] = i
+		}
+	}
+
+	return nil
+}
+
+type InfluencerSpec struct {
+	FieldName string `json:"influencer_field_name"`
+	FieldValues []interface{} `json:"influencer_field_values"`
+}
+
 type Duration time.Duration
 
 func (f *Duration) UnmarshalJSON(data []byte) error {
+	var i int64
+	if err := json.Unmarshal(data, &i); err == nil {
+		*f = Duration(time.Second * time.Duration(i))
+		return nil
+	}
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err

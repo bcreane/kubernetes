@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-func GetDatafeeds(ctx context.Context, client *elastic.Client, feed_ids ...string) ([]DatafeedSpec, error) {
-	params := strings.Join(feed_ids, ",")
+func GetDatafeeds(ctx context.Context, client *elastic.Client, feedIDs ...string) ([]DatafeedSpec, error) {
+	params := strings.Join(feedIDs, ",")
 
 	resp, err := client.PerformRequest(ctx, elastic.PerformRequestOptions{
 		Method: "GET",
-		Path: fmt.Sprintf("/_xpack/ml/datafeeds/%s", params),
+		Path:   fmt.Sprintf("/_xpack/ml/datafeeds/%s", params),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	var getDatafeedsResponse	GetDatafeedResponseSpec
+	var getDatafeedsResponse GetDatafeedResponseSpec
 	err = json.Unmarshal(resp.Body, &getDatafeedsResponse)
 	if err != nil {
 		return nil, err
@@ -29,18 +29,18 @@ func GetDatafeeds(ctx context.Context, client *elastic.Client, feed_ids ...strin
 	return getDatafeedsResponse.Datafeeds, nil
 }
 
-func GetDatafeedStats(ctx context.Context, client *elastic.Client, feed_ids ...string) ([]DatafeedCountsSpec, error) {
-	params := strings.Join(feed_ids, ",")
+func GetDatafeedStats(ctx context.Context, client *elastic.Client, feedIDs ...string) ([]DatafeedCountsSpec, error) {
+	params := strings.Join(feedIDs, ",")
 
 	resp, err := client.PerformRequest(ctx, elastic.PerformRequestOptions{
 		Method: "GET",
-		Path: fmt.Sprintf("/_xpack/ml/datafeeds/%s/_stats", params),
+		Path:   fmt.Sprintf("/_xpack/ml/datafeeds/%s/_stats", params),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	var getDatafeedStatsResponse	GetDatafeedStatsResponseSpec
+	var getDatafeedStatsResponse GetDatafeedStatsResponseSpec
 	err = json.Unmarshal(resp.Body, &getDatafeedStatsResponse)
 	if err != nil {
 		return nil, err
@@ -50,8 +50,8 @@ func GetDatafeedStats(ctx context.Context, client *elastic.Client, feed_ids ...s
 }
 
 type OpenDatafeedOptions struct {
-	Start *Time
-	End *Time
+	Start   *Time
+	End     *Time
 	Timeout *Duration
 }
 
@@ -69,10 +69,10 @@ func (o *OpenDatafeedOptions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&v)
 }
 
-func StartDatafeed(ctx context.Context, client *elastic.Client, feed_id string, options *OpenDatafeedOptions) (bool, error) {
+func StartDatafeed(ctx context.Context, client *elastic.Client, feedID string, options *OpenDatafeedOptions) (bool, error) {
 	requestOptions := elastic.PerformRequestOptions{
 		Method: "POST",
-		Path: fmt.Sprintf("/_xpack/ml/datafeeds/%s/_start", feed_id),
+		Path:   fmt.Sprintf("/_xpack/ml/datafeeds/%s/_start", feedID),
 	}
 	if options != nil {
 		requestOptions.Body = options
@@ -92,7 +92,7 @@ func StartDatafeed(ctx context.Context, client *elastic.Client, feed_id string, 
 }
 
 type CloseDatafeedOptions struct {
-	Force bool
+	Force   bool
 	Timeout *time.Duration
 }
 
@@ -106,10 +106,10 @@ func (o *CloseDatafeedOptions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&v)
 }
 
-func StopDatafeed(ctx context.Context, client *elastic.Client, datafeed_id string, options *CloseDatafeedOptions) (bool, error) {
+func StopDatafeed(ctx context.Context, client *elastic.Client, feedID string, options *CloseDatafeedOptions) (bool, error) {
 	requestOptions := elastic.PerformRequestOptions{
 		Method: "POST",
-		Path: fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_stop", datafeed_id),
+		Path:   fmt.Sprintf("/_xpack/ml/datafeeds/%s/_stop", feedID),
 	}
 	if options != nil {
 		requestOptions.Body = options
@@ -128,18 +128,18 @@ func StopDatafeed(ctx context.Context, client *elastic.Client, datafeed_id strin
 	return openDatafeedResponse["stopped"], nil
 }
 
-func GetJobs(ctx context.Context, client *elastic.Client, job_ids ...string) ([]JobSpec, error) {
-	params := strings.Join(job_ids, ",")
+func GetJobs(ctx context.Context, client *elastic.Client, jobIDs ...string) ([]JobSpec, error) {
+	params := strings.Join(jobIDs, ",")
 
 	resp, err := client.PerformRequest(ctx, elastic.PerformRequestOptions{
 		Method: "GET",
-		Path: fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s", params),
+		Path:   fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s", params),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	var getJobsResponse	GetJobResponseSpec
+	var getJobsResponse GetJobResponseSpec
 	err = json.Unmarshal(resp.Body, &getJobsResponse)
 	if err != nil {
 		return nil, err
@@ -148,18 +148,18 @@ func GetJobs(ctx context.Context, client *elastic.Client, job_ids ...string) ([]
 	return getJobsResponse.Jobs, nil
 }
 
-func GetJobStats(ctx context.Context, client *elastic.Client, job_ids ...string) ([]JobStatsSpec, error) {
-	params := strings.Join(job_ids, ",")
+func GetJobStats(ctx context.Context, client *elastic.Client, jobIDs ...string) ([]JobStatsSpec, error) {
+	params := strings.Join(jobIDs, ",")
 
 	resp, err := client.PerformRequest(ctx, elastic.PerformRequestOptions{
 		Method: "GET",
-		Path: fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_stats", params),
+		Path:   fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_stats", params),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	var getJobsStatsResponse	GetJobStatsResponseSpec
+	var getJobsStatsResponse GetJobStatsResponseSpec
 	err = json.Unmarshal(resp.Body, &getJobsStatsResponse)
 	if err != nil {
 		return nil, err
@@ -180,10 +180,10 @@ func (o *OpenJobOptions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&v)
 }
 
-func OpenJob(ctx context.Context, client *elastic.Client, job_id string, options *OpenJobOptions) (bool, error) {
+func OpenJob(ctx context.Context, client *elastic.Client, jobID string, options *OpenJobOptions) (bool, error) {
 	requestOptions := elastic.PerformRequestOptions{
 		Method: "POST",
-		Path: fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_open", job_id),
+		Path:   fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_open", jobID),
 	}
 	if options != nil {
 		requestOptions.Body = options
@@ -203,7 +203,7 @@ func OpenJob(ctx context.Context, client *elastic.Client, job_id string, options
 }
 
 type CloseJobOptions struct {
-	Force bool
+	Force   bool
 	Timeout *time.Duration
 }
 
@@ -217,10 +217,10 @@ func (o *CloseJobOptions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&v)
 }
 
-func CloseJob(ctx context.Context, client *elastic.Client, job_id string, options *CloseJobOptions) (bool, error) {
+func CloseJob(ctx context.Context, client *elastic.Client, jobID string, options *CloseJobOptions) (bool, error) {
 	requestOptions := elastic.PerformRequestOptions{
 		Method: "POST",
-		Path: fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_close", job_id),
+		Path:   fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/_close", jobID),
 	}
 	if options != nil {
 		requestOptions.Body = options
@@ -237,4 +237,126 @@ func CloseJob(ctx context.Context, client *elastic.Client, job_id string, option
 	}
 
 	return openJobResponse["closed"], nil
+}
+
+type PageOptionsSpec struct {
+	From int `json:"from"`
+	Size int `json:"size"`
+}
+
+type GetBucketsOptions struct {
+	Timestamp *time.Time
+	AnomalyScore float64
+	Desc bool
+	End *time.Time
+	ExcludeInterim bool
+	Expand bool
+	Page *PageOptionsSpec
+	Sort *string
+	Start *time.Time
+}
+
+func (o *GetBucketsOptions) MarshalJSON() ([]byte, error) {
+	v := map[string]interface{} {
+		"anomaly_score":    o.AnomalyScore,
+		"desc":           o.Desc,
+		"exclude_interim": o.ExcludeInterim,
+		"expand": o.Expand,
+	}
+	if o.End != nil {
+		v["end"] = o.End.Format(time.RFC3339)
+	}
+	if o.Page != nil {
+		v["page"] = *o.Page
+	}
+	if o.Sort != nil {
+		v["sort"] = *o.Sort
+	}
+	if o.Start != nil {
+		v["start"] = o.Start.Format(time.RFC3339)
+	}
+
+	return json.Marshal(&v)
+}
+
+func GetBuckets(ctx context.Context, client *elastic.Client, jobID string, options *GetBucketsOptions) ([]BucketSpec, error) {
+	optTimestamp := ""
+	if options.Timestamp != nil {
+		optTimestamp = fmt.Sprintf("/%s", options.Timestamp.Format(time.RFC3339))
+	}
+
+	requestOptions := elastic.PerformRequestOptions{
+		Method: "POST",
+		Path:   fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/results/buckets%s", jobID, optTimestamp),
+	}
+	if options != nil {
+		requestOptions.Body = options
+	}
+	resp, err := client.PerformRequest(ctx, requestOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	var getBucketsResponse GetBucketsResponseSpec
+	err = json.Unmarshal(resp.Body, &getBucketsResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return getBucketsResponse.Buckets, nil
+}
+
+type GetRecordsOptions struct {
+	Desc bool
+	End *time.Time
+	ExcludeInterim bool
+	Page *PageOptionsSpec
+	RecordScore float64
+	Sort *string
+	Start *time.Time
+}
+
+func (o *GetRecordsOptions) MarshalJSON() ([]byte, error) {
+	v := map[string]interface{} {
+		"desc":           o.Desc,
+		"exclude_interim": o.ExcludeInterim,
+		"record_score":    o.RecordScore,
+	}
+	if o.End != nil {
+		v["end"] = o.End.Format(time.RFC3339)
+	}
+	if o.Page != nil {
+		v["page"] = *o.Page
+	}
+	if o.Sort != nil {
+		v["sort"] = *o.Sort
+	}
+	if o.Start != nil {
+		v["start"] = o.Start.Format(time.RFC3339)
+	}
+
+	return json.Marshal(&v)
+}
+
+
+func GetRecords(ctx context.Context, client *elastic.Client, jobID string, options *GetRecordsOptions) ([]RecordSpec, error) {
+	requestOptions := elastic.PerformRequestOptions{
+		Method: "POST",
+		Path:   fmt.Sprintf("/_xpack/ml/anomaly_detectors/%s/results/records", jobID),
+	}
+	if options != nil {
+		requestOptions.Body = options
+	}
+	resp, err := client.PerformRequest(ctx, requestOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	var getRecordsResponse GetRecordsResponseSpec
+	err = json.Unmarshal(resp.Body, &getRecordsResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return getRecordsResponse.Records, nil
 }
