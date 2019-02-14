@@ -1330,16 +1330,22 @@ func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
 	return nil
 }
 
-func GetPodNow(f *framework.Framework, podName string) *v1.Pod {
-	podNow, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(podName, metav1.GetOptions{})
-	framework.ExpectNoError(err)
+func GetPodNow(f *framework.Framework, ns string, podName string) (*v1.Pod, error) {
+	podNow, err := f.ClientSet.CoreV1().Pods(ns).Get(podName, metav1.GetOptions{})
+	if err != nil{
+		framework.Logf("Failed to get pod: %v", err)
+		return nil, err
+	}
 	framework.Logf("Pod is on %v, IP %v", podNow.Spec.NodeName, podNow.Status.PodIP)
 	framework.Logf("Full pod detail = %#v", podNow)
-	return podNow
+	return podNow, nil
 }
 
-func LogCalicoDiagsForPodNode(f *framework.Framework, podName string) error {
-	podNow := GetPodNow(f, podName)
+func LogCalicoDiagsForPodNode(f *framework.Framework, ns string, podName string) error {
+	podNow,err := GetPodNow(f, ns, podName)
+	if err != nil {
+		return err
+	}
 	return LogCalicoDiagsForNode(f, podNow.Spec.NodeName)
 }
 

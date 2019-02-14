@@ -63,7 +63,8 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		framework.Logf("Waiting for Server to come up.")
 		err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
 		framework.ExpectNoError(err)
-		podServer = calico.GetPodNow(f, podServer.Name)
+		podServer,err = calico.GetPodNow(f, f.Namespace.Name, podServer.Name)
+		framework.ExpectNoError(err, "pod disappeared?")
 		serverNodeName = podServer.Spec.NodeName
 
 		testCanConnect(f, f.Namespace, "client-can-connect-80", service, 80)

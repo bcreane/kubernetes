@@ -565,7 +565,7 @@ func testCanConnectRds(f *framework.Framework, ns *v1.Namespace, podName string,
 	if err != nil {
 		framework.Logf("Expected pod %s to connect and complete but did not: %s", podClient.Name, err)
 		// Collect/log Calico diags.
-		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
+		logErr := calico.LogCalicoDiagsForPodNode(f, ns.Name, podClient.Name)
 		if logErr != nil {
 			framework.Logf("Error getting Calico diags: %v", logErr)
 		}
