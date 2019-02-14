@@ -44,6 +44,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-IDS]", func() {
 
 var Tests = []TestSpec{
 	{"inbound_connection_spike", "datafeed-inbound_connection_spike", GenConfig(
+		75, 1,
 		app.Event{
 			InboundConnectionSpike: &app.SpecInboundConnectionSpike{
 				Service:  "basic",
@@ -52,8 +53,9 @@ var Tests = []TestSpec{
 			},
 		},
 	)},
-	{"ip_sweep_external", "datafeed-ip_sweep_external", GenConfig()},
+	{"ip_sweep_external", "datafeed-ip_sweep_external", GenConfig(0, 0)},
 	{"ip_sweep_pods", "datafeed-ip_sweep_pods", GenConfig(
+		75, 1,
 		app.Event{
 			IPSweep: &app.SpecIPSweep{
 				Service: "basic",
@@ -61,6 +63,7 @@ var Tests = []TestSpec{
 		},
 	)},
 	{"pod_outlier_ip_activity", "datafeed-pod_outlier_ip_activity", GenConfig(
+		75, 1,
 		app.Event{
 			OutboundIP: &app.SpecOutboundIP{
 				Service:  "basic",
@@ -69,8 +72,9 @@ var Tests = []TestSpec{
 			},
 		},
 	)},
-	{"port_scan_external", "datafeed-port_scan_external", GenConfig()},
+	{"port_scan_external", "datafeed-port_scan_external", GenConfig(0, 0)},
 	{"port_scan_pods", "datafeed-port_scan_pods", GenConfig(
+		75, 1,
 		app.Event{
 			PortScan: &app.SpecPortScan{
 				Service: "basic",
@@ -78,6 +82,7 @@ var Tests = []TestSpec{
 		},
 	)},
 	{"service_bytes_anomaly", "datafeed-service_bytes_anomaly", GenConfig(
+		75, 2,
 		app.Event{
 			ServiceBytesAnomaly: &app.SpecServiceBytesAnomaly{
 				Service:     "basic",
@@ -140,13 +145,14 @@ type TestSpec struct {
 }
 
 type TestConfig struct {
+	RecordScore int
+	NumRecords int
 	NumNodes   int
 	PodNetwork *net.IPNet
 	StartTime  time.Time
 	EndTime    time.Time
 	Apps       []app.AppConfig
 	Outs       []out.OutConfig
-	events     []app.Event
 }
 
 func (c *TestConfig) MarshalYAML() (interface{}, error) {
@@ -168,19 +174,20 @@ func (c *TestConfig) MarshalYAML() (interface{}, error) {
 	return &v, nil
 }
 
-func (c *TestConfig) Events() []app.Event {
-	return c.events
-}
-
-func GenConfig(events ...app.Event) TestConfig {
+func GenConfig(threshold, numRecords int, events ...app.Event) TestConfig {
 	endTime := RoundTimeToDay(time.Now().UTC())
 	startTime := endTime.AddDate(0, 0, -NumDays)
 
 	for idx := range events {
 		events[idx].At = endTime.Add(time.Duration(-rand.Int63n(int64(time.Second * 86400))))
+		if events[idx].At.Before(startTime) || events[idx].At.After(endTime) {
+			panic (fmt.Sprintf("Time %v is out of range [%v, %v]", events[idx].At, startTime, endTime))
+		}
 	}
 
 	return TestConfig{
+		RecordScore: threshold,
+		NumRecords: numRecords,
 		NumNodes:   3,
 		PodNetwork: MakeNet("10.10.1.0/25"),
 		StartTime:  startTime,
@@ -233,6 +240,5 @@ func GenConfig(events ...app.Event) TestConfig {
 				},
 			},
 		},
-		events: events,
 	}
 }

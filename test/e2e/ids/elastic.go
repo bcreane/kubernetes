@@ -98,13 +98,6 @@ func JobExists(client *elastic.Client, jobID string) {
 func RunJob(client *elastic.Client, ts TestSpec) {
 	ctx := context.Background()
 
-	// Perform a sanity check on the test. The events need to be within the flowsynth
-	// interval or else they will not occur in the test data.
-	for _, event := range ts.Config.Events() {
-		Expect(event.At).To(BeTemporally(">=", ts.Config.StartTime))
-		Expect(event.At).To(BeTemporally("<=", ts.Config.EndTime))
-	}
-
 	framework.Logf("Clearing data in Elastic for %v", ts.Job)
 	DeleteIndices(client)
 	framework.Logf("Running Flowsynth for %v.", ts.Job)
@@ -161,10 +154,10 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	records, err := GetRecords(ctx, client, ts.Job, &GetRecordsOptions{
 		Start:          &ts.Config.StartTime,
 		End:            &ts.Config.EndTime,
-		RecordScore:    75,
+		RecordScore:    ts.Config.RecordScore,
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	Expect(len(records) >= len(ts.Config.Events())).To(BeTrue(),
-	"At least %d anomalies were detected with score >= 75", len(ts.Config.Events()))
+	Expect(len(records) >= ts.Config.NumRecords).To(BeTrue(),
+	"At least %d anomalies were detected with score >= 75", ts.Config.NumRecords)
 }

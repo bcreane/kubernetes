@@ -311,7 +311,7 @@ type GetRecordsOptions struct {
 	End *time.Time
 	ExcludeInterim bool
 	Page *PageOptionsSpec
-	RecordScore float64
+	RecordScore int
 	Sort *string
 	Start *time.Time
 }
