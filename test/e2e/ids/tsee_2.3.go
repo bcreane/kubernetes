@@ -6,7 +6,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	"github.com/tigera/flowsynth/pkg/app"
 	"github.com/tigera/flowsynth/pkg/out"
-	"math/rand"
 	"net"
 	"net/url"
 	"os"
@@ -179,7 +178,7 @@ func GenConfig(threshold, numRecords int, events ...app.Event) TestConfig {
 	startTime := endTime.AddDate(0, 0, -NumDays)
 
 	for idx := range events {
-		events[idx].At = endTime.Add(time.Duration(-rand.Int63n(int64(time.Second * 86400))))
+		events[idx].At = endTime.Add(time.Second * time.Duration(-(idx+1) * 3600 * 6))
 		if events[idx].At.Before(startTime) || events[idx].At.After(endTime) {
 			panic (fmt.Sprintf("Time %v is out of range [%v, %v]", events[idx].At, startTime, endTime))
 		}
