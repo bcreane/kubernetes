@@ -40,8 +40,10 @@ func NewMapStringBool(m *map[string]bool) *MapStringBool {
 // String implements github.com/spf13/pflag.Value
 func (m *MapStringBool) String() string {
 	pairs := []string{}
-	for k, v := range *m.Map {
-		pairs = append(pairs, fmt.Sprintf("%s=%t", k, v))
+	if m.initialized {
+		for k, v := range *m.Map {
+			pairs = append(pairs, fmt.Sprintf("%s=%t", k, v))
+		}
 	}
 	sort.Strings(pairs)
 	return strings.Join(pairs, ",")

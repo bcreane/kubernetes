@@ -6,6 +6,7 @@ CALICO_VER=""
 EXT_NETWORKING=""
 EXT_CONFORMANCE=""
 DEFAULT_TIMEOUTS="6m"
+E2E_PREFIX=""
 
 # Focus regexes from various sources.
 CALICO_FOCUS=""
@@ -65,7 +66,7 @@ function runner {
     -report-dir=/report \
     --node-schedulable-timeout="$DEFAULT_TIMEOUTS" \
     --system-pods-startup-timeout="$DEFAULT_TIMEOUTS" \
-    $EXTRA_ARGS
+    $E2E_PREFIX $EXTRA_ARGS
 }
 
 function focus_info {
@@ -74,7 +75,7 @@ function focus_info {
   echo "[INFO] e2e.test -kubeconfig=/root/kubeconfig \
   --ginkgo.focus=\"$FOCUS\" \
   --ginkgo.skip=\"$SKIPS\" \
-  -report-dir=/report $EXTRA_ARGS"
+  -report-dir=/report $E2E_PREFIX $EXTRA_ARGS"
 }
 
 function usage {
@@ -90,6 +91,8 @@ Arguments:
   --extra-args <EXTRA_ARGS>             Pass additional args to the e2e.test binary.
   --focus <FOCUS>                       Control which tests are run by ginkgo. This is in addition to any
                                         executed tests controlled by calico/cnx options.
+  --prefix <prefix>                     A prefix to be added to cloud resources created during testing.
+                                        [default: e2e]
   --skip <SKIPS>                        Control which tests are skipped by ginkgo. This is in addition to any
                                         skipped tests controlled by calico/cnx/extended options.
 EOF
@@ -97,13 +100,14 @@ EOF
 }
 while [ -n "$1" ]; do
   case "$1" in
-    --calico-version) CALICO_VER=$2 ;;
-    --cnx) CNX_VER=$2 ;;
-    --extended-networking) EXT_NETWORKING=$2 ;;
-    --extended-conformance) EXT_CONFORMANCE=$2 ;;
-    --extra-args) EXTRA_ARGS=$2 ;;
-    --focus) OPT_FOCUS=$2 ;;
-    --skip|--skips) OPT_SKIPS=$2 ;;
+    --calico-version) CALICO_VER=$2; shift ;;
+    --cnx) CNX_VER=$2; shift ;;
+    --extended-networking) EXT_NETWORKING=$2; shift ;;
+    --extended-conformance) EXT_CONFORMANCE=$2; shift ;;
+    --focus) OPT_FOCUS=$2; shift ;;
+    --extra-args) EXTRA_ARGS="$EXTRA_ARGS $2"; shift ;;
+    --prefix) E2E_PREFIX="--prefix $2"; shift ;;
+    --skip|--skips) OPT_SKIPS=$2; shift ;;
     --help) usage ;;
   esac
   shift
