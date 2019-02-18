@@ -15,6 +15,7 @@ package network
 
 import (
 	"fmt"
+	"os"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,7 +64,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 		framework.Logf("Waiting for Server to come up.")
 		err := framework.WaitForPodRunningInNamespace(f.ClientSet, podServer)
 		framework.ExpectNoError(err)
-		podServer,err = calico.GetPodNow(f, f.Namespace.Name, podServer.Name)
+		podServer, err = calico.GetPodNow(f, f.Namespace.Name, podServer.Name)
 		framework.ExpectNoError(err, "pod disappeared?")
 		serverNodeName = podServer.Spec.NodeName
 
@@ -119,15 +120,17 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 			podCustomizer = setNodeAffinity
 		}
 		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
-		//This is a hack for windows to use PodIP instead of Service's ClusterIP
+		//This is a hack for windows to use Service's ClusterIP,instead of DNS name
 		if winctl.RunningWindowsTest() {
 			podTarget, serviceTarget := winctl.GetTarget(f, service, 80)
-			//check connectivity with podIP
-			fmt.Printf("Checking connectivity with podIP :%s \n",podTarget)
-			testCanConnectX(f, f.Namespace, "client-can-connect", service, podTarget, podCustomizer, logServerDiags)
-			//assign service ClusterIP to check connectivity
-			target = serviceTarget
-			fmt.Printf("Checking connectivity with serviceIP :%s \n",target)
+			if os.Getenv("WINDOWS_OS") == "1903" {
+				//check connectivity with ServiceIP
+				fmt.Printf("Checking connectivity with serviceIP :%s \n", serviceTarget)
+				testCanConnectX(f, f.Namespace, "client-can-connect", service, serviceTarget, podCustomizer, logServerDiags)
+			}
+			//assign podIP to check connectivity
+			target = podTarget
+			fmt.Printf("Checking connectivity with podIP :%s \n", target)
 		}
 		testCanConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer, logServerDiags)
 	}
@@ -137,15 +140,17 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 			podCustomizer = setNodeAffinity
 		}
 		target := fmt.Sprintf("%s:%d", service.Spec.ClusterIP, 80)
-		//This is a hack for windows to use PodIP instead of Service's ClusterIP
+		//This is a hack for windows to use Service's ClusterIP,instead of DNS name
 		if winctl.RunningWindowsTest() {
 			podTarget, serviceTarget := winctl.GetTarget(f, service, 80)
-			//check connectivity with podIP
-			fmt.Printf("Checking connectivity with podIP :%s \n",podTarget)
-			testCannotConnectX(f, f.Namespace, "client-can-connect", service, podTarget, podCustomizer)
-			//assign service ClusterIP to check connectivity
-			target = serviceTarget
-			fmt.Printf("Checking connectivity with serviceIP :%s \n",target)
+			if os.Getenv("WINDOWS_OS") == "1903" {
+				//check connectivity with serviceIP
+				fmt.Printf("Checking connectivity with serviceIP :%s \n", serviceTarget)
+				testCannotConnectX(f, f.Namespace, "client-can-connect", service, serviceTarget, podCustomizer)
+			}
+			//assign podIP to check connectivity
+			target = podTarget
+			fmt.Printf("Checking connectivity with podIP :%s \n", target)
 		}
 		testCannotConnectX(f, f.Namespace, "client-can-connect", service, target, podCustomizer)
 	}

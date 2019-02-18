@@ -97,7 +97,15 @@ func GetTarget(f *framework.Framework, service *v1.Service, targetPort int) (str
 //Since we have a known issue related to service ClusterIP on windows,hence using EndpointIP
 // to connect
 func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName string) string {
-	if err := framework.WaitForEndpoint(f.ClientSet, svcNSName, svcName); err != nil {
+	var err error
+	// The default timeout is 1 minute but sometimes Windows pods take a little longer than that.
+	for tries := 3; tries >0; tries -- {
+		err = framework.WaitForEndpoint(f.ClientSet, svcNSName, svcName)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
 		framework.Failf("Unable to get endpoint for service %s: %v", svcName, err)
 	}
 	endpoint, err := f.ClientSet.Core().Endpoints(svcNSName).Get(svcName, metav1.GetOptions{})
