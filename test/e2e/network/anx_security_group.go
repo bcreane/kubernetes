@@ -26,6 +26,7 @@ import (
 
 	"k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo"
@@ -408,7 +409,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 			}
 			BeforeEach(func() {
 				ncCleanupCmd = "rm -f e2e-listen; killall nc"
-				ncConnectCmd = "for i in $(seq 1 5); do timeout -t 1 nc -z %s && exit 0 || sleep 5; done; cat /etc/resolv.conf; exit 1"
+				ncConnectCmd = "for i in $(seq 1 5); do timeout 1 nc -z %s && exit 0 || sleep 5; done; cat /etc/resolv.conf; exit 1"
 				ncInstListenCmd = "nohup /bin/sh -c \"touch e2e-listen; while [ -f e2e-listen ]; do echo Hello from $HOSTNAME  | nc -l %s; done\" &>/dev/null &"
 				var err error
 				// Create command for Instance to run that will connect to the above server pod
@@ -562,6 +563,7 @@ func testCanConnectRds(f *framework.Framework, ns *v1.Namespace, podName string,
 	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
 
 	if err != nil {
+		framework.Logf("Expected pod %s to connect and complete but did not: %s", podClient.Name, err)
 		// Collect/log Calico diags.
 		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
 		if logErr != nil {
@@ -645,8 +647,9 @@ func testCannotConnectRds(f *framework.Framework, ns *v1.Namespace, podName stri
 }
 
 func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, endPoint string, port string, password string, dbName string, sgs []string) *v1.Pod {
-	dbCmd := fmt.Sprintf("PGCONNECT_TIMEOUT=3 PGPASSWORD=%s psql --host=%s --port=%s --username=master --dbname=%s -c 'select 1'",
-		password, endPoint, port, dbName)
+	dbEnv := fmt.Sprintf("PGCONNECT_TIMEOUT=1 PGPASSWORD=%s", password)
+	dbCmd := fmt.Sprintf("psql --host=%s --port=%s --username=master --dbname=%s -c 'select 1'",
+		endPoint, port, dbName)
 
 	sgsNew := []string{}
 	for _, sg := range sgs {
@@ -674,7 +677,9 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 					Args: []string{
 						"/bin/sh",
 						"-c",
-						fmt.Sprintf("for i in $(seq 1 10); do %s && exit 0 || sleep 3; done; exit 1", dbCmd),
+						// psql doesn't seem to be honoring the PGCONNECT_TIMEOUT so use timeout command to force it.
+						fmt.Sprintf("for i in $(seq 1 10); do %s /usr/bin/timeout 1 %s && exit 0 || sleep 3; done; exit 1",
+							dbEnv, dbCmd),
 					},
 				},
 			},
@@ -682,7 +687,14 @@ func createRdsClientPod(f *framework.Framework, namespace *v1.Namespace, podName
 	}
 
 	var err error
-	pod, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
+	var p *v1.Pod
+	p, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
+
+	// Hack for heptio-authenticator-aws where Unauthorized happens sometimes
+	if status, ok := err.(*errors.StatusError); ok && status.ErrStatus.Message == "Unauthorized" {
+		p, err = f.ClientSet.CoreV1().Pods(namespace.Name).Create(pod)
+	}
+	pod = p
 
 	Expect(err).NotTo(HaveOccurred())
 
