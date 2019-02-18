@@ -313,7 +313,7 @@ spec:
     name: default-deny-all
   spec:
     order: 5000
-    selector: all()
+    selector: has(pod-name)
     ingress:
     - action: Deny
       source: {}
@@ -350,6 +350,7 @@ spec:
     name: %s
   spec:
     order: 40
+    selector: has(pod-name)
     egress:
       - action: Allow
         destination:
