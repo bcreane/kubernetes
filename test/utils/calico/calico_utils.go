@@ -1105,6 +1105,9 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		},
 		Spec: batch.JobSpec{
 			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{framework.JobSelectorKey: jobName},
+				},
 				Spec: v1.PodSpec{
 					HostNetwork:   true,
 					RestartPolicy: v1.RestartPolicyOnFailure,
