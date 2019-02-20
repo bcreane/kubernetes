@@ -110,6 +110,7 @@ type DataCountsSpec struct {
 	MissingFieldCount uint64 `json:"missing_field_count"`
 	OutOfOrderTimestampCount uint64 `json:"out_of_order_timestamp_count"`
 	ProcessedFieldCount uint64 `json:"processed_field_count"`
+	ProcessedRecordCount uint64 `json:"processed_record_count"`
 	SparseBucketCount uint64 `json:"sparse_bucket_count"`
 }
 
@@ -294,7 +295,7 @@ type Time time.Time
 func (t *Time) UnmarshalJSON(data []byte) error {
 	var i int64
 	if err := json.Unmarshal(data, &i); err == nil {
-		*t = Time(time.Unix(i, 0))
+		*t = Time(time.Unix(i/1000, (time.Duration(i%1000)*time.Millisecond).Nanoseconds()))
 		return nil
 	}
 	var s string

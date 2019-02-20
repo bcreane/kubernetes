@@ -47,14 +47,14 @@ var Tests = []TestSpec{
 		app.Event{
 			InboundConnectionSpike: &app.SpecInboundConnectionSpike{
 				Service:  "basic",
-				NumFlows: 100000,
+				NumFlows: 1000000,
 				DestPort: 443,
 			},
 		},
 	)},
 	{"ip_sweep_external", "datafeed-ip_sweep_external", GenConfig(0, 0)},
 	{"ip_sweep_pods", "datafeed-ip_sweep_pods", GenConfig(
-		75, 1,
+		10, 1,
 		app.Event{
 			IPSweep: &app.SpecIPSweep{
 				Service: "basic",
@@ -62,7 +62,7 @@ var Tests = []TestSpec{
 		},
 	)},
 	{"pod_outlier_ip_activity", "datafeed-pod_outlier_ip_activity", GenConfig(
-		75, 1,
+		25, 1,
 		app.Event{
 			OutboundIP: &app.SpecOutboundIP{
 				Service:  "basic",
@@ -81,12 +81,12 @@ var Tests = []TestSpec{
 		},
 	)},
 	{"service_bytes_anomaly", "datafeed-service_bytes_anomaly", GenConfig(
-		75, 2,
+		75, 4,
 		app.Event{
 			ServiceBytesAnomaly: &app.SpecServiceBytesAnomaly{
 				Service:     "basic",
 				NumFlows:    100000,
-				NumBytesIn:  10000000,
+				NumBytesIn:  10000000000,
 				NumBytesOut: 1000,
 				DestPort:    443,
 			},
@@ -96,7 +96,7 @@ var Tests = []TestSpec{
 				Service:     "basic",
 				NumFlows:    100000,
 				NumBytesIn:  1000,
-				NumBytesOut: 10000000,
+				NumBytesOut: 10000000000,
 				DestPort:    443,
 			},
 		},

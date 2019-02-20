@@ -2,6 +2,7 @@ package ids
 
 import (
 	"context"
+	"fmt"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"strings"
 	"time"
@@ -11,8 +12,9 @@ import (
 	"github.com/tigera/flowsynth/pkg/out"
 )
 
-const JobTimeout = 180
-const JobPollInterval = 1
+const JobTimeout = time.Second * 180
+const JobPollInterval = time.Second
+const PostFlowsynthSleepTime = 60 * time.Second
 
 func InitClient(uri string) *elastic.Client {
 	client, err := elastic.NewClient(
@@ -102,20 +104,23 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	DeleteIndices(client)
 	framework.Logf("Running Flowsynth for %v.", ts.Job)
 	RunFlowSynth(ctx, ts.Config)
-	framework.Logf("Complete. Sleeping.")
-	time.Sleep(30 * time.Second)
-	framework.Logf("Proceeding.")
+
+	refreshResult, err := client.Refresh().Do(ctx)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(refreshResult.Shards.Failed).To(Equal(0), "No shards failed to refresh.")
 
 	jobStats, err := GetJobStats(ctx, client, ts.Job)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(len(jobStats)).To(Equal(1))
 	Expect(jobStats[0].State).To(Equal("closed"))
 
+	framework.Logf("Opening job %s", ts.Job)
 	opened, err := OpenJob(ctx, client, ts.Job, nil)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(opened).To(BeTrue())
 
 	defer func() {
+		framework.Logf("Closing job %s", ts.Job)
 		closed, err := CloseJob(ctx, client, ts.Job, &CloseJobOptions{
 			Force: true,
 		})
@@ -128,14 +133,18 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	Expect(len(dfStats)).To(Equal(1))
 	Expect(dfStats[0].State).To(Equal("stopped"))
 
-	now := Time(time.Now())
+	framework.Logf("Starting datafeed %s", ts.Datafeed)
+	start := Time(time.Unix(0,0))
+	end := Time(time.Now())
 	started, err := StartDatafeed(ctx, client, ts.Datafeed, &OpenDatafeedOptions{
-		End: &now,
+		Start: &start,
+		End: &end,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(started).To(BeTrue())
 
 	defer func() {
+		framework.Logf("Stopping datafeed %s", ts.Datafeed)
 		stopped, err := StopDatafeed(ctx, client, ts.Datafeed, &CloseDatafeedOptions{
 			Force: true,
 		})
@@ -143,13 +152,26 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 		Expect(stopped).To(BeTrue())
 	}()
 
-	Eventually(func() bool {
+	Eventually(func() string {
 		dfStats, err := GetDatafeedStats(ctx, client, ts.Datafeed)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(dfStats)).To(Equal(1))
 
-		return dfStats[0].State == "closed"
-	}, JobTimeout, JobPollInterval)
+		return dfStats[0].State
+
+	}, JobTimeout, JobPollInterval).
+		Should(Equal("stopped"), fmt.Sprintf("Datafeed runs to completion within %v", JobTimeout))
+	framework.Logf("Job %s completed", ts.Job)
+
+	// This works around a bug in Flowsynth where it is using local time instead of UTC
+	_, offset := time.Now().Zone()
+	tzOffset := time.Duration(int64(offset) * int64(time.Nanosecond))
+
+	jobStats, err = GetJobStats(ctx, client, ts.Job)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(len(jobStats)).To(Equal(1))
+	Expect(jobStats[0].DataCounts.ProcessedRecordCount).To(BeNumerically(">", 0), "Processed record count must be non-zero")
+	Expect(time.Time(jobStats[0].DataCounts.LatestRecordTimestamp)).To(BeTemporally("~", ts.Config.EndTime.Add(tzOffset), time.Second * 3600), "All records must have been processed")
 
 	records, err := GetRecords(ctx, client, ts.Job, &GetRecordsOptions{
 		Start:          &ts.Config.StartTime,
@@ -157,7 +179,6 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 		RecordScore:    ts.Config.RecordScore,
 	})
 	Expect(err).NotTo(HaveOccurred())
-
 	Expect(len(records) >= ts.Config.NumRecords).To(BeTrue(),
 	"At least %d anomalies were detected with score >= 75", ts.Config.NumRecords)
 }
