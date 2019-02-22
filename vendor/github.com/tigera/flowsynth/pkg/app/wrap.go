@@ -4,9 +4,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/tigera/flowsynth/pkg/flows"
-	"github.com/tigera/flowsynth/pkg/scheduler"
 	"github.com/tigera/flowsynth/pkg/util"
+
+	"github.com/tigera/flowsynth/pkg/scheduler"
+
+	"github.com/tigera/flowsynth/pkg/flows"
 )
 
 type WrappedApp struct {
@@ -26,25 +28,6 @@ type Event struct {
 	InboundConnectionSpike *SpecInboundConnectionSpike
 	ServiceBytesAnomaly    *SpecServiceBytesAnomaly
 	OutboundIP             *SpecOutboundIP
-}
-
-func (e Event) MarshalYAML() (interface{}, error) {
-	es := struct {
-		At                     string                      `yaml:"At"`
-		PortScan               *SpecPortScan               `yaml:"PortScan"`
-		IPSweep                *SpecIPSweep                `yaml:"IPSweep"`
-		InboundConnectionSpike *SpecInboundConnectionSpike `yaml:"InboundConnectionSpike"`
-		ServiceBytesAnomaly    *SpecServiceBytesAnomaly    `yaml:"ServiceBytesAnomaly"`
-		OutboundIP             *SpecOutboundIP             `yaml:"OutboundIP"`
-	}{
-		e.At.Format("2006-01-02"),
-		e.PortScan,
-		e.IPSweep,
-		e.InboundConnectionSpike,
-		e.ServiceBytesAnomaly,
-		e.OutboundIP,
-	}
-	return &es, nil
 }
 
 func (e *Event) UnmarshalYAML(unmarshal func(interface{}) error) error {

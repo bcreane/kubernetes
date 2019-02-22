@@ -147,28 +147,6 @@ type UpstreamConfig struct {
 	ExternalPort int
 }
 
-func (c UpstreamConfig) MarshalYAML() (interface{},error) {
-	var externalNets []string
-	for _, net := range c.ExternalNets {
-		externalNets = append(externalNets, net.String())
-	}
-	es := struct {
-		Weight              float64  `yaml:"Weight"`
-		ConstantFlowsPerSec float64  `yaml:"ConstantFlowsPerSec"`
-		Service             string   `yaml:"Service"`
-		ExternalNets        []string `yaml:"ExternalNets"`
-		ExternalPort        int      `yaml:"ExternalPort"`
-	}{
-		c.Weight,
-		c.ConstantFlowsPerSec,
-		c.Service,
-		externalNets,
-		c.ExternalPort,
-	}
-
-	return &es, nil
-}
-
 func (c *UpstreamConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var es struct {
 		Weight              float64  `yaml:"Weight"`

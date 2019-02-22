@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	FlowLogIndexPrefix = "tigera_secure_ee_flows.cluster."
+	FlowLogIndexPrefix = "tigera_secure_ee_flows.flowsynth."
 )
 
 const mapping = `{
@@ -141,23 +141,6 @@ type ElasticOutConfig struct {
 	Password   string
 	PathToCA   string
 	NumWorkers int
-}
-
-func (c ElasticOutConfig) MarshalYAML() (interface{}, error) {
-	ec := struct {
-		URL        string `yaml:"URL"`
-		Username   string `yaml:"Username"`
-		Password   string `yaml:"Password"`
-		PathToCA   string `yaml:"PathToCA"`
-		NumWorkers int    `yaml:"NumWorkers"`
-	}{
-		c.URL.String(),
-		c.Username,
-		c.Password,
-		c.PathToCA,
-		c.NumWorkers,
-	}
-	return &ec, nil
 }
 
 func ElasticOutConfigFromSpec(spec interface{}) ElasticOutConfig {
