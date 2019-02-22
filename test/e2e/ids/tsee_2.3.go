@@ -26,6 +26,9 @@ var _ = SIGDescribe("[Feature:CNX-v3-IDS]", func() {
 		BeforeEach(func() {
 			client = InitClient(GetURI())
 		})
+		AfterEach(func() {
+			DeleteIndices(client)
+		})
 
 		It("Machine Learning is enabled", func() { MachineLearningEnabled(client) })
 
