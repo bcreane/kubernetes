@@ -109,8 +109,8 @@ func TestGetPrefix(t *testing.T) {
 }
 
 func TestTarUntar(t *testing.T) {
-	dir, err := ioutil.TempDir(os.TempDir(), "input")
-	dir2, err2 := ioutil.TempDir(os.TempDir(), "output")
+	dir, err := ioutil.TempDir("", "input")
+	dir2, err2 := ioutil.TempDir("", "output")
 	if err != nil || err2 != nil {
 		t.Errorf("unexpected error: %v | %v", err, err2)
 		t.FailNow()
@@ -160,74 +160,74 @@ func TestTarUntar(t *testing.T) {
 	for _, file := range files {
 		filepath := path.Join(dir, file.name)
 		if err := os.MkdirAll(path.Dir(filepath), 0755); err != nil {
-			t.Errorf("unexpected error: %v", err)
-			t.FailNow()
+			t.Fatalf("unexpected error: %v", err)
 		}
 		if file.fileType == RegularFile {
 			f, err := os.Create(filepath)
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				t.FailNow()
+				t.Fatalf("unexpected error: %v", err)
 			}
 			defer f.Close()
 			if _, err := io.Copy(f, bytes.NewBuffer([]byte(file.data))); err != nil {
-				t.Errorf("unexpected error: %v", err)
-				t.FailNow()
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
 			}
 		} else if file.fileType == SymLink {
 			err := os.Symlink(file.data, filepath)
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				t.FailNow()
+				t.Fatalf("unexpected error: %v", err)
 			}
 		} else {
-			t.Errorf("unexpected file type: %v", file)
-			t.FailNow()
+			t.Fatalf("unexpected file type: %v", file)
 		}
 
 	}
 
 	writer := &bytes.Buffer{}
 	if err := makeTar(dir, dir, writer); err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	reader := bytes.NewBuffer(writer.Bytes())
 	if err := untarAll(reader, dir2, ""); err != nil {
-		t.Errorf("unexpected error: %v", err)
-		t.FailNow()
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	for _, file := range files {
-		absPath := dir2 + strings.TrimPrefix(dir, os.TempDir())
-		filepath := path.Join(absPath, file.name)
+		absPath := filepath.Join(dir2, strings.TrimPrefix(dir, os.TempDir()))
+		filePath := filepath.Join(absPath, file.name)
 
 		if file.fileType == RegularFile {
-			f, err := os.Open(filepath)
+			f, err := os.Open(filePath)
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			defer f.Close()
 			buff := &bytes.Buffer{}
-			io.Copy(buff, f)
-
+			if _, err := io.Copy(buff, f); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
 			if file.data != string(buff.Bytes()) {
-				t.Errorf("expected: %s, saw: %s", file.data, string(buff.Bytes()))
+				t.Fatalf("expected: %s, saw: %s", file.data, string(buff.Bytes()))
 			}
 		} else if file.fileType == SymLink {
-			dest, err := os.Readlink(filepath)
+			dest, err := os.Readlink(filePath)
 
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			if file.data != dest {
-				t.Errorf("expected: %s, saw: %s", file.data, dest)
+				t.Fatalf("expected: %s, saw: %s", file.data, dest)
 			}
 		} else {
-			t.Errorf("unexpected file type: %v", file)
-			t.FailNow()
+			t.Fatalf("unexpected file type: %v", file)
 		}
 	}
 }
@@ -419,6 +419,81 @@ func TestTarDestinationName(t *testing.T) {
 
 		if !strings.HasPrefix(hdr.Name, path.Base(dir2)) {
 			t.Errorf("expected %q as destination filename prefix, saw: %q", path.Base(dir2), hdr.Name)
+		}
+	}
+}
+
+func TestBadTar(t *testing.T) {
+	dir, err := ioutil.TempDir(os.TempDir(), "dest")
+	if err != nil {
+		t.Errorf("unexpected error: %v ", err)
+		t.FailNow()
+	}
+	defer os.RemoveAll(dir)
+
+	// More or less cribbed from https://golang.org/pkg/archive/tar/#example__minimal
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	var files = []struct {
+		name string
+		body string
+	}{
+		{"/prefix/../../../tmp/foo", "Up to temp"},
+		{"/prefix/foo/bar/../../home/bburns/names.txt", "Down and back"},
+	}
+	for _, file := range files {
+		hdr := &tar.Header{
+			Name: file.name,
+			Mode: 0600,
+			Size: int64(len(file.body)),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Errorf("unexpected error: %v ", err)
+			t.FailNow()
+		}
+		if _, err := tw.Write([]byte(file.body)); err != nil {
+			t.Errorf("unexpected error: %v ", err)
+			t.FailNow()
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Errorf("unexpected error: %v ", err)
+		t.FailNow()
+	}
+
+	if err := untarAll(&buf, dir, "/prefix"); err != nil {
+		t.Errorf("unexpected error: %v ", err)
+		t.FailNow()
+	}
+
+	for _, file := range files {
+		_, err := os.Stat(path.Join(dir, path.Clean(file.name[len("/prefix"):])))
+		if err != nil {
+			t.Errorf("Error finding file: %v", err)
+		}
+	}
+
+}
+
+func TestClean(t *testing.T) {
+	tests := []struct {
+		input   string
+		cleaned string
+	}{
+		{
+			"../../../tmp/foo",
+			"/tmp/foo",
+		},
+		{
+			"/../../../tmp/foo",
+			"/tmp/foo",
+		},
+	}
+
+	for _, test := range tests {
+		out := clean(test.input)
+		if out != test.cleaned {
+			t.Errorf("Expected: %s, saw %s", test.cleaned, out)
 		}
 	}
 }

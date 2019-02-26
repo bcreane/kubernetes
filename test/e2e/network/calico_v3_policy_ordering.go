@@ -16,7 +16,7 @@ package network
 import (
 	"fmt"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
@@ -140,9 +140,10 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 	It("should be contactable [Feature:WindowsPolicy]", expectConnection)
 
 	var (
-		names    []string
-		orders   []int
-		policies []string
+		names           []string
+		orders          []int
+		policies        []string
+		policiesApplied []string
 	)
 
 	Context("with policies", func() {
@@ -167,6 +168,7 @@ var _ = framework.KubeDescribe("[Feature:CalicoPolicy-v3] policy ordering", func
 				selector = `police-me == "true"`
 				calicoctl.AvoidNode(serverNodeName)
 			}
+			policiesApplied = []string{}
 			for ii := range policies {
 				policyStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
@@ -180,6 +182,7 @@ spec:
 `,
 					names[ii], selector, orders[ii], policies[ii])
 				calicoctl.Apply(policyStr)
+				policiesApplied = append(policiesApplied, names[ii])
 			}
 			if hostNetworkedServer {
 				hostEpStr := fmt.Sprintf(`
@@ -206,9 +209,10 @@ spec:
 			if hostNetworkedServer {
 				calicoctl.DeleteHE("server-host-ep")
 			}
-			for ii := range policies {
-				calicoctl.DeleteGNP(names[ii])
+			for _, policyName := range policiesApplied {
+				calicoctl.DeleteGNP(policyName)
 			}
+			policiesApplied = []string{}
 			calicoctl.Cleanup()
 		})
 

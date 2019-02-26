@@ -65,7 +65,7 @@ func ConfigureAwsctl(f *framework.Framework, opts ...AwsctlOptions) *Awsctl {
 	framework.Logf("Got aws config %#v", ctl.Config)
 
 	// Create Cloud client handler
-	ctl.Client, err = NewCloudHandler(f.BaseName, ctl.Config.Region, framework.Logf)
+	ctl.Client, err = NewCloudHandler(f.BaseName+"-"+framework.TestContext.Prefix, ctl.Config.Region, framework.Logf)
 	Expect(err).NotTo(HaveOccurred(), "Unable to create aws cloud handler: %v", err)
 
 	// Get aws info

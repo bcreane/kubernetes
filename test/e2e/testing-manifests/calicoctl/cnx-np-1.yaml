@@ -2,6 +2,8 @@ apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
   name: {{.Name}}
+  labels:
+    foobarbaz: "{{.Label}}"
 spec:
   tier: {{.TierName}}
   selector: role == 'database'

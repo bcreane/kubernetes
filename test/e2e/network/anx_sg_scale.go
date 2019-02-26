@@ -41,9 +41,6 @@ const (
 // The test runs Anx security group scale testing.
 var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", func() {
 	var awsctl *aws.Awsctl
-	var sgRds, subnetGroup string
-	var rds, endPoint, port string
-	var portInt64 int64
 
 	var podSgs []string
 
@@ -79,35 +76,18 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 
 		// Cleanup AWS resources created for the test.
 
-		// Revoke all ingress rules for sgRDS first.
-		if sgRds != "" {
-			err := awsctl.Client.RevokeSecurityGroupsIngress(sgRds)
-			Expect(err).NotTo(HaveOccurred())
-		}
-
 		// Cleanup and reinitialise podSg.
 		for _, sg := range podSgs {
 			err := awsctl.Client.DeleteVpcSG(sg)
 			Expect(err).NotTo(HaveOccurred())
 		}
 		podSgs = nil
-
-		// Cleanup rds instance and associated sg and subnet group.
-		if rds != "" {
-			err := awsctl.Client.DeleteRDSInstance(rds)
-			Expect(err).NotTo(HaveOccurred())
-		}
-		if sgRds != "" {
-			err := awsctl.Client.DeleteVpcSG(sgRds)
-			Expect(err).NotTo(HaveOccurred())
-		}
-		if subnetGroup != "" {
-			err := awsctl.Client.DeleteDBSubnetGroup(subnetGroup)
-			Expect(err).NotTo(HaveOccurred())
-		}
 	})
 
 	Context(fmt.Sprintf("%d SGs with rds instance", numSGs), func() {
+		var sgRds, subnetGroup string
+		var rds, endPoint, port string
+		var portInt64 int64
 		BeforeEach(func() {
 			var err error
 
@@ -146,6 +126,36 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			}, 2*time.Minute).ShouldNot(HaveOccurred())
 		})
 
+		AfterEach(func() {
+			// Revoke all ingress rules for sgRDS first.
+			if sgRds != "" {
+				err := awsctl.Client.RevokeSecurityGroupsIngress(sgRds)
+				Expect(err).NotTo(HaveOccurred())
+
+				for _, pSg := range podSgs {
+					err := awsctl.Client.RevokeSecurityGroupsIngress(pSg)
+					Expect(err).NotTo(HaveOccurred())
+					err = awsctl.Client.RevokeSecurityGroupsEgress(pSg)
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+			}
+
+			// Cleanup rds instance and associated sg and subnet group.
+			if rds != "" {
+				err := awsctl.Client.DeleteRDSInstance(rds)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			if sgRds != "" {
+				err := awsctl.Client.DeleteVpcSG(sgRds)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			if subnetGroup != "" {
+				err := awsctl.Client.DeleteDBSubnetGroup(subnetGroup)
+				Expect(err).NotTo(HaveOccurred())
+			}
+		})
+
 		allowOneSGToRdsSG := func(podSG string) {
 			By("Add ingress allow rule to RDS sg to allow traffic from one pod SG")
 			err := awsctl.Client.AuthorizeSGIngressSrcSG(sgRds, "tcp", portInt64, portInt64, []string{sgRds, podSG})
@@ -154,6 +164,28 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			By("Add ingress allow rule to one pod SG to allow traffic from RDS sg")
 			err = awsctl.Client.AuthorizeSGIngressSrcSG(podSG, "tcp", 0, 65535, []string{sgRds})
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the Security Group changes are reflected in Calico policies")
+			Eventually(func() error {
+				gnp, err := framework.RunKubectl("get", "globalnetworkpolicies",
+					fmt.Sprintf("sg-local.%s", sgRds), "-o", "yaml")
+				if err != nil {
+					return fmt.Errorf("GNP sg-local.%s for SG was not found: %v", sgRds, err)
+				}
+				if !strings.Contains(gnp, fmt.Sprintf("- %d", portInt64)) {
+					return fmt.Errorf("sg-local.%s does not contain port %d:\n%s", sgRds, portInt64, gnp)
+				}
+
+				gnp, err = framework.RunKubectl("get", "globalnetworkpolicies",
+					fmt.Sprintf("sg-local.%s", podSG), "-o", "yaml")
+				if err != nil {
+					return fmt.Errorf("GNP sg-local.%s for SG was not found: %v", podSG, err)
+				}
+				if !strings.Contains(gnp, sgRds) {
+					return fmt.Errorf("sg-local.%s does not contain %s:\n%s", podSG, sgRds, gnp)
+				}
+				return nil
+			}, 2*time.Minute).ShouldNot(HaveOccurred())
 		}
 
 		// runTest start numSGs goroutines to test connection from pods to rds instance.
@@ -176,6 +208,9 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 					}
 
 				}(i)
+				// This helps with running in EKS with heptio-authenticator-aws
+				// (it was producing Unauthenticated errors)
+				time.Sleep(time.Second)
 			}
 
 			// Wait for all test goroutines to complete.
@@ -211,7 +246,6 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			testCannotConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, podSgs)
 
 			allowOneSGToRdsSG(oneSG)
-			waitForSG()
 
 			By("client pod should be able to access rds service")
 			testCanConnectRds(f, f.Namespace, "rds-client", endPoint, port, RDSPassword, RDSDBName, podSgs)
@@ -229,7 +263,6 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 			oneSG := podSgs[randNum] // Select one random SG.
 
 			allowOneSGToRdsSG(oneSG)
-			waitForSG()
 
 			runTest(randNum)
 

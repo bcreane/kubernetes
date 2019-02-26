@@ -3,8 +3,10 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -237,23 +239,46 @@ spec:
 				serverSyslogCount := calico.CountSyslogLines(f, serverNode)
 
 				By("Creating client-a-80 that tries to connect on port 80")
-				switch dropActionOverride {
-				case "Drop", "", "LogAndDrop":
-					testCannotConnect(f, ns, "client-a-80", service, 80)
-				case "Accept", "LogAndAccept":
-					testCanConnect(f, ns, "client-a-80", service, 80)
-				default:
-					panic("Unhandled override setting")
-				}
+				// Repeatedly generate traffic on a goroutine until we see denied
+				// packet metrics (or time out looking for metrics).  This
+				// prevents a race condition where Felix is still applying
+				// the drop action override when the traffic first arrives.
+				cxt, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				// Use a wait group to ensure the goroutine can finish before
+				// tearing down the test.
+				wg := sync.WaitGroup{}
+				wg.Add(1)
+				go func() {
+					defer GinkgoRecover()
+					defer wg.Done()
+					for {
+						select {
+						case <-cxt.Done():
+							return
+						default:
+							// proceed
+						}
+						switch dropActionOverride {
+						case "Drop", "", "LogAndDrop":
+							testCannotConnect(f, ns, "client-a-80", service, 80)
+						case "Accept", "LogAndAccept":
+							testCanConnect(f, ns, "client-a-80", service, 80)
+						default:
+							panic("Unhandled override setting")
+						}
+					}
+				}()
 
 				// Regardless of DropActionOverride, there should always be an
 				// increase in the calico_denied_packets metric.
-				sumFn := func() int64 {return sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP)}
-				Eventually(sumFn, 90 * time.Second).Should(BeNumerically(">", initPackets))
+				sumFn := func() int64 { return sumCalicoDeniedPackets(f, serverPodNow.Status.HostIP) }
+				Eventually(sumFn, 90*time.Second).Should(BeNumerically(">", initPackets))
+				cancel()
 
 				// When DropActionOverride begins with "Log", there should be new
 				// syslogs for the packets to port 80.
-				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, "calico-drop")
+				newDropLogs := calico.GetNewCalicoDropLogs(f, serverNode, serverSyslogCount, calico.DropPrefix)
 				framework.Logf("New drop logs: %#v", newDropLogs)
 				if strings.HasPrefix(dropActionOverride, "Log") {
 					if len(newDropLogs) >= 0 {
@@ -270,6 +295,12 @@ spec:
 				calico.Calicoq("policy", "policydeny")
 				calico.Calicoq("host", serverNodeName)
 				calico.Calicoq("endpoint", "client")
+
+				// Wait until the now-cancelled traffic generation goroutine
+				// exits before tearing down this test.  If we tear down the
+				// test while the routine is still running, it can trigger a
+				// failure from within the goroutine.
+				wg.Wait()
 			}
 		}
 		It("not set, profileDeny", testFunc(
