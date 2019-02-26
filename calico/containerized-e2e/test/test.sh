@@ -30,3 +30,4 @@ runner '--cnx v3 --extra-args -ginkgo.dryRun' 'grep -F "\[Feature:CNX-v3\]|\[Fea
 runner '--calico-version v2 --extra-args -ginkgo.dryRun' 'grep -F "\[Feature:CalicoPolicy-v2\]'
 runner '--extended-networking true --extra-args -ginkgo.dryRun' 'grep -F "(Network|Pods|Services).*(\[Conformance\])|\[Feature:NetworkPolicy\]|\[Feature:Ingress\]"'
 runner '--focus customFocus --extra-args -ginkgo.dryRun' 'grep -F customFocus'
+runner '--list-tests' 'grep -F "Feature:CNX"'
