@@ -113,7 +113,7 @@ while [ -n "$1" ]; do
     --extra-args) EXTRA_ARGS="$EXTRA_ARGS $2"; shift ;;
     --prefix) E2E_PREFIX="--prefix $2"; shift ;;
     --skip|--skips) OPT_SKIPS=$2; shift ;;
-    --list-tests|--list-test|--list) LIST_TESTS=true; shift ;;
+    --list-tests|--list-test|--list) LIST_TESTS=true ;;
     --help) usage ;;
   esac
   shift
