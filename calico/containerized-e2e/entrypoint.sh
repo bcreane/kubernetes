@@ -78,6 +78,10 @@ function focus_info {
   -report-dir=/report $E2E_PREFIX $EXTRA_ARGS"
 }
 
+function list_tests {
+  cat tests.txt
+}
+
 function usage {
   cat <<EOF
 Usage: $0 \
@@ -95,6 +99,7 @@ Arguments:
                                         [default: e2e]
   --skip <SKIPS>                        Control which tests are skipped by ginkgo. This is in addition to any
                                         skipped tests controlled by calico/cnx/extended options.
+  --list-tests                          List all e2e tests
 EOF
   exit 0
 }
@@ -108,6 +113,7 @@ while [ -n "$1" ]; do
     --extra-args) EXTRA_ARGS="$EXTRA_ARGS $2"; shift ;;
     --prefix) E2E_PREFIX="--prefix $2"; shift ;;
     --skip|--skips) OPT_SKIPS=$2; shift ;;
+    --list-tests|--list-test|--list) LIST_TESTS=true ;;
     --help) usage ;;
   esac
   shift
@@ -116,6 +122,7 @@ done
 # build out expected calico/cnx focus cmds
 if [ -n "$CALICO_VER" ]; then focus_calico ; fi
 if [ -n "$CNX_VER" ]; then focus_cnx ; fi
+if [ $LIST_TESTS ]; then list_tests ; exit 0; fi
 
 # Combine the focus and skip regexes.
 FOCUS=$(combine_regex "|" "$DEF_FOCUS" "$OPT_FOCUS" "$CALICO_FOCUS" "$CNX_FOCUS")
