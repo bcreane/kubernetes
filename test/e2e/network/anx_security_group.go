@@ -136,7 +136,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 					}
 				}
 				return fmt.Errorf("RDS Instance %s did not have trust SG: %v", rds, sgs)
-			}, 2*time.Minute).ShouldNot(HaveOccurred())
+			}, 2*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 		})
 
 		It("should allow pod to connect rds instance with allow SG", func() {
@@ -245,7 +245,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 				}
 				podInSg2 = pod
 				return nil
-			}, time.Minute).ShouldNot(HaveOccurred())
+			}, time.Minute, 5*time.Second).ShouldNot(HaveOccurred())
 
 			// Wait for the SGs created to show up as globalnetworkpolicies
 			Eventually(func() error {
@@ -263,7 +263,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 					return fmt.Errorf("GNPs do not contain policy for SG %s", sg3)
 				}
 				return nil
-			}, 3*time.Minute).ShouldNot(HaveOccurred())
+			}, 3*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 		})
 
 		AfterEach(func() {
@@ -293,7 +293,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 						return nil
 					}
 					return fmt.Errorf("PodDefaultSG does not contain DNS port\n%s", gnp)
-				}, 3*time.Minute).ShouldNot(HaveOccurred())
+				}, 3*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 			})
 			AfterEach(func() {
 				err := awsctl.RestoreIngressRulesInTigeraPodDefaultSG()
@@ -314,7 +314,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 						return nil
 					}
 					return fmt.Errorf("PodDefaultSG still contains DNS port:\n%s", gnp)
-				}, 3*time.Minute).ShouldNot(HaveOccurred())
+				}, 3*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 			})
 
 			It("should allow pod with SG 1 label to connect to pod with SG 2 label", func() {
@@ -435,7 +435,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 					}
 
 					return nil
-				}, 5*time.Minute).ShouldNot(HaveOccurred())
+				}, 5*time.Minute, 20*time.Second).ShouldNot(HaveOccurred())
 			})
 			AfterEach(func() {
 				err := awsctl.Client.DeleteInstance(instanceSg1Id)

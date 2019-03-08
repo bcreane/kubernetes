@@ -123,7 +123,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 					}
 				}
 				return fmt.Errorf("RDS Instance %s did not have trust SG: %v", rds, sgs)
-			}, 2*time.Minute).ShouldNot(HaveOccurred())
+			}, 2*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 		})
 
 		AfterEach(func() {
@@ -185,7 +185,7 @@ var _ = SIGDescribe("[Feature:Anx-SG-Scale] anx security group scale testing", f
 					return fmt.Errorf("sg-local.%s does not contain %s:\n%s", podSG, sgRds, gnp)
 				}
 				return nil
-			}, 2*time.Minute).ShouldNot(HaveOccurred())
+			}, 2*time.Minute, 5*time.Second).ShouldNot(HaveOccurred())
 		}
 
 		// runTest start numSGs goroutines to test connection from pods to rds instance.
