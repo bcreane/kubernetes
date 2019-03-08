@@ -396,11 +396,8 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 			framework.Logf("Error getting Calico diags: %v", logErr)
 		}
 
-		// Collect pod logs when we see a failure.
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
-		if logErr != nil {
-			framework.Failf("Error getting container logs: %s", logErr)
-		}
+		// Collect pod describe and logs when we see a failure.
+		logs := calico.GetPodInfo(f, podClient)
 
 		// Collect current NetworkPolicies applied in the test namespace.
 		policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
@@ -450,11 +447,8 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 	// We expect an error here since it's a cannot connect test.
 	// Dump debug information if the error was nil.
 	if err == nil {
-		// Collect pod logs when we see a failure.
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
-		if logErr != nil {
-			framework.Failf("Error getting container logs: %s", logErr)
-		}
+		// Collect pod describe and logs when we see a failure.
+		logs := calico.GetPodInfo(f, podClient)
 
 		// Collect current NetworkPolicies applied in the test namespace.
 		policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})

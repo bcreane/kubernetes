@@ -506,6 +506,30 @@ func CleanupServerPod(f *framework.Framework, pod *v1.Pod) {
 	}
 }
 
+func GetPodInfo(f *framework.Framework, pod *v1.Pod) string {
+	info := ""
+
+	ns := pod.ObjectMeta.Namespace
+	pn := pod.ObjectMeta.Name
+
+	desc, err := framework.RunKubectl("describe", "po", pn, fmt.Sprintf("--namespace=%v", ns))
+	if err != nil {
+		framework.Failf("Error getting pod description: %s", err)
+	}
+	info += fmt.Sprintf("STARTDESCRIBE\n%s\nENDDESCRIBE for pod %s:%s\n\n", desc, ns, pn)
+
+	for _, container := range pod.Spec.Containers {
+		logs, err := framework.GetPodLogs(f.ClientSet, ns, pn, container.Name)
+		if err == nil {
+			info += fmt.Sprintf("STARTLOG\n%s\nENDLOG for container %s:%s:%s\n\n", logs, ns, pn, container.Name)
+		} else {
+			info += fmt.Sprintf("STARTLOG\nError getting logs for container %s:%s:%s: %s\nENDLOG\n\n", ns, pn, container.Name, err)
+		}
+	}
+
+	return info
+}
+
 func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {
 	var imageUrl, commandStr string
 	var podArgs []string
@@ -1151,11 +1175,11 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 				v1.DockerConfigJsonKey: dockerCfg,
 			},
 		}
-		framework.Logf("Image secret is %v", *secret)
 		_, err = f.ClientSet.CoreV1().Secrets(f.Namespace.Name).Create(secret)
 		if err != nil && !kerr.IsAlreadyExists(err) {
 			framework.Failf("unable to create calicoctl secret %s in ns %s: %v", secretName, f.Namespace.Name, err)
 		}
+		framework.Logf("Image secret is loaded from %s", dockerCfgFile)
 	}
 	if c.etcdCaFile != "" || c.etcdCertFile != "" || c.etcdKeyFile != "" {
 		framework.Logf("etcd is secured, adding certs to calicoctl pod")
@@ -1232,23 +1256,23 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 		}
 	}()
 
+	allLogs := ""
 	jobErr := framework.WaitForJobFinish(f.ClientSet, jobClient.Namespace, jobClient.Name, 1)
 	if jobErr != nil {
-		framework.Logf("calicoctl job %v got error %v, %#", jobClient, err)
+		framework.Logf("calicoctl job %v got error %v", jobClient, jobErr)
+		desc, err := framework.RunKubectl("describe", "job", jobClient.Name, fmt.Sprintf("--namespace=%v", jobClient.Namespace))
+		if err != nil {
+			framework.Failf("Error getting job description: %s", err)
+		}
+		allLogs += fmt.Sprintf("STARTJOBDESCRIBE\n%s\nENDJOBDESCRIBE for job %s:%s", desc, jobClient.Namespace, jobClient.Name)
 	}
 
 	// Collect pod logs regardless of execution result.
 	pl, err := framework.GetJobPods(f.ClientSet, jobClient.Namespace, jobClient.Name)
 	Expect(err).NotTo(HaveOccurred(), "could not get pods in calicoctl job")
-	allLogs := ""
 	for _, pod := range pl.Items {
-		logs, logErr := framework.GetPodLogs(f.ClientSet, f.Namespace.Name, pod.Name, calicoctlContainerName)
-		if logErr != nil {
-			framework.Failf("Error getting container logs: %s", logErr)
-		}
-		allLogs += fmt.Sprintf("STARTLOG\n%s\nENDLOG for container %s:%s:%s\n\n", logs, f.Namespace.Name, pod.Name, calicoctlContainerName)
+		allLogs += GetPodInfo(f, &pod)
 	}
-	framework.Logf("Getting current log for calicoctl: %s", allLogs)
 
 	return allLogs, jobErr
 }
