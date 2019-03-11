@@ -171,7 +171,7 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(len(jobStats)).To(Equal(1))
 	Expect(jobStats[0].DataCounts.ProcessedRecordCount).To(BeNumerically(">", 0), "Processed record count must be non-zero")
-	Expect(time.Time(jobStats[0].DataCounts.LatestRecordTimestamp)).To(BeTemporally("~", ts.Config.EndTime.Add(tzOffset), time.Second * 3600), "All records must have been processed")
+	Expect(time.Time(jobStats[0].DataCounts.LatestRecordTimestamp)).To(BeTemporally(">=", ts.Config.EndTime.Add(tzOffset).Add(-time.Second*3600)), "All records must have been processed")
 
 	records, err := GetRecords(ctx, client, ts.Job, &GetRecordsOptions{
 		Start:          &ts.Config.StartTime,
