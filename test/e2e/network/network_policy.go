@@ -28,6 +28,7 @@ import (
 	"k8s.io/kubernetes/test/utils/winctl"
 
 	"fmt"
+	"os"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -363,9 +364,17 @@ var _ = SIGDescribe("[Feature:NetworkPolicy]", func() {
 
 func testCanConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
-	//This is a hack for windows to use PodIP instead of Service's ClusterIP
+	// This is a hack for windows to use Service's ClusterIP,instead of DNS name.
 	if winctl.RunningWindowsTest() {
-		target = winctl.GetTarget(f, service, targetPort)
+		podTarget, serviceTarget := winctl.GetTarget(f, service, targetPort)
+		if os.Getenv("WINDOWS_OS") == "1903" {
+			// use Service ClusterIP to check connectivity with server
+			fmt.Printf("Checking connectivity with serviceIP: %s\n", serviceTarget)
+			testCanConnectX(f, ns, podName, service, serviceTarget, func(pod *v1.Pod) {}, func() {})
+		}
+		// assign podIP to check connectivity
+		target = podTarget
+		fmt.Printf("Checking connectivity with podIP: %s\n", target)
 	}
 	testCanConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {}, func() {})
 }
@@ -377,27 +386,37 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
 			framework.Failf("unable to cleanup pod %v: %v", podClient.Name, err)
 		}
-
 	}()
 
 	framework.Logf("Waiting for %s to complete.", podClient.Name)
 	err := framework.WaitForPodNoLongerRunningInNamespace(f.ClientSet, podClient.Name, ns.Name)
-	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
-
-	framework.Logf("Waiting for %s to complete.", podClient.Name)
-	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
 	if err != nil {
+		framework.Logf("Pod did not FINISH as expected, skipping to diags collection: %v", err)
+	}
+	if err == nil {
+		framework.Logf("Waiting for %s to report success.", podClient.Name)
+		err = framework.WaitForPodSuccessInNamespace(f.ClientSet, podClient.Name, ns.Name)
+	}
+	if err != nil {
+		defer framework.MaybeWaitForInvestigation()
+
+		framework.Logf("FAIL: Pod %s should be able to connect to service %s, but was not able to connect.", podClient.Name, service.Name)
+		By("Collecting diagnostics after failure")
+
 		// Run caller's failure hook first.
 		onFailure()
 
 		// Collect/log Calico diags.
-		logErr := calico.LogCalicoDiagsForPodNode(f, podClient.Name)
+		logErr := calico.LogCalicoDiagsForPodNode(f, ns.Name, podClient.Name)
 		if logErr != nil {
 			framework.Logf("Error getting Calico diags: %v", logErr)
 		}
 
-		// Collect pod describe and logs when we see a failure.
-		logs := calico.GetPodInfo(f, podClient)
+		// Collect pod logs when we see a failure.
+		logs, logErr := framework.GetPodLogs(f.ClientSet, ns.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
+		if logErr != nil {
+			framework.Failf("Error getting container logs: %s", logErr)
+		}
 
 		// Collect current NetworkPolicies applied in the test namespace.
 		policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
@@ -425,9 +444,17 @@ func testCanConnectX(f *framework.Framework, ns *v1.Namespace, podName string, s
 
 func testCannotConnect(f *framework.Framework, ns *v1.Namespace, podName string, service *v1.Service, targetPort int) {
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
-	//This is a hack for windows to use PodIP instead of Service's ClusterIP
+	// This is a hack for windows to use Service's ClusterIP,instead of DNS name
 	if winctl.RunningWindowsTest() {
-		target = winctl.GetTarget(f, service, targetPort)
+		podTarget, serviceTarget := winctl.GetTarget(f, service, targetPort)
+		if os.Getenv("WINDOWS_OS") == "1903" {
+			// use Service ClusterIP to check connectivity with server
+			fmt.Printf("Checking connectivity with serviceIP :%s \n", serviceTarget)
+			testCannotConnectX(f, ns, podName, service, serviceTarget, func(pod *v1.Pod) {})
+		}
+		// assign podIP to check connectivity
+		target = podTarget
+		fmt.Printf("Checking connectivity with podIP :%s \n", target)
 	}
 	testCannotConnectX(f, ns, podName, service, target, func(pod *v1.Pod) {})
 }
@@ -447,8 +474,16 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 	// We expect an error here since it's a cannot connect test.
 	// Dump debug information if the error was nil.
 	if err == nil {
-		// Collect pod describe and logs when we see a failure.
-		logs := calico.GetPodInfo(f, podClient)
+		defer framework.MaybeWaitForInvestigation()
+
+		framework.Logf("FAIL: Pod %s should not be able to connect to service %s, but was able to connect.", podClient.Name, service.Name)
+		By("Collecting diagnostics after failure")
+
+		// Collect pod logs when we see a failure.
+		logs, logErr := framework.GetPodLogs(f.ClientSet, ns.Name, podClient.Name, fmt.Sprintf("%s-container", podName))
+		if logErr != nil {
+			framework.Failf("Error getting container logs: %s", logErr)
+		}
 
 		// Collect current NetworkPolicies applied in the test namespace.
 		policies, err := f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).List(metav1.ListOptions{})
@@ -456,8 +491,14 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 			framework.Logf("error getting current NetworkPolicies for %s namespace: %s", f.Namespace.Name, err)
 		}
 
+		// Collect current NetworkPolicies applied in the pod namespace.
+		policies2, err := f.ClientSet.NetworkingV1().NetworkPolicies(ns.Name).List(metav1.ListOptions{})
+		if err != nil {
+			framework.Logf("error getting current NetworkPolicies for %s namespace: %s", ns.Name, err)
+		}
+
 		// Collect the list of pods running in the test namespace.
-		podsInNS, err := framework.GetPodsInNamespace(f.ClientSet, f.Namespace.Name, map[string]string{})
+		podsInNS, err := framework.GetPodsInNamespace(f.ClientSet, ns.Name, map[string]string{})
 		if err != nil {
 			framework.Logf("error getting pods for %s namespace: %s", f.Namespace.Name, err)
 		}
@@ -467,7 +508,9 @@ func testCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName string
 			pods = append(pods, fmt.Sprintf("Pod: %s, Status: %s\n", p.Name, p.Status.String()))
 		}
 
-		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.\nPod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\n Pods:\n\t %v\n\n", podClient.Name, service.Name, logs, policies.Items, pods)
+		framework.Failf("Pod %s should not be able to connect to service %s, but was able to connect.\n"+
+			"Pod logs:\n%s\n\n Current NetworkPolicies:\n\t%v\n\nCurrent NetworkPolicies (pod NS):\n\t%v\n\n Pods:\n\t %v\n\n",
+			podClient.Name, service.Name, logs, policies.Items, policies2.Items, pods)
 
 		// Dump debug information for the test namespace.
 		framework.DumpDebugInfo(f.ClientSet, f.Namespace.Name)
@@ -603,7 +646,7 @@ func cleanupServerPodAndService(f *framework.Framework, pod *v1.Pod, service *v1
 // Create a client pod which will attempt a netcat to the provided service, on the specified port.
 // This client will attempt a one-shot connection, then die, without restarting the pod.
 // Test can then be asserted based on whether the pod quit with an error or not.
-func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int) *v1.Pod {
+func createNetworkClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetService *v1.Service, targetPort int, expectFail bool) *v1.Pod {
 	target := fmt.Sprintf("%s.%s:%d", targetService.Name, targetService.Namespace, targetPort)
 	return createNetworkClientPodX(f, namespace, podName, target, func(pod *v1.Pod) {})
 }
@@ -620,7 +663,9 @@ func createNetworkClientPodX(f *framework.Framework, namespace *v1.Namespace, po
 	if winctl.RunningWindowsTest() {
 		imageUrl, commandStr = winctl.GetClientImageAndCommand()
 		podArgs = append(podArgs, commandStr, "-Command")
-		cmd = fmt.Sprintf("$sb={Invoke-WebRequest %s -UseBasicParsing -TimeoutSec 3}; For ($i=0; $i -lt 5; $i++) { sleep 5; try {& $sb} catch { echo failed loop $i ; continue }; exit 0 ; }; exit 1", target)
+		cmd = fmt.Sprintf("$sb={Invoke-WebRequest %s -UseBasicParsing -TimeoutSec 3 -DisableKeepAlive}; "+
+			"For ($i=0; $i -lt 5; $i++) { sleep 5; "+
+			"try {& $sb} catch { echo failed loop $i ; continue }; exit 0 ; }; exit 1", target)
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
 	} else {
