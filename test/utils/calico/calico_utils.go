@@ -36,6 +36,7 @@ import (
 	batch "k8s.io/api/batch/v1"
 	"k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	rbacv1beta1 "k8s.io/api/rbac/v1beta1"
 	kerr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labelutils "k8s.io/apimachinery/pkg/labels"
@@ -736,19 +737,19 @@ type CalicoctlOptions struct {
 }
 
 type Calicoctl struct {
-	opts           CalicoctlOptions
-	datastore      string
-	endPoints      string
-	etcdCaFile     string
-	etcdKeyFile    string
-	etcdCertFile   string
-	framework      *framework.Framework
-	serviceAccount *v1.ServiceAccount
-	role           *rbacv1.ClusterRole
-	roleBinding    *rbacv1.ClusterRoleBinding
-	env            map[string]string
-	node           string
-	nodeToAvoid    string
+	opts            CalicoctlOptions
+	datastore       string
+	endPoints       string
+	etcdCaFile      string
+	etcdKeyFile     string
+	etcdCertFile    string
+	framework       *framework.Framework
+	serviceAccount  *v1.ServiceAccount
+	roleName        string
+	roleBindingName string
+	env             map[string]string
+	node            string
+	nodeToAvoid     string
 }
 
 func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calicoctl {
@@ -860,31 +861,139 @@ func ConfigureCalicoctl(f *framework.Framework, opts ...CalicoctlOptions) *Calic
 			},
 		},
 	}
-	rr, err := f.ClientSet.RbacV1().ClusterRoles().Create(&r)
-	Expect(err).ShouldNot(HaveOccurred())
-	ctl.role = rr
 
-	rb := rbacv1.ClusterRoleBinding{
+	rbeta := rbacv1beta1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "calicoctl",
 		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "ClusterRole",
-			Name:     rr.ObjectMeta.Name,
-		},
-		Subjects: []rbacv1.Subject{
+		Rules: []rbacv1beta1.PolicyRule{
 			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      saa.ObjectMeta.Name,
-				Namespace: f.Namespace.Name,
+				APIGroups: []string{
+					"crd.projectcalico.org",
+				},
+				Resources: []string{
+					// Allow access to all calico resources
+					"*",
+				},
+				Verbs: []string{
+					"create",
+					"get",
+					"list",
+					"update",
+					"delete",
+				},
+			},
+			{
+				APIGroups: []string{
+					"extensions",
+					"networking.k8s.io",
+				},
+				Resources: []string{
+					"networkpolicies",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+					"watch",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"namespaces",
+					"serviceaccounts",
+					"nodes",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+					"watch",
+					"update",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods",
+				},
+				Verbs: []string{
+					"get",
+					"list",
+				},
+			},
+			{
+				APIGroups: []string{
+					"",
+				},
+				Resources: []string{
+					"pods/status",
+				},
+				Verbs: []string{
+					"update",
+				},
 			},
 		},
 	}
-	rbb, err := f.ClientSet.RbacV1().ClusterRoleBindings().Create(&rb)
-	Expect(err).ShouldNot(HaveOccurred())
-	ctl.roleBinding = rbb
+	var rrbeta rbacv1beta1.ClusterRole
 
+	if framework.IsRBACEnabled(f) {
+		rr, err := f.ClientSet.RbacV1().ClusterRoles().Create(&r)
+		if err == nil {
+			ctl.roleName = rr.Name
+		} else {
+			rrbeta, errbeta := f.ClientSet.RbacV1beta1().ClusterRoles().Create(&rbeta)
+			Expect(errbeta).ShouldNot(HaveOccurred())
+			ctl.roleName = rrbeta.Name
+		}
+
+		rb := rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "calicoctl",
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "ClusterRole",
+				Name:     rr.ObjectMeta.Name,
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:      rbacv1.ServiceAccountKind,
+					Name:      saa.ObjectMeta.Name,
+					Namespace: f.Namespace.Name,
+				},
+			},
+		}
+
+		rbbeta := rbacv1beta1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "calicoctl",
+			},
+			RoleRef: rbacv1beta1.RoleRef{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "ClusterRole",
+				Name:     rrbeta.ObjectMeta.Name,
+			},
+			Subjects: []rbacv1beta1.Subject{
+				{
+					Kind:      rbacv1beta1.ServiceAccountKind,
+					Name:      saa.ObjectMeta.Name,
+					Namespace: f.Namespace.Name,
+				},
+			},
+		}
+		rbb, err := f.ClientSet.RbacV1().ClusterRoleBindings().Create(&rb)
+		if err == nil {
+			ctl.roleBindingName = rbb.Name
+		} else {
+			rbbbeta, errbeta := f.ClientSet.RbacV1beta1().ClusterRoleBindings().Create(&rbbeta)
+			Expect(errbeta).ShouldNot(HaveOccurred())
+			ctl.roleBindingName = rbbbeta.Name
+		}
+	}
 	framework.Logf("Configured for datastoreType %s", ctl.datastore)
 	return &ctl
 }
@@ -911,8 +1020,8 @@ func (c *Calicoctl) AvoidNode(nodeName string) {
 func (c *Calicoctl) Cleanup() {
 	if c.datastore == "kubernetes" {
 		c.framework.ClientSet.CoreV1().ServiceAccounts(c.framework.Namespace.Name).Delete(c.serviceAccount.Name, &metav1.DeleteOptions{})
-		c.framework.ClientSet.RbacV1().ClusterRoles().Delete(c.role.Name, &metav1.DeleteOptions{})
-		c.framework.ClientSet.RbacV1().ClusterRoleBindings().Delete(c.roleBinding.Name, &metav1.DeleteOptions{})
+		c.framework.ClientSet.RbacV1().ClusterRoles().Delete(c.roleName, &metav1.DeleteOptions{})
+		c.framework.ClientSet.RbacV1().ClusterRoleBindings().Delete(c.roleBindingName, &metav1.DeleteOptions{})
 	}
 }
 
