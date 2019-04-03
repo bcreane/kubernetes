@@ -290,7 +290,7 @@ spec:
   egress:
   - action: Allow
 `
-				err := calicoctl.ApplyWithError(gnp)
+				err := calicoctl.ApplyWithRetriesError(0, gnp)
 				Expect(err).To(HaveOccurred())
 
 				// For similar reasons it's not possible to create a Pass rule when HTTP is specified.
@@ -311,7 +311,7 @@ spec:
   egress:
   - action: Allow
 `
-				err = calicoctl.ApplyWithError(np)
+				err = calicoctl.ApplyWithRetriesError(0, np)
 				Expect(err).To(HaveOccurred())
 			})
 

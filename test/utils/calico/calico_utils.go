@@ -68,6 +68,8 @@ const (
 	// contain the command being run in the pod.
 	DropPrefix   = "calico-drop:\\s"
 	PacketPrefix = "calico-packet:\\s"
+
+	DefaultCalicoctlRetries = 6
 )
 
 var (
@@ -1059,89 +1061,104 @@ func (c *Calicoctl) ApplyFromMapReturnError(r map[string]interface{}, args ...st
 	if err != nil {
 		return err
 	}
-	_, err = c.actionCtlWithError(string(b), "apply")
+	_, err = c.actionCtlWithError(DefaultCalicoctlRetries, string(b), "apply")
 	return err
 }
 
 func (c *Calicoctl) Apply(yaml string, args ...string) {
-	c.actionCtl(yaml, "apply", args...)
+	c.actionCtl(DefaultCalicoctlRetries, yaml, "apply", args...)
 }
 
 func (c *Calicoctl) ApplyWithError(yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(yaml, "apply", args...)
+	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "apply", args...)
+	return err
+}
+
+func (c *Calicoctl) ApplyWithRetriesError(retries int32, yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(retries, yaml, "apply", args...)
 	return err
 }
 
 func (c *Calicoctl) Create(yaml string, args ...string) {
-	c.actionCtl(yaml, "create", args...)
+	c.actionCtl(DefaultCalicoctlRetries, yaml, "create", args...)
 }
 
 func (c *Calicoctl) CreateWithError(yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(yaml, "create", args...)
+	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "create", args...)
+	return err
+}
+
+func (c *Calicoctl) CreateWithRetriesError(retries int32, yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "create", args...)
 	return err
 }
 
 func (c *Calicoctl) Delete(yaml string, args ...string) {
-	c.actionCtl(yaml, "delete", args...)
+	c.actionCtl(DefaultCalicoctlRetries, yaml, "delete", args...)
 }
 
 func (c *Calicoctl) Replace(yaml string, args ...string) {
-	c.actionCtl(yaml, "replace", args...)
+	c.actionCtl(DefaultCalicoctlRetries, yaml, "replace", args...)
 }
 
 func (c *Calicoctl) ReplaceWithError(yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(yaml, "replace", args...)
+	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "replace", args...)
+	return err
+}
+
+func (c *Calicoctl) ReplaceWithRetriesError(retries int32, yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(retries, yaml, "replace", args...)
 	return err
 }
 
 func (c *Calicoctl) Get(args ...string) string {
-	return c.execExpectNoError(append([]string{"get"}, args...)...)
+	return c.execExpectNoError(DefaultCalicoctlRetries, append([]string{"get"}, args...)...)
 }
 
 func (c *Calicoctl) Exec(args ...string) string {
-	return c.exec(args...)
+	return c.exec(DefaultCalicoctlRetries, args...)
 }
 
 func (c *Calicoctl) ExecReturnError(args ...string) (string, error) {
-	return c.execReturnError(args...)
+	return c.execReturnError(DefaultCalicoctlRetries, args...)
 }
 
 func (c *Calicoctl) DeleteHE(hostEndpointName string) {
-	c.execExpectNoError("delete", "hostendpoint", hostEndpointName)
+	c.execExpectNoError(DefaultCalicoctlRetries, "delete", "hostendpoint", hostEndpointName)
 }
 
 func (c *Calicoctl) DeleteGNP(policyName string) {
-	c.execExpectNoError("delete", "globalnetworkpolicy", policyName)
+	c.execExpectNoError(DefaultCalicoctlRetries, "delete", "globalnetworkpolicy", policyName)
 }
 
 func (c *Calicoctl) DeleteNP(namespace, policyName string) {
-	c.execExpectNoError("delete", "networkpolicy", "-n", namespace, policyName)
+	c.execExpectNoError(DefaultCalicoctlRetries, "delete", "networkpolicy", "-n", namespace, policyName)
 }
 
-func (c *Calicoctl) exec(args ...string) string {
-	result, _ := c.executeCalicoctl("calicoctl", args...)
+func (c *Calicoctl) exec(retries int32, args ...string) string {
+	result, _ := c.executeCalicoctl(retries, "calicoctl", args...)
 	return result
 }
 
-func (c *Calicoctl) execExpectNoError(args ...string) string {
-	result, err := c.executeCalicoctl("calicoctl", args...)
+func (c *Calicoctl) execExpectNoError(retries int32, args ...string) string {
+	result, err := c.executeCalicoctl(retries, "calicoctl", args...)
 	Expect(err).NotTo(HaveOccurred())
 	return result
 }
 
-func (c *Calicoctl) execReturnError(args ...string) (string, error) {
-	result, err := c.executeCalicoctl("calicoctl", args...)
+func (c *Calicoctl) execReturnError(retries int32, args ...string) (string, error) {
+	result, err := c.executeCalicoctl(retries, "calicoctl", args...)
 	return result, err
 }
 
-func (c *Calicoctl) actionCtl(resYaml string, action string, args ...string) {
-	logs, err := c.actionCtlWithError(resYaml, action, args...)
+func (c *Calicoctl) actionCtl(retries int32, resYaml string, action string, args ...string) {
+	logs, err := c.actionCtlWithError(retries, resYaml, action, args...)
 	if err != nil {
 		framework.Failf("Error '%s'-ing calico resource: %s", action, logs)
 	}
 }
 
-func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...string) (string, error) {
+func (c *Calicoctl) actionCtlWithError(retries int32, resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
 		"/calicoctl %s %s -f - <<EOF\n"+
@@ -1149,7 +1166,7 @@ func (c *Calicoctl) actionCtlWithError(resYaml string, action string, args ...st
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
 	)
-	logs, err := c.executeCalicoctl("/bin/sh", "-c", cmdString)
+	logs, err := c.executeCalicoctl(retries, "/bin/sh", "-c", cmdString)
 	return logs, err
 }
 
@@ -1206,7 +1223,7 @@ spec:
 	c.Apply(license)
 }
 
-func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error) {
+func (c *Calicoctl) executeCalicoctl(retries int32, cmd string, args ...string) (string, error) {
 	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
 
 	f := c.framework
@@ -1237,6 +1254,7 @@ func (c *Calicoctl) executeCalicoctl(cmd string, args ...string) (string, error)
 			Namespace: f.Namespace.Name,
 		},
 		Spec: batch.JobSpec{
+			BackoffLimit: &retries,
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{framework.JobSelectorKey: jobName},
@@ -1441,7 +1459,7 @@ func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
 
 func GetPodNow(f *framework.Framework, ns string, podName string) (*v1.Pod, error) {
 	podNow, err := f.ClientSet.CoreV1().Pods(ns).Get(podName, metav1.GetOptions{})
-	if err != nil{
+	if err != nil {
 		framework.Logf("Failed to get pod: %v", err)
 		return nil, err
 	}
@@ -1451,7 +1469,7 @@ func GetPodNow(f *framework.Framework, ns string, podName string) (*v1.Pod, erro
 }
 
 func LogCalicoDiagsForPodNode(f *framework.Framework, ns string, podName string) error {
-	podNow,err := GetPodNow(f, ns, podName)
+	podNow, err := GetPodNow(f, ns, podName)
 	if err != nil {
 		return err
 	}

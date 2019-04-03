@@ -580,10 +580,10 @@ func (c *testCalicoctlCNX) create(yaml string, ns string) {
 
 func (c *testCalicoctlCNX) createExpectError(yaml string, ns string) {
 	if ns == "" {
-		err := c.CreateWithError(yaml)
+		err := c.CreateWithRetriesError(0, yaml)
 		Expect(err).To(HaveOccurred())
 	} else {
-		err := c.CreateWithError(yaml, fmt.Sprintf("--namespace=%v", ns))
+		err := c.CreateWithRetriesError(0, yaml, fmt.Sprintf("--namespace=%v", ns))
 		Expect(err).To(HaveOccurred())
 	}
 }
@@ -606,10 +606,10 @@ func (c *testCalicoctlCNX) replace(yaml string, ns string) {
 
 func (c *testCalicoctlCNX) replaceExpectError(yaml string, ns string) {
 	if ns == "" {
-		err := c.ReplaceWithError(yaml)
+		err := c.ReplaceWithRetriesError(0, yaml)
 		Expect(err).To(HaveOccurred())
 	} else {
-		err := c.ReplaceWithError(yaml, fmt.Sprintf("--namespace=%v", ns))
+		err := c.ReplaceWithRetriesError(0, yaml, fmt.Sprintf("--namespace=%v", ns))
 		Expect(err).To(HaveOccurred())
 	}
 }
