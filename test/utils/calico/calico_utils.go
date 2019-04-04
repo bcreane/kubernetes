@@ -69,7 +69,7 @@ const (
 	DropPrefix   = "calico-drop:\\s"
 	PacketPrefix = "calico-packet:\\s"
 
-	DefaultCalicoctlRetries = 6
+	DefaultCalicoctlBackoffLimit = 6
 )
 
 var (
@@ -1061,104 +1061,104 @@ func (c *Calicoctl) ApplyFromMapReturnError(r map[string]interface{}, args ...st
 	if err != nil {
 		return err
 	}
-	_, err = c.actionCtlWithError(DefaultCalicoctlRetries, string(b), "apply")
+	_, err = c.actionCtlWithError(DefaultCalicoctlBackoffLimit, string(b), "apply")
 	return err
 }
 
 func (c *Calicoctl) Apply(yaml string, args ...string) {
-	c.actionCtl(DefaultCalicoctlRetries, yaml, "apply", args...)
+	c.actionCtl(DefaultCalicoctlBackoffLimit, yaml, "apply", args...)
 }
 
 func (c *Calicoctl) ApplyWithError(yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "apply", args...)
+	_, err := c.actionCtlWithError(DefaultCalicoctlBackoffLimit, yaml, "apply", args...)
 	return err
 }
 
-func (c *Calicoctl) ApplyWithRetriesError(retries int32, yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(retries, yaml, "apply", args...)
+func (c *Calicoctl) ApplyWithBackoffError(backoff int32, yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(backoff, yaml, "apply", args...)
 	return err
 }
 
 func (c *Calicoctl) Create(yaml string, args ...string) {
-	c.actionCtl(DefaultCalicoctlRetries, yaml, "create", args...)
+	c.actionCtl(DefaultCalicoctlBackoffLimit, yaml, "create", args...)
 }
 
 func (c *Calicoctl) CreateWithError(yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "create", args...)
+	_, err := c.actionCtlWithError(DefaultCalicoctlBackoffLimit, yaml, "create", args...)
 	return err
 }
 
-func (c *Calicoctl) CreateWithRetriesError(retries int32, yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "create", args...)
+func (c *Calicoctl) CreateWithBackoffError(backoff int32, yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(DefaultCalicoctlBackoffLimit, yaml, "create", args...)
 	return err
 }
 
 func (c *Calicoctl) Delete(yaml string, args ...string) {
-	c.actionCtl(DefaultCalicoctlRetries, yaml, "delete", args...)
+	c.actionCtl(DefaultCalicoctlBackoffLimit, yaml, "delete", args...)
 }
 
 func (c *Calicoctl) Replace(yaml string, args ...string) {
-	c.actionCtl(DefaultCalicoctlRetries, yaml, "replace", args...)
+	c.actionCtl(DefaultCalicoctlBackoffLimit, yaml, "replace", args...)
 }
 
 func (c *Calicoctl) ReplaceWithError(yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(DefaultCalicoctlRetries, yaml, "replace", args...)
+	_, err := c.actionCtlWithError(DefaultCalicoctlBackoffLimit, yaml, "replace", args...)
 	return err
 }
 
-func (c *Calicoctl) ReplaceWithRetriesError(retries int32, yaml string, args ...string) error {
-	_, err := c.actionCtlWithError(retries, yaml, "replace", args...)
+func (c *Calicoctl) ReplaceWithBackoffError(backoff int32, yaml string, args ...string) error {
+	_, err := c.actionCtlWithError(backoff, yaml, "replace", args...)
 	return err
 }
 
 func (c *Calicoctl) Get(args ...string) string {
-	return c.execExpectNoError(DefaultCalicoctlRetries, append([]string{"get"}, args...)...)
+	return c.execExpectNoError(DefaultCalicoctlBackoffLimit, append([]string{"get"}, args...)...)
 }
 
 func (c *Calicoctl) Exec(args ...string) string {
-	return c.exec(DefaultCalicoctlRetries, args...)
+	return c.exec(DefaultCalicoctlBackoffLimit, args...)
 }
 
 func (c *Calicoctl) ExecReturnError(args ...string) (string, error) {
-	return c.execReturnError(DefaultCalicoctlRetries, args...)
+	return c.execReturnError(DefaultCalicoctlBackoffLimit, args...)
 }
 
 func (c *Calicoctl) DeleteHE(hostEndpointName string) {
-	c.execExpectNoError(DefaultCalicoctlRetries, "delete", "hostendpoint", hostEndpointName)
+	c.execExpectNoError(DefaultCalicoctlBackoffLimit, "delete", "hostendpoint", hostEndpointName)
 }
 
 func (c *Calicoctl) DeleteGNP(policyName string) {
-	c.execExpectNoError(DefaultCalicoctlRetries, "delete", "globalnetworkpolicy", policyName)
+	c.execExpectNoError(DefaultCalicoctlBackoffLimit, "delete", "globalnetworkpolicy", policyName)
 }
 
 func (c *Calicoctl) DeleteNP(namespace, policyName string) {
-	c.execExpectNoError(DefaultCalicoctlRetries, "delete", "networkpolicy", "-n", namespace, policyName)
+	c.execExpectNoError(DefaultCalicoctlBackoffLimit, "delete", "networkpolicy", "-n", namespace, policyName)
 }
 
-func (c *Calicoctl) exec(retries int32, args ...string) string {
-	result, _ := c.executeCalicoctl(retries, "calicoctl", args...)
+func (c *Calicoctl) exec(backoff int32, args ...string) string {
+	result, _ := c.executeCalicoctl(backoff, "calicoctl", args...)
 	return result
 }
 
-func (c *Calicoctl) execExpectNoError(retries int32, args ...string) string {
-	result, err := c.executeCalicoctl(retries, "calicoctl", args...)
+func (c *Calicoctl) execExpectNoError(backoff int32, args ...string) string {
+	result, err := c.executeCalicoctl(backoff, "calicoctl", args...)
 	Expect(err).NotTo(HaveOccurred())
 	return result
 }
 
-func (c *Calicoctl) execReturnError(retries int32, args ...string) (string, error) {
-	result, err := c.executeCalicoctl(retries, "calicoctl", args...)
+func (c *Calicoctl) execReturnError(backoff int32, args ...string) (string, error) {
+	result, err := c.executeCalicoctl(backoff, "calicoctl", args...)
 	return result, err
 }
 
-func (c *Calicoctl) actionCtl(retries int32, resYaml string, action string, args ...string) {
-	logs, err := c.actionCtlWithError(retries, resYaml, action, args...)
+func (c *Calicoctl) actionCtl(backoff int32, resYaml string, action string, args ...string) {
+	logs, err := c.actionCtlWithError(backoff, resYaml, action, args...)
 	if err != nil {
 		framework.Failf("Error '%s'-ing calico resource: %s", action, logs)
 	}
 }
 
-func (c *Calicoctl) actionCtlWithError(retries int32, resYaml string, action string, args ...string) (string, error) {
+func (c *Calicoctl) actionCtlWithError(backoff int32, resYaml string, action string, args ...string) (string, error) {
 	By("Setting args: " + strings.Join(args, " "))
 	cmdString := fmt.Sprintf(
 		"/calicoctl %s %s -f - <<EOF\n"+
@@ -1166,7 +1166,7 @@ func (c *Calicoctl) actionCtlWithError(retries int32, resYaml string, action str
 			"EOF\n",
 		action, strings.Join(args, " "), resYaml,
 	)
-	logs, err := c.executeCalicoctl(retries, "/bin/sh", "-c", cmdString)
+	logs, err := c.executeCalicoctl(backoff, "/bin/sh", "-c", cmdString)
 	return logs, err
 }
 
@@ -1223,7 +1223,7 @@ spec:
 	c.Apply(license)
 }
 
-func (c *Calicoctl) executeCalicoctl(retries int32, cmd string, args ...string) (string, error) {
+func (c *Calicoctl) executeCalicoctl(backoff int32, cmd string, args ...string) (string, error) {
 	framework.Logf("Bringing up calicoctl pod to run: %s %s.", cmd, args)
 
 	f := c.framework
@@ -1254,7 +1254,7 @@ func (c *Calicoctl) executeCalicoctl(retries int32, cmd string, args ...string) 
 			Namespace: f.Namespace.Name,
 		},
 		Spec: batch.JobSpec{
-			BackoffLimit: &retries,
+			BackoffLimit: &backoff,
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{framework.JobSelectorKey: jobName},
