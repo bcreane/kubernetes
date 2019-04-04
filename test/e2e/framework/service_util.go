@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -313,11 +314,19 @@ func CollectAddresses(nodes *v1.NodeList, addressType v1.NodeAddressType) []stri
 
 func GetNodePublicIps(c clientset.Interface) ([]string, error) {
 	nodes := GetReadySchedulableNodesOrDie(c)
-
-	ips := CollectAddresses(nodes, v1.NodeExternalIP)
+	var ips []string
+	if os.Getenv("WINDOWS_OS") != "" {
+		ips = CollectAddresses(nodes, v1.NodeInternalIP)
+	} else {
+		ips = CollectAddresses(nodes, v1.NodeExternalIP)
+	}
 	if len(ips) == 0 {
 		// If ExternalIP isn't set, assume the test programs can reach the InternalIP
-		ips = CollectAddresses(nodes, v1.NodeInternalIP)
+		if os.Getenv("WINDOWS_OS") != "" {
+			ips = CollectAddresses(nodes, v1.NodeExternalIP)
+		} else {
+			ips = CollectAddresses(nodes, v1.NodeInternalIP)
+		}
 	}
 	return ips, nil
 }
@@ -364,10 +373,23 @@ func (j *ServiceTestJig) GetEndpointNodes(svc *v1.Service) map[string][]string {
 // where we don't eg: want to create an endpoint per node.
 func (j *ServiceTestJig) GetNodes(maxNodesForTest int) (nodes *v1.NodeList) {
 	nodes = GetReadySchedulableNodesOrDie(j.Client)
-	if len(nodes.Items) <= maxNodesForTest {
-		maxNodesForTest = len(nodes.Items)
+	winNodeList := &v1.NodeList{}
+	nodeList := &v1.NodeList{}
+	for _, node := range nodes.Items {
+		//check for OS type of node to run e2e, based on e2e
+		if strings.Contains(node.Status.NodeInfo.OSImage, "Windows") {
+			winNodeList.Items = append(winNodeList.Items, node)
+		} else {
+			nodeList.Items = append(nodeList.Items, node)
+		}
 	}
-	nodes.Items = nodes.Items[:maxNodesForTest]
+	if os.Getenv("WINDOWS_OS") != "" {
+		nodeList.Items = winNodeList.Items
+	}
+	if len(nodeList.Items) <= maxNodesForTest {
+		maxNodesForTest = len(nodeList.Items)
+	}
+	nodes.Items = nodeList.Items[:maxNodesForTest]
 	return nodes
 }
 
@@ -580,7 +602,13 @@ func (j *ServiceTestJig) waitForConditionOrFail(namespace, name string, timeout 
 // name as the jig and runs the "netexec" container.
 func (j *ServiceTestJig) newRCTemplate(namespace string) *v1.ReplicationController {
 	var replicas int32 = 1
-
+	var imageUrl string
+	winVer := os.Getenv("WINDOWS_OS")
+	if winVer != "" {
+		imageUrl = "caltigera/netexec:" + winVer
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Netexec)
+	}
 	rc := &v1.ReplicationController{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
@@ -598,7 +626,7 @@ func (j *ServiceTestJig) newRCTemplate(namespace string) *v1.ReplicationControll
 					Containers: []v1.Container{
 						{
 							Name:  "netexec",
-							Image: imageutils.GetE2EImage(imageutils.Netexec),
+							Image: imageUrl,
 							Args:  []string{"--http-port=80", "--udp-port=80"},
 							ReadinessProbe: &v1.Probe{
 								PeriodSeconds: 3,
@@ -793,8 +821,31 @@ func (j *ServiceTestJig) LaunchNetexecPodOnNode(f *Framework, nodeName, podName 
 
 // newEchoServerPodSpec returns the pod spec of echo server pod
 func newEchoServerPodSpec(podName string, hostNetwork bool) *v1.Pod {
-	port := 8091
+	var port int
+	var clientImage, serverImage string
+	var commandStr []string
+	hostNet := false
+	var env []v1.EnvVar
 	one := int64(1)
+	winVer := os.Getenv("WINDOWS_OS")
+	if winVer != "" {
+		port = 8080
+		clientImage = "caltigera/hostexec:" + winVer
+		serverImage = "caltigera/porter:" + winVer
+		env = []v1.EnvVar{
+			{
+				Name:  fmt.Sprintf("SERVE_PORT_%d", port),
+				Value: "foo",
+			},
+		}
+	} else {
+		port = 8091
+		hostNet = true
+		clientImage = "busybox"
+		serverImage = imageutils.GetE2EImage(imageutils.EchoServer)
+		commandStr = []string{"/bin/sh", "-c", "trap \"echo Stopped; exit 0\" INT TERM EXIT; sleep 1000000"}
+		env = []v1.EnvVar{}
+	}
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   podName,
@@ -807,17 +858,18 @@ func newEchoServerPodSpec(podName string, hostNetwork bool) *v1.Pod {
 				// container so `kubectl exec` will choose it by default.
 				{
 					Name:    "exec",
-					Image:   "busybox",
-					Command: []string{"sh", "-c", "trap \"echo Stopped; exit 0\" INT TERM EXIT; sleep 1000000"},
+					Image:   clientImage,
+					Command: commandStr,
 				},
 				{
 					Name:  "echoserver",
-					Image: imageutils.GetE2EImage(imageutils.EchoServer),
+					Image: serverImage,
+					Env:   env,
 					Ports: []v1.ContainerPort{{ContainerPort: int32(port)}},
 				},
 			},
 			RestartPolicy:                 v1.RestartPolicyNever,
-			HostNetwork:                   hostNetwork,
+			HostNetwork:                   hostNet,
 			TerminationGracePeriodSeconds: &one, // Speed up pod termination.
 		},
 	}
@@ -1180,10 +1232,10 @@ func ValidateEndpointsOrFail(c clientset.Interface, namespace, serviceName strin
 			Logf("Get endpoints failed (%v elapsed, ignoring for 5s): %v", time.Since(start), err)
 			continue
 		}
-		// Logf("Found endpoints %v", endpoints)
+		Logf("Found endpoints %v", endpoints)
 
 		portsByPodUID := GetContainerPortsByPodUID(endpoints)
-		// Logf("Found port by pod UID %v", portsByPodUID)
+		Logf("Found port by pod UID %v", portsByPodUID)
 
 		expectedPortsByPodUID := translatePodNameToUIDOrFail(c, namespace, expectedEndpoints)
 		if len(portsByPodUID) == len(expectedEndpoints) {
