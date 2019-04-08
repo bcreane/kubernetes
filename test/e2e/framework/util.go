@@ -3466,7 +3466,16 @@ func IssueSSHCommand(cmd, provider string, node *v1.Node) error {
 
 // NewHostExecPodSpec returns the pod spec of hostexec pod
 func NewHostExecPodSpec(ns, name string) *v1.Pod {
+	var imageUrl string
+	hostNet := false
 	immediate := int64(0)
+	winVer := os.Getenv("WINDOWS_OS")
+	if winVer != "" {
+		imageUrl = "caltigera/hostexec:" + winVer
+	} else {
+		imageUrl = imageutils.GetE2EImage(imageutils.Hostexec)
+		hostNet = true
+	}
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -3476,11 +3485,11 @@ func NewHostExecPodSpec(ns, name string) *v1.Pod {
 			Containers: []v1.Container{
 				{
 					Name:            "hostexec",
-					Image:           imageutils.GetE2EImage(imageutils.Hostexec),
+					Image:           imageUrl,
 					ImagePullPolicy: v1.PullIfNotPresent,
 				},
 			},
-			HostNetwork:                   true,
+			HostNetwork:                   hostNet,
 			SecurityContext:               &v1.PodSecurityContext{},
 			TerminationGracePeriodSeconds: &immediate,
 		},
@@ -3491,7 +3500,12 @@ func NewHostExecPodSpec(ns, name string) *v1.Pod {
 // RunHostCmd runs the given cmd in the context of the given pod using `kubectl exec`
 // inside of a shell.
 func RunHostCmd(ns, name, cmd string) (string, error) {
-	return RunKubectl("exec", fmt.Sprintf("--namespace=%v", ns), name, "--", "/bin/sh", "-c", cmd)
+	winVer := os.Getenv("WINDOWS_OS")
+	if winVer != "" {
+		return RunKubectl("exec", fmt.Sprintf("--namespace=%v", ns), name, "--", "powershell.exe", "-Command", cmd)
+	} else {
+		return RunKubectl("exec", fmt.Sprintf("--namespace=%v", ns), name, "--", "/bin/sh", "-c", cmd)
+	}
 }
 
 // RunHostCmdOrDie calls RunHostCmd and dies on error.
@@ -3533,6 +3547,15 @@ func LaunchHostExecPod(client clientset.Interface, ns, name string) *v1.Pod {
 
 // newExecPodSpec returns the pod spec of exec pod
 func newExecPodSpec(ns, generateName string) *v1.Pod {
+	var imageUrl string
+	var commandStr []string
+	winVer := os.Getenv("WINDOWS_OS")
+	if winVer != "" {
+		imageUrl = "caltigera/hostexec:" + winVer
+	} else {
+		imageUrl = BusyBoxImage
+		commandStr = []string{"sh", "-c", "while true; do sleep 5; done"}
+	}
 	immediate := int64(0)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -3544,8 +3567,8 @@ func newExecPodSpec(ns, generateName string) *v1.Pod {
 			Containers: []v1.Container{
 				{
 					Name:    "exec",
-					Image:   BusyBoxImage,
-					Command: []string{"sh", "-c", "while true; do sleep 5; done"},
+					Image:   imageUrl,
+					Command: commandStr,
 				},
 			},
 		},

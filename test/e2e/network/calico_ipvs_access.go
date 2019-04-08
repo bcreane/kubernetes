@@ -15,15 +15,16 @@ package network
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
 
@@ -118,7 +119,9 @@ var _ = SIGDescribe("IPVSEgress", func() {
 		if len(nodes.Items) < 2 {
 			framework.Skipf("Less than two schedulable nodes exist, can't continue test.")
 		}
+		fmt.Println("total nodes: ", nodes)
 		nodeNames, nodeIPs, _ = getNodesInfo(f, nodes, true)
+		fmt.Println(nodeNames, " : ", nodeIPs)
 		Expect(len(nodeNames)).To(Equal(2))
 		Expect(len(nodeIPs)).To(Equal(2))
 	})
@@ -174,7 +177,6 @@ var _ = SIGDescribe("IPVSEgress", func() {
 				}
 				svcPort := 8080
 				svcClusterIP, svcNodePort, dstPod := setupPodServiceOnNode(f, jig, node, svcPort, c.svcTweak, c.dstHostNetworked)
-
 				// Figure out the correct target to pass to wget, depending on the destination and type of test.
 				// We may also flip the expectSNAT flag here if the scenario requires it.
 				if c.accessType == "cluster IP" {
@@ -213,7 +215,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 				}
 			})
 
-			It("should correctly implement NetworkPolicy", func() {
+			It("should correctly implement NetworkPolicy [Feature:WindowsPolicy nodePort]", func() {
 				By("allowing connection with no NetworkPolicy")
 				expectAccessAllowed()
 
@@ -248,40 +250,40 @@ var _ = SIGDescribe("IPVSEgress", func() {
 					By("Skipping policy tests for external IP - we fail to detect the forwarding")
 					return
 				}
-
-				By("allowing traffic after installing a target-specific policy")
-				// Configure policy for pod0 to allow egress to specific target.
-				targetAccessPolicy := &networkingv1.NetworkPolicy{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "egress-target-access",
-					},
-					Spec: networkingv1.NetworkPolicySpec{
-						// Apply this policy to the source (pod0).
-						PodSelector: metav1.LabelSelector{
-							MatchLabels: applyLabels,
+				//skipping target-specific policy for windows,due to DNATing not taking place properly
+				if os.Getenv("WINDOWS_OS") == "" {
+					By("allowing traffic after installing a target-specific policy")
+					// Configure policy for pod0 to allow egress to specific target.
+					targetAccessPolicy := &networkingv1.NetworkPolicy{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "egress-target-access",
 						},
-						// Say that it's an egress policy.
-						PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-						// Allow traffic only to the target service.
-						Egress: []networkingv1.NetworkPolicyEgressRule{{
-							To: []networkingv1.NetworkPolicyPeer{{
-								PodSelector: &metav1.LabelSelector{
-									MatchLabels: jig.Labels,
-								},
+						Spec: networkingv1.NetworkPolicySpec{
+							// Apply this policy to the source (pod0).
+							PodSelector: metav1.LabelSelector{
+								MatchLabels: applyLabels,
+							},
+							// Say that it's an egress policy.
+							PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+							// Allow traffic only to the target service.
+							Egress: []networkingv1.NetworkPolicyEgressRule{{
+								To: []networkingv1.NetworkPolicyPeer{{
+									PodSelector: &metav1.LabelSelector{
+										MatchLabels: jig.Labels,
+									},
+								}},
 							}},
-						}},
-					},
+						},
+					}
+
+					targetAccessPolicy, err = f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).Create(targetAccessPolicy)
+					Expect(err).NotTo(HaveOccurred())
+					expectAccessAllowed()
+					By("denying traffic after removing the target-specific policy")
+					cleanupNetworkPolicy(f, targetAccessPolicy)
+					targetAccessPolicy = nil
+					expectAccessDenied()
 				}
-
-				targetAccessPolicy, err = f.ClientSet.NetworkingV1().NetworkPolicies(f.Namespace.Name).Create(targetAccessPolicy)
-				Expect(err).NotTo(HaveOccurred())
-				expectAccessAllowed()
-
-				By("denying traffic after removing the target-specific policy")
-				cleanupNetworkPolicy(f, targetAccessPolicy)
-				targetAccessPolicy = nil
-				expectAccessDenied()
-
 				By("allowing traffic after removing the default-deny policy")
 				cleanupNetworkPolicy(f, defaultDenyPolicy)
 				defaultDenyPolicy = nil
@@ -294,7 +296,6 @@ var _ = SIGDescribe("IPVSEgress", func() {
 		svc.Spec.ExternalIPs = []string{DEFAULT_EXTERNAL_IP}
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
 	}
-
 	setLocalOnly := func(svc *v1.Service) {
 		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
 	}
@@ -306,15 +307,15 @@ var _ = SIGDescribe("IPVSEgress", func() {
 
 	// ===== Mainline: access services via the cluster IP =====
 
-	Context("scenario-0C0: pod0 -> service clusterIP -> pod0",
-		describeEgressTest(egressTest{dstPod: 0, accessType: "cluster IP"}))
-
+	if os.Getenv("WINDOWS_OS") == "" {
+		Context("scenario-0C0: pod0 -> service clusterIP -> pod0",
+			describeEgressTest(egressTest{dstPod: 0, accessType: "cluster IP"}))
+	}
 	Context("scenario-0C1: pod0 -> service clusterIP -> pod1 (on same node)",
 		describeEgressTest(egressTest{dstPod: 1, accessType: "cluster IP"}))
 
 	Context("scenario-0C2: pod0 -> service clusterIP -> pod2 (on other node)",
 		describeEgressTest(egressTest{dstPod: 2, accessType: "cluster IP"}))
-
 	// ===== Access via NodePorts =====
 
 	Context("scenario-0N00: pod0 -> node0 NodePort -> pod0",
@@ -322,7 +323,6 @@ var _ = SIGDescribe("IPVSEgress", func() {
 
 	Context("scenario-0L00: pod0 -> node0 NodePort local-only -> pod0",
 		describeEgressTest(egressTest{dstPod: 0, accessType: "node0 NodePort", svcTweak: setLocalOnly}))
-
 	// Needs `iptables -P FORWARD ACCEPT`
 	Context("scenario-0N10: pod0 -> node1 NodePort -> pod0",
 		describeEgressTest(egressTest{dstPod: 0, accessType: "node1 NodePort"}))
@@ -350,31 +350,32 @@ var _ = SIGDescribe("IPVSEgress", func() {
 	// ===== Access via external IPs =====
 	// BUG: Calico currently fails to detect externalIP as a forwarding destination so egress policy not applied.
 
-	Context("scenario-0EL1: pod0 -> externalIP local-only -> pod1 (on same node)",
-		describeEgressTest(egressTest{dstPod: 1, accessType: "external IP", svcTweak: addExternalIPLocalOnly}))
+	if os.Getenv("WINDOWS_OS") == "" {
+		Context("scenario-0EL1: pod0 -> externalIP local-only -> pod1 (on same node)",
+			describeEgressTest(egressTest{dstPod: 1, accessType: "external IP", svcTweak: addExternalIPLocalOnly}))
+		Context("scenario-0EC1: pod0 -> externalIP externalTrafficPolicy=Cluster -> pod1 (on same node)",
+			describeEgressTest(egressTest{dstPod: 1, accessType: "external IP", svcTweak: addExternalIPClusterWide}))
 
-	Context("scenario-0EC1: pod0 -> externalIP externalTrafficPolicy=Cluster -> pod1 (on same node)",
-		describeEgressTest(egressTest{dstPod: 1, accessType: "external IP", svcTweak: addExternalIPClusterWide}))
+		Context("scenario-0EC2: pod0 -> externalIP externalTrafficPolicy=Cluster -> pod2 on other node)",
+			describeEgressTest(egressTest{dstPod: 2, accessType: "external IP", svcTweak: addExternalIPClusterWide}))
 
-	Context("scenario-0EC2: pod0 -> externalIP externalTrafficPolicy=Cluster -> pod2 on other node)",
-		describeEgressTest(egressTest{dstPod: 2, accessType: "external IP", svcTweak: addExternalIPClusterWide}))
+		Context("scenario-0EL0: pod0 -> externalIP local-only -> pod0",
+			describeEgressTest(egressTest{dstPod: 0, accessType: "external IP", svcTweak: addExternalIPLocalOnly}))
 
-	Context("scenario-0EL0: pod0 -> externalIP local-only -> pod0",
-		describeEgressTest(egressTest{dstPod: 0, accessType: "external IP", svcTweak: addExternalIPLocalOnly}))
+		Context("scenario-0EC0: pod0 -> externalIP externalTrafficPolicy=Cluster -> pod0",
+			describeEgressTest(egressTest{dstPod: 0, accessType: "external IP", svcTweak: addExternalIPClusterWide}))
 
-	Context("scenario-0EC0: pod0 -> externalIP externalTrafficPolicy=Cluster -> pod0",
-		describeEgressTest(egressTest{dstPod: 0, accessType: "external IP", svcTweak: addExternalIPClusterWide}))
+		// ===== Access to host-networked pods =====
 
-	// ===== Access to host-networked pods =====
+		// Issues with port sharing, can fail to bind if another host pod is running
+		// Fails at default deny stage.
+		// BUG: Calico detects as forwarded so skips egress policy
+		PContext("scenario-0H1: pod0 -> clusterIP -> host-networked pod1 (on same node)",
+			describeEgressTest(egressTest{dstPod: 1, dstHostNetworked: true, accessType: "cluster IP"}))
 
-	// Issues with port sharing, can fail to bind if another host pod is running
-	// Fails at default deny stage.
-	// BUG: Calico detects as forwarded so skips egress policy
-	PContext("scenario-0H1: pod0 -> clusterIP -> host-networked pod1 (on same node)",
-		describeEgressTest(egressTest{dstPod: 1, dstHostNetworked: true, accessType: "cluster IP"}))
-
-	Context("scenario-0H2: pod0 -> clusterIP -> host-networked pod2 (on other node)",
-		describeEgressTest(egressTest{dstPod: 2, dstHostNetworked: true, accessType: "cluster IP"}))
+		Context("scenario-0H2: pod0 -> clusterIP -> host-networked pod2 (on other node)",
+			describeEgressTest(egressTest{dstPod: 2, dstHostNetworked: true, accessType: "cluster IP"}))
+	}
 
 })
 
@@ -1123,6 +1124,7 @@ func cleanupExecPodOrFail(f *framework.Framework, pod *v1.Pod) {
 
 func testConnection(f *framework.Framework, client interface{}, target string, reachability string) {
 	var execPod *v1.Pod
+	var shell, opt, cmd string
 	switch src := client.(type) {
 	case *source:
 		// Create a scratch pod to test the connection.
@@ -1145,15 +1147,24 @@ func testConnection(f *framework.Framework, client interface{}, target string, r
 			time.Sleep(time.Second)
 		}
 		// First, do the connectivity check.
-		framework.Logf("Checking connectivity with 'wget %v'", target)
-		cmd := fmt.Sprintf("wget -T 2 %v -O - | grep client_address && exit 0 || exit 1", target)
+		if os.Getenv("WINDOWS_OS") != "" {
+			framework.Logf("Checking connectivity with 'Invoke-Webrequest %v'", target)
+			cmd = fmt.Sprintf("try {Invoke-Webrequest %v -TimeoutSec 2 -UseBasicParsing -DisableKeepAlive} catch { echo failed; exit 1 }; exit 0 ;", target)
+			shell = "powershell.exe"
+			opt = "-Command"
+		} else {
+			framework.Logf("Checking connectivity with 'wget %v'", target)
+			cmd = fmt.Sprintf("wget -T 2 %v -O - | grep client_address && exit 0 || exit 1", target)
+			shell = "/bin/sh"
+			opt = "-c"
+		}
 		stdout, err := framework.RunKubectl(
 			"exec",
 			fmt.Sprintf("--namespace=%v", execPod.Namespace),
 			execPod.Name, "-c", "exec",
 			"--",
-			"/bin/sh", "-c", cmd)
-		framework.Logf("wget finished: PodIP %s, output %s.", execPod.Status.PodIP, stdout)
+			shell, opt, cmd)
+		framework.Logf("Connected to: PodIP %s, output %s.", execPod.Status.PodIP, stdout)
 		completedAttempts++
 
 		// Then, figure out what the result means...
@@ -1165,31 +1176,32 @@ func testConnection(f *framework.Framework, client interface{}, target string, r
 				continue
 			}
 
-			// Desired stdout in this format: "client_address=x.x.x.x\n"
-			outputs := strings.Split(strings.TrimSpace(stdout), "=")
-			if len(outputs) != 2 {
-				reason = fmt.Sprintf("exec pod returned unexpected stdout format: [%s]\n", stdout)
-				framework.Logf(reason)
-				continue
-			}
-			if !execPod.Spec.HostNetwork && reachability == reachableWithoutSNAT {
-				// Verify observed source IP if exec pod is not running in host network namespace
-				// and we don't expect any SNAT in the data path.  With exec pod running in host
-				// network namespace and the destination IP is a virtual IP (service IP), the source
-				// IP that the destination sees may be different from the exec pod IP.  For
-				// instance, If the host happens to have a local IP 10.x.x.x which is closer to
-				// service IP 10.100.x.x than pod IP 192.168.x.x, this 10.x.x.x may be used by
-				// kernel as source IP.
-				sourceIP := outputs[1]
-				if sourceIP != execPod.Status.PodIP {
-					reason = "Failure: the server saw incorrect source IP, pod IP was unexpectedly SNATed."
+			if os.Getenv("WINDOWS_OS") == "" {
+				// Desired stdout in this format: "client_address=x.x.x.x\n"
+				outputs := strings.Split(strings.TrimSpace(stdout), "=")
+				if len(outputs) != 2 {
+					reason = fmt.Sprintf("exec pod returned unexpected stdout format: [%s]\n", stdout)
 					framework.Logf(reason)
-					// We allow retries for this because there seems to be a race in kube-proxy's programming
-					// that sometimes results in connectivity before NAT is in place.
 					continue
 				}
+				if !execPod.Spec.HostNetwork && reachability == reachableWithoutSNAT {
+					// Verify observed source IP if exec pod is not running in host network namespace
+					// and we don't expect any SNAT in the data path.  With exec pod running in host
+					// network namespace and the destination IP is a virtual IP (service IP), the source
+					// IP that the destination sees may be different from the exec pod IP.  For
+					// instance, If the host happens to have a local IP 10.x.x.x which is closer to
+					// service IP 10.100.x.x than pod IP 192.168.x.x, this 10.x.x.x may be used by
+					// kernel as source IP.
+					sourceIP := outputs[1]
+					if sourceIP != execPod.Status.PodIP {
+						reason = "Failure: the server saw incorrect source IP, pod IP was unexpectedly SNATed."
+						framework.Logf(reason)
+						// We allow retries for this because there seems to be a race in kube-proxy's programming
+						// that sometimes results in connectivity before NAT is in place.
+						continue
+					}
+				}
 			}
-
 			return // Success!
 		} else {
 			if err == nil {
@@ -1227,7 +1239,6 @@ func setupPodServiceOnNode(f *framework.Framework, jig *framework.ServiceTestJig
 	podName := jig.Name
 	By("Creating a backend server pod " + podName + " which echoes back source ip.")
 	pod := jig.LaunchEchoserverPodOnNode(f, nodeName, podName, dstHostNetworked)
-
 	// Waiting for service to expose endpoint.
 	framework.ValidateEndpointsOrFail(f.ClientSet, f.Namespace.Name, serviceName, framework.PortsByPodName{podName: {svcPort}})
 
