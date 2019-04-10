@@ -840,7 +840,7 @@ func newEchoServerPodSpec(podName string, hostNetwork bool) *v1.Pod {
 		}
 	} else {
 		port = 8091
-		hostNet = true
+		hostNet = hostNetwork
 		clientImage = "busybox"
 		serverImage = imageutils.GetE2EImage(imageutils.EchoServer)
 		commandStr = []string{"/bin/sh", "-c", "trap \"echo Stopped; exit 0\" INT TERM EXIT; sleep 1000000"}
