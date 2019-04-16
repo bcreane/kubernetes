@@ -2,25 +2,30 @@ package ids
 
 import (
 	"fmt"
-	"github.com/olivere/elastic"
-	. "github.com/onsi/ginkgo"
-	"github.com/tigera/flowsynth/pkg/app"
-	"github.com/tigera/flowsynth/pkg/out"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/olivere/elastic"
+	. "github.com/onsi/ginkgo"
+	"github.com/tigera/flowsynth/pkg/app"
+	"github.com/tigera/flowsynth/pkg/out"
+
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
 const (
 	DefaultElasticScheme = "http"
-	DefaultElasticHost = "elasticsearch-tigera-elasticsearch.calico-monitoring.svc.cluster.local"
-	DefaultElasticPort = 9200
-	NumDays = 3
+	DefaultElasticHost   = "elasticsearch-tigera-elasticsearch.calico-monitoring.svc.cluster.local"
+	DefaultElasticPort   = 9200
+	NumDays              = 3
 )
 
 var _ = SIGDescribe("[Feature:CNX-v3-IDS]", func() {
+	f := framework.NewDefaultFramework("calico-alp")
+
 	Context("Elastic IDS Jobs and Datafeeds", func() {
 		var client *elastic.Client
 		BeforeEach(func() {
@@ -28,6 +33,11 @@ var _ = SIGDescribe("[Feature:CNX-v3-IDS]", func() {
 		})
 		AfterEach(func() {
 			DeleteIndices(client)
+		})
+		JustAfterEach(func() {
+			if CurrentGinkgoTestDescription().Failed && framework.TestContext.DumpLogsOnFailure {
+				LogElasticDiags(client, f)
+			}
 		})
 
 		It("Machine Learning is enabled", func() { MachineLearningEnabled(client) })
@@ -148,13 +158,13 @@ type TestSpec struct {
 
 type TestConfig struct {
 	RecordScore int
-	NumRecords int
-	NumNodes   int
-	PodNetwork *net.IPNet
-	StartTime  time.Time
-	EndTime    time.Time
-	Apps       []app.AppConfig
-	Outs       []out.OutConfig
+	NumRecords  int
+	NumNodes    int
+	PodNetwork  *net.IPNet
+	StartTime   time.Time
+	EndTime     time.Time
+	Apps        []app.AppConfig
+	Outs        []out.OutConfig
 }
 
 func (c *TestConfig) MarshalYAML() (interface{}, error) {
@@ -181,19 +191,19 @@ func GenConfig(threshold, numRecords int, events ...app.Event) TestConfig {
 	startTime := endTime.AddDate(0, 0, -NumDays)
 
 	for idx := range events {
-		events[idx].At = endTime.Add(time.Second * time.Duration(-(idx+1) * 3600 * 6))
+		events[idx].At = endTime.Add(time.Second * time.Duration(-(idx+1)*3600*6))
 		if events[idx].At.Before(startTime) || events[idx].At.After(endTime) {
-			panic (fmt.Sprintf("Time %v is out of range [%v, %v]", events[idx].At, startTime, endTime))
+			panic(fmt.Sprintf("Time %v is out of range [%v, %v]", events[idx].At, startTime, endTime))
 		}
 	}
 
 	return TestConfig{
 		RecordScore: threshold,
-		NumRecords: numRecords,
-		NumNodes:   3,
-		PodNetwork: MakeNet("10.10.1.0/25"),
-		StartTime:  startTime,
-		EndTime:    endTime,
+		NumRecords:  numRecords,
+		NumNodes:    3,
+		PodNetwork:  MakeNet("10.10.1.0/25"),
+		StartTime:   startTime,
+		EndTime:     endTime,
 		Apps: []app.AppConfig{
 			{
 				Type: "WrappedApp",
