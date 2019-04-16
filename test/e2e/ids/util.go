@@ -1,9 +1,14 @@
 package ids
 
 import (
+	"context"
 	"net"
 	"net/url"
 	"time"
+
+	"github.com/olivere/elastic"
+
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
 func MakeNet(cidr string) *net.IPNet {
@@ -40,4 +45,24 @@ func MakeURI(spec string) *url.URL {
 		panic(err.Error())
 	}
 	return u
+}
+
+func LogElasticDiags(c *elastic.Client, _ *framework.Framework) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	ch, err := c.ClusterHealth().Pretty(true).Do(ctx)
+	if err != nil {
+		framework.Logf("failed to get elasticsearch cluster health")
+	} else {
+		framework.Logf("elastic cluster health:\n %v", ch)
+	}
+	r, err := c.PerformRequest(ctx, elastic.PerformRequestOptions{
+		Method: "GET",
+		Path:   "_cat/nodes?v&h=id,disk.total,disk.used_percent,heap.percent,uptime,ram.percent",
+	})
+	if err != nil {
+		framework.Logf("failed to get elasticsearch node info")
+	} else {
+		framework.Logf("elastic nodes:\n %v", r)
+	}
 }
