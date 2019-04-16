@@ -8,6 +8,9 @@ import (
 
 
 var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
+	// var f = framework.NewDefaultFramework("cnx-ids")
+	// identifierKey := "identifier"
+
 	var (
 		kubectl *calico.Kubectl
 	)
@@ -21,15 +24,75 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 		})
 
 		It("Create GlobalThreatFeed", func() {
+			// podServerA, serviceA := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-a", []int{80}, map[string]string{identifierKey: "identA"})
+			// framework.Logf("This is the podServer that was created: %v", podServerA)
+			// framework.Logf("This is the service that was created: %v", serviceA)
+
+			configmapDeploymentServiceStr := `
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  nginx-ip-blacklist.conf: |
+    server {
+        location / {
+            return 200 '218.92.1.158, 5.188.10.179, 185.22.209.14, 95.70.0.46, 191.96.249.183, 115.238.245.8, 122.226.181.164, 122.226.181.167';
+            add_header Content-Type text/plain;
+        }
+    }
+metadata:
+  name: ip-blacklist-configmap
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ip-blacklist-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: blacklist
+  template:
+    metadata:
+      labels:
+        app: blacklist
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          volumeMounts:
+          - name: ip-blacklist-configmap
+            mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: ip-blacklist-configmap
+          configMap:
+            name: ip-blacklist-configmap
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: ip-blacklist-deployment
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: blacklist
+`
+			kubectl.Create(configmapDeploymentServiceStr,"default", "")
+
 			globalThreatFeedStr := `
 apiVersion: projectcalico.org/v3
 kind: GlobalThreatFeed
 metadata:
-  name: sample-global-threat-feed
+  name: global-threat-feed
 spec:
   pull:
     http:
-      url: https://an.example.threat.feed/blacklist
+      url: http://ip-blacklist-deployment.default
   globalNetworkSet:
     labels:
       security-action: block
