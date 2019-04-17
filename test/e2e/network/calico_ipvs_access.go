@@ -209,9 +209,17 @@ var _ = SIGDescribe("IPVSEgress", func() {
 					applyLabels = jig.Labels
 					client = dstPod
 				} else {
-					// We're not doing a loopback test so we need to make a pod0 too.
-					client = jig.LaunchEchoserverPodOnNode(f, nodeNames[0], "ipvs-egress-source", false)
+					// We're not doing a loopback test so we need to make a pod0 too i.e. client-pod.
 					applyLabels = map[string]string{"pod-name": "ipvs-egress-source"}
+					//we need to create different lables for client and server pod, so that service can have only
+					//one backend pod i.e server-pod.
+					//take backup of server Pod labels to use it later to apply target-specific policy with this lable.
+					serverPodLables := jig.Labels
+
+					jig.Labels = applyLabels
+					client = jig.LaunchEchoserverPodOnNode(f, nodeNames[0], "ipvs-egress-source", false)
+					//reassign lable to allow traffic on server for target-specific policy
+					jig.Labels = serverPodLables
 				}
 			})
 
@@ -259,7 +267,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 							Name: "egress-target-access",
 						},
 						Spec: networkingv1.NetworkPolicySpec{
-							// Apply this policy to the source (pod0).
+							// Apply this policy to the source (pod0) i.e. client-pod.
 							PodSelector: metav1.LabelSelector{
 								MatchLabels: applyLabels,
 							},
