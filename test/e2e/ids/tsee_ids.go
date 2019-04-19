@@ -1,15 +1,25 @@
 package ids
 
 import (
+	"fmt"
+	"k8s.io/api/core/v1"
+	"strconv"
+	"strings"
+
+	"k8s.io/apimachinery/pkg/fields"
+	"time"
 	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
 )
 
 
 var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
-	// var f = framework.NewDefaultFramework("cnx-ids")
-	// identifierKey := "identifier"
+	var f = framework.NewDefaultFramework("cnx-ids")
+	identifierKey := "identifier"
+	var err error
 
 	var (
 		kubectl *calico.Kubectl
@@ -21,14 +31,48 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 		})
 		AfterEach(func() {
 			// DeleteIndices(client)
+			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "","global-threat-feed", "")
+			Expect(err).To(BeNil())
 		})
 
 		It("Create GlobalThreatFeed", func() {
-			// podServerA, serviceA := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-a", []int{80}, map[string]string{identifierKey: "identA"})
-			// framework.Logf("This is the podServer that was created: %v", podServerA)
-			// framework.Logf("This is the service that was created: %v", serviceA)
+			var pods *v1.PodList
+			podServerA, serviceA := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-a", []int{80}, map[string]string{identifierKey: "server-blacklist"})
+			podServerB, serviceB := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-b", []int{80}, map[string]string{identifierKey: "server-blacklist"})
+			podServerC, serviceC := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-c", []int{80}, map[string]string{identifierKey: "server-blacklist"})
 
-			configmapDeploymentServiceStr := `
+			framework.Logf("podServerA:serviceA: %v:%v", podServerA.Name, serviceA.Name)
+			framework.Logf("podServerB:serviceB: %v:%v", podServerB.Name, serviceB.Name)
+			framework.Logf("podServerC:serviceC: %v:%v", podServerC.Name, serviceC.Name)
+
+			// collect all pods the have the label server-blacklist
+			labelSelector := fields.SelectorFromSet(fields.Set(map[string]string{identifierKey: "server-blacklist"})).String()
+			options := meta_v1.ListOptions{LabelSelector: labelSelector}
+
+			pods, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).List(options)
+			Expect(err).To(BeNil())
+
+			for _, pod := range pods.Items {
+				err = framework.WaitForPodRunningInNamespace(f.ClientSet, &pod)
+				Expect(err).To(BeNil())
+			}
+
+			pods, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).List(options)
+			Expect(err).To(BeNil())
+
+			// collect all podIPs the have the label server-blacklist
+			var blacklistIPs []string
+			for _, pod := range pods.Items {
+				framework.Logf("Creating client pod %s has a pod IP of: %s", f.Namespace.Name, pod.Status.PodIP)
+				blacklistIPs = append(blacklistIPs, pod.Status.PodIP)
+			}
+
+			// convert blacklistIPs into a string seperated by newlines
+			blacklistIPStr := strings.Join(blacklistIPs, "\n")
+			blacklistIPStrConv:= strconv.QuoteToASCII(blacklistIPStr)
+			framework.Logf("blacklistIPStrConv is: %s", blacklistIPStrConv)
+
+			configmapDeploymentServiceStr := fmt.Sprintf( `
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -36,7 +80,7 @@ data:
   nginx-ip-blacklist.conf: |
     server {
         location / {
-            return 200 '218.92.1.158\n5.188.10.179\n185.22.209.14\n95.70.0.46\n191.96.249.183\n115.238.245.8\n122.226.181.164\n122.226.181.167\n';
+            return 200 %s;
             add_header Content-Type text/plain;
         }
     }
@@ -81,10 +125,17 @@ spec:
       targetPort: 80
   selector:
     app: blacklist
-`
-			kubectl.Create(configmapDeploymentServiceStr,"default", "")
+`,
+			blacklistIPStrConv)
 
-			globalThreatFeedStr := `
+			// create a configmap, deployment and service that serve the IPs of the pods labeled with server-blacklist
+			err = kubectl.Create(configmapDeploymentServiceStr,f.Namespace.Name, "")
+			Expect(err).To(BeNil())
+			framework.Logf("This is the configmap that is passed in: %v", configmapDeploymentServiceStr)
+
+			// create url for the GlobalThreatFeed to query
+			globalThreatFeedURL := "ip-blacklist-deployment" + "." + f.Namespace.Name
+			globalThreatFeedStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
 kind: GlobalThreatFeed
 metadata:
@@ -92,13 +143,30 @@ metadata:
 spec:
   pull:
     http:
-      url: http://ip-blacklist-deployment.default
+      url: http://%s
   globalNetworkSet:
     labels:
       security-action: block
-`
-			kubectl.Create(globalThreatFeedStr,"", "")
-			framework.Logf("This is the GTF that is passed in: %v", globalThreatFeedStr)
+`,
+				globalThreatFeedURL)
+
+			// create GlobalThreatFeed and GlobalNetworkSet that queries the service that serves blacklist IPs
+			err = kubectl.Create(globalThreatFeedStr,"", "")
+			Expect(err).To(BeNil())
+			framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
+
+			// to allow time for globalNetworkSet to start and populate .spec.nets
+			time.Sleep(90 * time.Second)
+
+			By("Pinging the IMCP allowed server pods")
+			for _, pod := range pods.Items {
+				icmpPod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(pod.Name, meta_v1.GetOptions{})
+				Expect(err).To(BeNil())
+
+				pingClient := "client-can-ping-" + icmpPod.Name
+				framework.Logf("This is the pingClient: %v", pingClient)
+				calico.TestCanPing(f, f.Namespace, pingClient, icmpPod)
+			}
 
 		})
 
