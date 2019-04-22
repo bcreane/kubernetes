@@ -2,17 +2,18 @@ package ids
 
 import (
 	"fmt"
+	"github.com/olivere/elastic"
 	"k8s.io/api/core/v1"
 	"strconv"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/fields"
-	"time"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
+	"time"
 )
 
 
@@ -25,12 +26,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 		kubectl *calico.Kubectl
 	)
 	Context("Elastic IDS Jobs and Datafeeds", func() {
-
+		var client *elastic.Client
 		BeforeEach(func() {
-			// client = InitClient(GetURI())
+			client = InitClient(GetURI())
 		})
 		AfterEach(func() {
-			// DeleteIndices(client)
+			DeleteIndices(client)
 			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "","global-threat-feed", "")
 			Expect(err).To(BeNil())
 		})
@@ -67,7 +68,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 				blacklistIPs = append(blacklistIPs, pod.Status.PodIP)
 			}
 
-			// convert blacklistIPs into a string seperated by newlines
+			// convert blacklistIPs into a string separated by newlines
 			blacklistIPStr := strings.Join(blacklistIPs, "\n")
 			blacklistIPStrConv:= strconv.QuoteToASCII(blacklistIPStr)
 			framework.Logf("blacklistIPStrConv is: %s", blacklistIPStrConv)
@@ -156,7 +157,7 @@ spec:
 			framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
 
 			// to allow time for globalNetworkSet to start and populate .spec.nets
-			time.Sleep(90 * time.Second)
+			time.Sleep(60 * time.Second)
 
 			By("Pinging the IMCP allowed server pods")
 			for _, pod := range pods.Items {
@@ -167,6 +168,9 @@ spec:
 				framework.Logf("This is the pingClient: %v", pingClient)
 				calico.TestCanPing(f, f.Namespace, pingClient, icmpPod)
 			}
+
+			// to allow time for Felix to export the flow logs
+			time.Sleep(180 * time.Second)
 
 		})
 
