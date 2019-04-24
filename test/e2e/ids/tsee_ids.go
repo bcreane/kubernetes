@@ -1,9 +1,11 @@
 package ids
 
 import (
+	"context"
 	"fmt"
 	"github.com/olivere/elastic"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/json"
 	"strconv"
 	"strings"
 
@@ -17,15 +19,15 @@ import (
 )
 
 
-var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
-	var f = framework.NewDefaultFramework("cnx-ids")
+var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
+	var f = framework.NewDefaultFramework("cnx-suspicious-ips")
 	identifierKey := "identifier"
 	var err error
 
 	var (
 		kubectl *calico.Kubectl
 	)
-	Context("Elastic IDS Jobs and Datafeeds", func() {
+	Context("Suspicious IP security events.", func() {
 		var client *elastic.Client
 		BeforeEach(func() {
 			client = InitClient(GetURI())
@@ -36,7 +38,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 			Expect(err).To(BeNil())
 		})
 
-		It("Create GlobalThreatFeed", func() {
+		It("Create GlobalThreatFeed, generate traffic to suspicious ips and verify security events have been created.", func() {
 			var pods *v1.PodList
 			podServerA, serviceA := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-a", []int{80}, map[string]string{identifierKey: "server-blacklist"})
 			podServerB, serviceB := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-b", []int{80}, map[string]string{identifierKey: "server-blacklist"})
@@ -46,7 +48,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 			framework.Logf("podServerB:serviceB: %v:%v", podServerB.Name, serviceB.Name)
 			framework.Logf("podServerC:serviceC: %v:%v", podServerC.Name, serviceC.Name)
 
-			// collect all pods the have the label server-blacklist
+			By("Collect all pods the have the label server-blacklist.")
 			labelSelector := fields.SelectorFromSet(fields.Set(map[string]string{identifierKey: "server-blacklist"})).String()
 			options := meta_v1.ListOptions{LabelSelector: labelSelector}
 
@@ -61,14 +63,14 @@ var _ = SIGDescribe("[Feature:CNX-v3-GTF]", func() {
 			pods, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).List(options)
 			Expect(err).To(BeNil())
 
-			// collect all podIPs the have the label server-blacklist
+			By("Collect all podIPs the have the label server-blacklist.")
 			var blacklistIPs []string
 			for _, pod := range pods.Items {
 				framework.Logf("Creating client pod %s has a pod IP of: %s", f.Namespace.Name, pod.Status.PodIP)
 				blacklistIPs = append(blacklistIPs, pod.Status.PodIP)
 			}
 
-			// convert blacklistIPs into a string separated by newlines
+			// Convert blacklistIPs into a string separated by newlines
 			blacklistIPStr := strings.Join(blacklistIPs, "\n")
 			blacklistIPStrConv:= strconv.QuoteToASCII(blacklistIPStr)
 			framework.Logf("blacklistIPStrConv is: %s", blacklistIPStrConv)
@@ -129,12 +131,12 @@ spec:
 `,
 			blacklistIPStrConv)
 
-			// create a configmap, deployment and service that serve the IPs of the pods labeled with server-blacklist
+			By("Creating a configmap, deployment and service that serve the IPs of the pods labeled with server-blacklist.")
 			err = kubectl.Create(configmapDeploymentServiceStr,f.Namespace.Name, "")
 			Expect(err).To(BeNil())
 			framework.Logf("This is the configmap that is passed in: %v", configmapDeploymentServiceStr)
 
-			// create url for the GlobalThreatFeed to query
+			// Create url for the GlobalThreatFeed to query
 			globalThreatFeedURL := "ip-blacklist-deployment" + "." + f.Namespace.Name
 			globalThreatFeedStr := fmt.Sprintf(`
 apiVersion: projectcalico.org/v3
@@ -151,15 +153,15 @@ spec:
 `,
 				globalThreatFeedURL)
 
-			// create GlobalThreatFeed and GlobalNetworkSet that queries the service that serves blacklist IPs
+			By("Creating a GlobalThreatFeed and GlobalNetworkSet that queries the service that serves blacklist IPs.")
 			err = kubectl.Create(globalThreatFeedStr,"", "")
 			Expect(err).To(BeNil())
 			framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
 
-			// to allow time for globalNetworkSet to start and populate .spec.nets
+			By("Allow time for globalNetworkSet to start and populate .spec.nets.")
 			time.Sleep(60 * time.Second)
 
-			By("Pinging the IMCP allowed server pods")
+			By("Creating clients to ICMP ping the blacklist server pods.")
 			for _, pod := range pods.Items {
 				icmpPod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(pod.Name, meta_v1.GetOptions{})
 				Expect(err).To(BeNil())
@@ -169,10 +171,44 @@ spec:
 				calico.TestCanPing(f, f.Namespace, pingClient, icmpPod)
 			}
 
-			// to allow time for Felix to export the flow logs
+			By("Allow time for Felix to export the flow logs.")
 			time.Sleep(180 * time.Second)
+
+			By("Verifying security events are created in elasticsearch under index: tigera_secure_ee_events*.")
+			var searchKey = "dest_ip"
+			for _, pod := range pods.Items {
+				searchEvents(client, searchKey, pod.Status.PodIP)
+			}
 
 		})
 
 	})
 })
+
+func searchEvents(client *elastic.Client, searchKey string, searchValue string) {
+	framework.Logf("Searching elasticsearch for %s: %s.", searchKey,searchValue)
+	ctx := context.Background()
+	termQuery := elastic.NewTermQuery(searchKey, searchValue)
+	searchResult, err := client.Search().
+		Index("tigera_secure_ee_events*").
+		Query(termQuery).
+		Pretty(true).
+		Do(ctx)
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Query %s: %s took %d milliseconds\n", searchKey, searchValue, searchResult.TookInMillis)
+	fmt.Printf("Found %s: %s in a total of %d entries\n", searchKey, searchValue, searchResult.TotalHits())
+	Expect(searchResult.Hits.TotalHits).ToNot(BeZero())
+
+	var jsonObject map[string]interface{}
+	for _, hit := range searchResult.Hits.Hits {
+		err := json.Unmarshal(*hit.Source, &jsonObject)
+		if err != nil {
+			err = fmt.Errorf("Failed to deserialize jsonPayload as json object %s", jsonObject)
+		}
+		fmt.Printf("%s: %s Entry: %s\n", searchKey, searchValue, hit.Source)
+	}
+}
