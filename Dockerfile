@@ -1,7 +1,7 @@
 # Use: docker run -v ~/.kube/config:/root/kubeconfig djosborne/k8s-e2e
 # Override $FOCUS at runtime to select different tests
 # Inspiration: https://github.com/kubernetes/kubernetes/blob/master/test/e2e_node/conformance/build/Dockerfile
-FROM golang
+FROM phusion/baseimage
 LABEL maintainer "turk@tigera.io"
 VOLUME /report
 ADD calico/containerized-e2e/kubeconfig /root/kubeconfig
