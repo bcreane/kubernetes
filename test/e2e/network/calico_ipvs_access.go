@@ -215,7 +215,7 @@ var _ = SIGDescribe("IPVSEgress", func() {
 				}
 			})
 
-			It("should correctly implement NetworkPolicy [Feature:WindowsPolicy nodePort]", func() {
+			It("should correctly implement NetworkPolicy [Feature:WindowsNodePortPolicy]", func() {
 				By("allowing connection with no NetworkPolicy")
 				expectAccessAllowed()
 
