@@ -40,6 +40,11 @@ func RunningWindowsTest() bool {
 	return strings.Contains(GinkgoConfig.FocusString, "WindowsPolicy")
 }
 
+// Temporarily disable readiness check for 1903 cluster.
+func DisableReadiness() bool {
+	return os.Getenv("WINDOWS_OS") == "1903"
+}
+
 // Get Porter image based on windows OS version
 func GetPorterImage() string {
 	os := os.Getenv("WINDOWS_OS")
@@ -90,7 +95,7 @@ func GetTarget(f *framework.Framework, service *v1.Service, targetPort int) (str
 	}
 	serviceTarget := fmt.Sprintf("http://%s:%d", service.Spec.ClusterIP, targetPort)
 	podTarget := fmt.Sprintf("http://%s:%d", targetIP, targetPort)
-	fmt.Printf("podTarget :%s and serviceTarget :%s \n",podTarget,serviceTarget)
+	fmt.Printf("podTarget :%s and serviceTarget :%s \n", podTarget, serviceTarget)
 	return podTarget, serviceTarget
 }
 
@@ -99,7 +104,7 @@ func GetTarget(f *framework.Framework, service *v1.Service, targetPort int) (str
 func getServiceEndpointIP(f *framework.Framework, svcNSName string, svcName string) string {
 	var err error
 	// The default timeout is 1 minute but sometimes Windows pods take a little longer than that.
-	for tries := 3; tries >0; tries -- {
+	for tries := 3; tries > 0; tries-- {
 		err = framework.WaitForEndpoint(f.ClientSet, svcNSName, svcName)
 		if err == nil {
 			break

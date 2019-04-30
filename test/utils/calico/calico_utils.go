@@ -674,6 +674,15 @@ func CreateServerPodAndServiceWithLabels(f *framework.Framework, namespace *v1.N
 		})
 	}
 
+	// Windows 1903 vxlan has an issue on connections between windows node to windows pod.
+	// Turn readiness off if that is the case.
+	if winctl.RunningWindowsTest() && winctl.DisableReadiness() {
+		framework.Logf("Do not enable readiness check for windows vxlan")
+		for i, _ := range containers {
+			containers[i].ReadinessProbe = nil
+		}
+	}
+
 	newLabels := make(map[string]string)
 	for k, v := range labels {
 		newLabels[k] = v
