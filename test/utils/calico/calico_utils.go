@@ -260,20 +260,21 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	var err error
 	pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
 	if err != nil {
+		framework.Logf("Creation of logging pod %s failed: %v", pod.Name, err)
 		return pod, err
 	}
 	framework.Logf("Created logging pod %v", pod.ObjectMeta.Name)
 
 	err = f.WaitForPodRunning(pod.Name)
 	if err != nil {
-		framework.Logf("Waiting for logging pod failed for %s, logs following: \n%s", pod.Name, GetPodInfo(f, pod))
+		framework.Logf("Logging pod %s failed to enter running state, logs following: \n%s", pod.Name, GetPodInfo(f, pod))
 		return pod, err
 	}
 
 	// Get the pod again to get the assigned IP
 	pod, err = f.PodClient().Get(pod.Name, metav1.GetOptions{})
 	if err != nil {
-		framework.Logf("Failed to retrieve %s pod: %v", pod.Name, err)
+		framework.Logf("Failed to retrieve %s pod: %v\n%s", pod.Name, err, GetPodInfo(f, pod))
 		return pod, err
 	}
 
