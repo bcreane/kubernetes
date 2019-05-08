@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -28,10 +28,6 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-)
-
-const (
-	EVENT_NO_ADDRESS_STRING = "Failed to allocate address"
 )
 
 var _ = SIGDescribe("CALICO-CNI", func() {
@@ -134,22 +130,27 @@ var _ = SIGDescribe("CALICO-CNI", func() {
 			By("Should not be able to create a new pod on node")
 			noIPPod := createEchoserverPodOnNode(f, testNode, calico.GenerateRandomName("azure-ipam-no-ip"), false, false)
 			testPods = append(testPods, noIPPod)
-			framework.Logf("created pod %s, check for no address event", noIPPod.Name)
+			framework.Logf("created pod %s, check for status", noIPPod.Name)
 			Eventually(func() bool {
-				return checkPodEvent(f, noIPPod, EVENT_NO_ADDRESS_STRING)
-			}, 15*time.Second, 1*time.Second).Should(BeTrue())
+				pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(noIPPod.Name, metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				return pod.Status.Phase == v1.PodFailed
+			}, 2*time.Minute, 1*time.Second).Should(BeTrue())
 
-			By("Remove first test pod and release one IP")
+			By("Remove first test pod completely and release one IP")
 			ipAvailable := testPods[0].Status.PodIP
 			err := f.ClientSet.CoreV1().Pods(testPods[0].Namespace).Delete(testPods[0].Name, nil)
 			Expect(err).NotTo(HaveOccurred())
+			err = f.WaitForPodNotFound(testPods[0].Name, 2*time.Minute)
+			Expect(err).NotTo(HaveOccurred())
 			testPods[0] = nil
 
-			By("Pod has no ip previously should be able to grab IP and run")
-			err = f.WaitForPodRunning(noIPPod.Name)
+			By("Create another pod and it should be able to grab IP and run")
+			ipPod := createEchoserverPodOnNode(f, testNode, calico.GenerateRandomName("azure-ipam-got-ip"), false, false)
+			testPods = append(testPods, ipPod)
+			err = f.WaitForPodRunning(ipPod.Name)
 			Expect(err).NotTo(HaveOccurred())
-
-			pod, err := f.ClientSet.CoreV1().Pods(noIPPod.Namespace).Get(noIPPod.Name, metav1.GetOptions{})
+			pod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(ipPod.Name, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(pod.Status.PodIP).To(Equal(ipAvailable))
 		})

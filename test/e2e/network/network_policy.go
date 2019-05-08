@@ -583,6 +583,15 @@ func createServerPodAndServiceX(f *framework.Framework, namespace *v1.Namespace,
 		})
 	}
 
+	// Windows 1903 vxlan has an issue on connections between windows node to windows pod.
+	// Turn readiness off if that is the case.
+	if winctl.RunningWindowsTest() && winctl.DisableReadiness() {
+		framework.Logf("Do not enable readiness check for windows vxlan")
+		for i, _ := range containers {
+			containers[i].ReadinessProbe = nil
+		}
+	}
+
 	By(fmt.Sprintf("Creating a server pod %s in namespace %s", podName, namespace.Name))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
