@@ -266,6 +266,7 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 
 	err = f.WaitForPodRunning(pod.Name)
 	if err != nil {
+		framework.Logf("Waiting for logging pod failed for %s, logs following: \n%s", pod.Name, GetPodInfo(f, pod))
 		return pod, err
 	}
 
