@@ -29,11 +29,22 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 	)
 	Context("Suspicious IP security events.", func() {
 		var client *elastic.Client
+		felixConfigNeeded := true
+
 		BeforeEach(func() {
 			client = InitClient(GetURI())
+			if felixConfigNeeded {
+				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "10")
+				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "1")
+				felixConfigNeeded = false
+			}
 		})
 		AfterEach(func() {
 			DeleteIndices(client)
+			if !felixConfigNeeded {
+				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "300")
+				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "2")
+			}
 			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "","global-threat-feed", "")
 			Expect(err).To(BeNil())
 		})
