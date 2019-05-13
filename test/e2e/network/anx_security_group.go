@@ -420,18 +420,18 @@ var _ = SIGDescribe("[Feature:Anx-SG-Int] anx security group policy", func() {
 				Eventually(func() error {
 					// Ensure the instance in SG2 is up things have been loaded
 					if err = ensureInstanceAndHep(instanceSg1Id); err != nil {
-						return err
+						return fmt.Errorf("instance in SG1: %v", err)
 					}
 					if instanceSg1Ip, err = awsctl.Client.GetInstancePrivateIp(instanceSg1Id); err != nil {
-						return err
+						return fmt.Errorf("instance in SG1: %v", err)
 					}
 
 					// Ensure the instance in SG2 is up things have been loaded
 					if err = ensureInstanceAndHep(instanceSg2Id); err != nil {
-						return err
+						return fmt.Errorf("instance in SG2: %v", err)
 					}
 					if instanceSg2Ip, err = awsctl.Client.GetInstancePrivateIp(instanceSg2Id); err != nil {
-						return err
+						return fmt.Errorf("instance in SG2: %v", err)
 					}
 
 					return nil

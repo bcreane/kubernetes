@@ -686,15 +686,6 @@ func (a *Cloud) CreateInstance(name, sgID string, instanceCommand string) (insta
 
 	a.logger("Created instance %s", idString)
 
-	// Add tags to the created instance
-	errtag := a.CreateTag(instanceId, "Name", a.ResourceName(name))
-	if errtag != nil {
-		a.logger("Could not create tags for instance %s: %v", idString, errtag)
-		return "", err
-	}
-
-	a.logger("Successfully tagged instance %s.", idString)
-
 	a.logger("Wait for instance %s to run.", idString)
 
 	describeInput := &ec2.DescribeInstancesInput{
@@ -704,6 +695,15 @@ func (a *Cloud) CreateInstance(name, sgID string, instanceCommand string) (insta
 	if err := a.EC2().WaitUntilInstanceRunning(describeInput); err != nil {
 		return "", err
 	}
+
+	// Add tags to the created instance
+	errtag := a.CreateTag(idString, "Name", a.ResourceName(name))
+	if errtag != nil {
+		a.logger("Could not create tags for instance %s: %v", idString, errtag)
+		return "", errtag
+	}
+
+	a.logger("Successfully tagged instance %s.", idString)
 
 	a.logger("EC2 instance %s is available", idString)
 	return idString, nil
