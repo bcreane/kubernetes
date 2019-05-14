@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -28,6 +29,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/rds"
+	"golang.org/x/time/rate"
 )
 
 type SubnetInfo struct {
@@ -59,6 +61,8 @@ type Cloud struct {
 	Info awsInfo // Holds current aws resource info.
 
 	logger LogFunc
+
+	limiter *rate.Limiter
 }
 
 type LogFunc func(format string, args ...interface{})
@@ -72,18 +76,21 @@ func NewCloudHandler(name string, region string, logger LogFunc) (*Cloud, error)
 	}
 
 	return &Cloud{
-		Name:   name,
-		ec2:    ec2.New(session),
-		rds:    rds.New(session),
-		logger: logger,
+		Name:    name,
+		ec2:     ec2.New(session),
+		rds:     rds.New(session),
+		logger:  logger,
+		limiter: rate.NewLimiter(20, 20),
 	}, nil
 }
 
 func (a *Cloud) EC2() *ec2.EC2 {
+	a.limiter.Wait(context.Background())
 	return a.ec2
 }
 
 func (a *Cloud) RDS() *rds.RDS {
+	a.limiter.Wait(context.Background())
 	return a.rds
 }
 
@@ -112,7 +119,7 @@ func (a *Cloud) findVPC(vpcID string) (*ec2.Vpc, error) {
 
 	var response *ec2.DescribeVpcsOutput
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		response, err = a.EC2().DescribeVpcs(request)
 		return err
 	})
@@ -153,7 +160,7 @@ func (a *Cloud) GetVPCInfo(vpcID string) error {
 	}
 
 	var response *ec2.DescribeSubnetsOutput
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		response, err = a.EC2().DescribeSubnets(request)
 		return err
 	})
@@ -182,7 +189,7 @@ func (a *Cloud) CreateVpcSG(name string, desc string) (string, error) {
 
 	var result *ec2.CreateSecurityGroupOutput
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		result, err = a.EC2().CreateSecurityGroup(&ec2.CreateSecurityGroupInput{
 			GroupName:   aws.String(a.ResourceName(name)),
 			Description: aws.String(desc),
@@ -216,7 +223,7 @@ func (a *Cloud) DeleteVpcSG(groupID string) error {
 	}
 
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		_, err = a.EC2().DeleteSecurityGroup(deleteRequest)
 		return err
 	})
@@ -238,7 +245,7 @@ func (a *Cloud) DescribeSecurityGroup(groupID string) ([]*ec2.SecurityGroup, err
 
 	var result *ec2.DescribeSecurityGroupsOutput
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		result, err = a.EC2().DescribeSecurityGroups(input)
 		return err
 	})
@@ -259,7 +266,7 @@ func (a *Cloud) DescribeFilteredSecurityGroups(filter map[string][]string) ([]*e
 
 	var result *ec2.DescribeSecurityGroupsOutput
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		result, err = a.EC2().DescribeSecurityGroups(input)
 		return err
 	})
@@ -285,7 +292,7 @@ func (a *Cloud) RevokeSecurityGroupsIngress(groupID string) error {
 				IpPermissions: sg.IpPermissions,
 			}
 			var err error
-			err = retryDueToRequestLimiting(func() error {
+			err = a.retryDueToRequestLimiting(func() error {
 				_, err = a.EC2().RevokeSecurityGroupIngress(input)
 				return err
 			})
@@ -316,7 +323,7 @@ func (a *Cloud) RevokeSecurityGroupsEgress(groupID string) error {
 				IpPermissions: sg.IpPermissionsEgress,
 			}
 			var err error
-			err = retryDueToRequestLimiting(func() error {
+			err = a.retryDueToRequestLimiting(func() error {
 				_, err := a.EC2().RevokeSecurityGroupEgress(input)
 				return err
 			})
@@ -341,7 +348,7 @@ func (a *Cloud) AuthorizeSGEgressDstSG(groupID string, protocol string, fromPort
 
 	// Has to use GroupId for non-default VPC.
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		_, err = a.EC2().AuthorizeSecurityGroupEgress(&ec2.AuthorizeSecurityGroupEgressInput{
 			GroupId: aws.String(groupID),
 			IpPermissions: []*ec2.IpPermission{
@@ -370,7 +377,7 @@ func (a *Cloud) RevokeSGIngressSrcSG(groupID string, protocol string, fromPort, 
 	}
 
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		// Has to use GroupId for non-default VPC.
 		_, err = a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
 			GroupId: aws.String(groupID),
@@ -400,7 +407,7 @@ func (a *Cloud) RevokeSGIngressIPRange(groupID string, protocol string, fromPort
 	}
 
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		// Has to use GroupId for non-default VPC.
 		_, err = a.EC2().RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
 			GroupId: aws.String(groupID),
@@ -430,7 +437,7 @@ func (a *Cloud) AuthorizeSGIngressSrcSG(groupID string, protocol string, fromPor
 	}
 
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		// Has to use GroupId for non-default VPC.
 		_, err = a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
 			GroupId: aws.String(groupID),
@@ -460,7 +467,7 @@ func (a *Cloud) AuthorizeSGIngressIPRange(groupID string, protocol string, fromP
 	}
 
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		// Has to use GroupId for non-default VPC.
 		_, err = a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
 			GroupId: aws.String(groupID),
@@ -484,7 +491,7 @@ func (a *Cloud) AuthorizeSGIngressIPRange(groupID string, protocol string, fromP
 
 func (a *Cloud) AuthorizeSGIngressIpPermissions(groupID string, ipPermissions []*ec2.IpPermission) error {
 	var err error
-	err = retryDueToRequestLimiting(func() error {
+	err = a.retryDueToRequestLimiting(func() error {
 		// Has to use GroupId for non-default VPC.
 		_, err = a.EC2().AuthorizeSecurityGroupIngress(&ec2.AuthorizeSecurityGroupIngressInput{
 			GroupId:       aws.String(groupID),
@@ -679,23 +686,6 @@ func (a *Cloud) CreateInstance(name, sgID string, instanceCommand string) (insta
 
 	a.logger("Created instance %s", idString)
 
-	// Add tags to the created instance
-	_, errtag := a.EC2().CreateTags(&ec2.CreateTagsInput{
-		Resources: []*string{instanceID},
-		Tags: []*ec2.Tag{
-			{
-				Key:   aws.String("Name"),
-				Value: aws.String(a.ResourceName(name)),
-			},
-		},
-	})
-	if errtag != nil {
-		a.logger("Could not create tags for instance %s: %v", idString, errtag)
-		return "", err
-	}
-
-	a.logger("Successfully tagged instance %s.", idString)
-
 	a.logger("Wait for instance %s to run.", idString)
 
 	describeInput := &ec2.DescribeInstancesInput{
@@ -705,6 +695,15 @@ func (a *Cloud) CreateInstance(name, sgID string, instanceCommand string) (insta
 	if err := a.EC2().WaitUntilInstanceRunning(describeInput); err != nil {
 		return "", err
 	}
+
+	// Add tags to the created instance
+	errtag := a.CreateTag(idString, "Name", a.ResourceName(name))
+	if errtag != nil {
+		a.logger("Could not create tags for instance %s: %v", idString, errtag)
+		return "", errtag
+	}
+
+	a.logger("Successfully tagged instance %s.", idString)
 
 	a.logger("EC2 instance %s is available", idString)
 	return idString, nil
@@ -782,6 +781,17 @@ func (a *Cloud) DeleteInstance(idString string) error {
 	return nil
 }
 
+func (a *Cloud) CreateTag(id, key, value string) error {
+	cti := ec2.CreateTagsInput{
+		Resources: []*string{aws.String(id)},
+		Tags: []*ec2.Tag{&ec2.Tag{
+			Key:   aws.String(key),
+			Value: aws.String(value)}},
+	}
+	_, err := a.EC2().CreateTags(&cti)
+	return err
+}
+
 // ErrorCode returns the aws error code, if it is an awserr.Error, otherwise ""
 func ErrorCode(err error) string {
 	if awsError, ok := err.(awserr.Error); ok {
@@ -810,7 +820,7 @@ func newEC2Filter(name string, values ...string) *ec2.Filter {
 	return filter
 }
 
-func retryDueToRequestLimiting(theFunc func() error) error {
+func (a *Cloud) retryDueToRequestLimiting(theFunc func() error) error {
 	delay := time.Second
 	for err := theFunc(); err != nil; {
 		code := ErrorCode(err)
@@ -819,6 +829,9 @@ func retryDueToRequestLimiting(theFunc func() error) error {
 		}
 		if delay.Minutes() < 5 {
 			time.Sleep(delay)
+			if delay.Minutes() > 1 {
+				a.logger("Delaying %d seconds due to API Rate Limiting", delay.Seconds())
+			}
 		} else {
 			return fmt.Errorf("API backoff timed out: %v", err)
 		}

@@ -29,6 +29,7 @@ import (
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/aws"
+	"k8s.io/kubernetes/test/utils/calico"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -321,16 +322,20 @@ func restartAwsController(f *framework.Framework) {
 
 	// Wait for it up again.
 	By("waiting for aws controller to recover")
-	framework.ExpectNoError(wait.Poll(time.Millisecond*100, time.Second*60, func() (bool, error) {
+	Eventually(func() error {
 		pods, err := podClient.List(options)
-		Expect(err).NotTo(HaveOccurred())
+		if err != nil {
+			return err
+		}
+		var info string
 		for _, pod := range pods.Items {
 			if pod.DeletionTimestamp == nil && podutil.IsPodReady(&pod) {
-				return true, nil
+				return nil
 			}
+			info += calico.GetPodInfo(f, &pod)
 		}
-		return false, nil
-	}))
+		return fmt.Errorf("Pod %v was not ready\n%s", pods, info)
+	}, 2*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 
 	By("aws controller restarted")
 }
