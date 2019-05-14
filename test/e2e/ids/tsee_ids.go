@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-
 var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 	var f = framework.NewDefaultFramework("cnx-suspicious-ips")
 	identifierKey := "identifier"
@@ -45,7 +44,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "300")
 				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "2")
 			}
-			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "","global-threat-feed", "")
+			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "", "global-threat-feed", "")
 			Expect(err).To(BeNil())
 		})
 
@@ -59,7 +58,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 			framework.Logf("podServerB:serviceB: %v:%v", podServerB.Name, serviceB.Name)
 			framework.Logf("podServerC:serviceC: %v:%v", podServerC.Name, serviceC.Name)
 
-			By("Collect all pods the have the label server-blacklist.")
+			By("Collect all pods that have the label server-blacklist.")
 			labelSelector := fields.SelectorFromSet(fields.Set(map[string]string{identifierKey: "server-blacklist"})).String()
 			options := meta_v1.ListOptions{LabelSelector: labelSelector}
 
@@ -74,19 +73,19 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 			pods, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).List(options)
 			Expect(err).To(BeNil())
 
-			By("Collect all podIPs the have the label server-blacklist.")
+			By("Collect all podIPs that have the label server-blacklist.")
 			var blacklistIPs []string
 			for _, pod := range pods.Items {
-				framework.Logf("Creating client pod %s has a pod IP of: %s", f.Namespace.Name, pod.Status.PodIP)
+				framework.Logf("Creating client pod %s that has a pod IP of: %s", f.Namespace.Name, pod.Status.PodIP)
 				blacklistIPs = append(blacklistIPs, pod.Status.PodIP)
 			}
 
 			// Convert blacklistIPs into a string separated by newlines
 			blacklistIPStr := strings.Join(blacklistIPs, "\n")
-			blacklistIPStrConv:= strconv.QuoteToASCII(blacklistIPStr)
+			blacklistIPStrConv := strconv.QuoteToASCII(blacklistIPStr)
 			framework.Logf("blacklistIPStrConv is: %s", blacklistIPStrConv)
 
-			configmapDeploymentServiceStr := fmt.Sprintf( `
+			configmapDeploymentServiceStr := fmt.Sprintf(`
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -140,10 +139,10 @@ spec:
   selector:
     app: blacklist
 `,
-			blacklistIPStrConv)
+				blacklistIPStrConv)
 
 			By("Creating a configmap, deployment and service that serve the IPs of the pods labeled with server-blacklist.")
-			err = kubectl.Create(configmapDeploymentServiceStr,f.Namespace.Name, "")
+			err = kubectl.Create(configmapDeploymentServiceStr, f.Namespace.Name, "")
 			Expect(err).To(BeNil())
 			framework.Logf("This is the configmap that is passed in: %v", configmapDeploymentServiceStr)
 
@@ -165,7 +164,7 @@ spec:
 				globalThreatFeedURL)
 
 			By("Creating a GlobalThreatFeed and GlobalNetworkSet that queries the service that serves blacklist IPs.")
-			err = kubectl.Create(globalThreatFeedStr,"", "")
+			err = kubectl.Create(globalThreatFeedStr, "", "")
 			Expect(err).To(BeNil())
 			framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
 
@@ -182,13 +181,16 @@ spec:
 				calico.TestCanPing(f, f.Namespace, pingClient, icmpPod)
 			}
 
-			By("Allow time for Felix to export the flow logs.")
-			time.Sleep(180 * time.Second)
-
-			By("Verifying security events are created in elasticsearch under index: tigera_secure_ee_events*.")
+			By("Waiting for blacklist server IPs to be indexed in tigera_secure_ee_events*")
 			var searchKey = "dest_ip"
 			for _, pod := range pods.Items {
-				searchEvents(client, searchKey, pod.Status.PodIP)
+				framework.Logf("Searching for %s: %s in at least one tigera_secure_ee_events* record", searchKey, pod.Status.PodIP)
+				checkSearchEvents(client, searchKey, pod.Status.PodIP)
+			}
+
+			By("Verifying security event records can be queried at index: tigera_secure_ee_events*")
+			for _, pod := range pods.Items {
+				dumpSearchResultRecords(client, searchKey, pod.Status.PodIP)
 			}
 
 		})
@@ -196,30 +198,45 @@ spec:
 	})
 })
 
-func searchEvents(client *elastic.Client, searchKey string, searchValue string) {
-	framework.Logf("Searching elasticsearch for %s: %s.", searchKey,searchValue)
-	ctx := context.Background()
+func checkSearchEvents(client *elastic.Client, searchKey string, searchValue string) {
+	Eventually(func() int {
+		return checkSearchEventsExist(client, searchKey, searchValue)
+	}, 3*time.Minute, 1*time.Second).Should(BeNumerically(">", 0))
+}
+
+func checkSearchEventsExist(client *elastic.Client, searchKey string, searchValue string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), framework.SingleCallTimeout)
+	defer cancel()
 	termQuery := elastic.NewTermQuery(searchKey, searchValue)
 	searchResult, err := client.Search().
 		Index("tigera_secure_ee_events*").
 		Query(termQuery).
 		Pretty(true).
 		Do(ctx)
+	Expect(err).ToNot(HaveOccurred())
+	return int(searchResult.Hits.TotalHits)
+}
 
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("Query %s: %s took %d milliseconds\n", searchKey, searchValue, searchResult.TookInMillis)
-	fmt.Printf("Found %s: %s in a total of %d entries\n", searchKey, searchValue, searchResult.TotalHits())
+func dumpSearchResultRecords(client *elastic.Client, searchKey string, searchValue string) {
+	framework.Logf("Elasticsearch tigera_secure_ee_events* records for: %s: %s", searchKey, searchValue)
+	ctx, cancel := context.WithTimeout(context.Background(), framework.SingleCallTimeout)
+	defer cancel()
+	termQuery := elastic.NewTermQuery(searchKey, searchValue)
+	searchResult, err := client.Search().
+		Index("tigera_secure_ee_events*").
+		Query(termQuery).
+		Pretty(true).
+		Do(ctx)
+	Expect(err).ToNot(HaveOccurred())
 	Expect(searchResult.Hits.TotalHits).ToNot(BeZero())
 
+	framework.Logf("Found %s: %s in a total of %d entries\n", searchKey, searchValue, searchResult.TotalHits())
 	var jsonObject map[string]interface{}
 	for _, hit := range searchResult.Hits.Hits {
 		err := json.Unmarshal(*hit.Source, &jsonObject)
 		if err != nil {
 			err = fmt.Errorf("Failed to deserialize jsonPayload as json object %s", jsonObject)
 		}
-		fmt.Printf("%s: %s Entry: %s\n", searchKey, searchValue, hit.Source)
+		framework.Logf("%s: %s Entry: %s\n", searchKey, searchValue, hit.Source)
 	}
 }
