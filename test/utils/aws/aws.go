@@ -822,7 +822,7 @@ func newEC2Filter(name string, values ...string) *ec2.Filter {
 
 func (a *Cloud) retryDueToRequestLimiting(theFunc func() error) error {
 	delay := time.Second
-	for err := theFunc(); err != nil; {
+	for err := theFunc(); err != nil; err = theFunc() {
 		code := ErrorCode(err)
 		if code != "RequestLimitExceeded" {
 			return err
