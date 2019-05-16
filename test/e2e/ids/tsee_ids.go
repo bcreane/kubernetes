@@ -29,7 +29,6 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 	Context("Suspicious IP security events.", func() {
 		var client *elastic.Client
 		felixConfigNeeded := true
-
 		BeforeEach(func() {
 			client = InitClient(GetURI())
 			if felixConfigNeeded {
@@ -142,9 +141,9 @@ spec:
 				blacklistIPStrConv)
 
 			By("Creating a configmap, deployment and service that serve the IPs of the pods labeled with server-blacklist.")
+			framework.Logf("This is the configmap that is passed in: %v", configmapDeploymentServiceStr)
 			err = kubectl.Create(configmapDeploymentServiceStr, f.Namespace.Name, "")
 			Expect(err).To(BeNil())
-			framework.Logf("This is the configmap that is passed in: %v", configmapDeploymentServiceStr)
 
 			// Create url for the GlobalThreatFeed to query
 			globalThreatFeedURL := "ip-blacklist-deployment" + "." + f.Namespace.Name
@@ -164,12 +163,16 @@ spec:
 				globalThreatFeedURL)
 
 			By("Creating a GlobalThreatFeed and GlobalNetworkSet that queries the service that serves blacklist IPs.")
+			framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
 			err = kubectl.Create(globalThreatFeedStr, "", "")
 			Expect(err).To(BeNil())
-			framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
 
-			By("Allow time for globalNetworkSet to start and populate .spec.nets.")
-			time.Sleep(60 * time.Second)
+			By("Check for the existence of the GlobalNetworkSet")
+			globalNetworkSetName := "threatfeed" + "." + "global-threat-feed"
+			checkGlobalNetworkSet(kubectl, globalNetworkSetName)
+			output, err := kubectl.Get("globalnetworksets.projectcalico.org", "", globalNetworkSetName, "", "yaml", "", false)
+			Expect(err).NotTo(HaveOccurred())
+			framework.Logf("output: %s", output)
 
 			By("Creating clients to ICMP ping the blacklist server pods.")
 			for _, pod := range pods.Items {
@@ -197,6 +200,17 @@ spec:
 
 	})
 })
+
+func checkGlobalNetworkSet(kubectl *calico.Kubectl, globalNetworkSetName string) {
+	Eventually(func() string {
+		return checkGlobalNetworkSetExist(kubectl, globalNetworkSetName)
+	}, 1*time.Minute, 2*time.Second).Should(Equal(globalNetworkSetName))
+}
+
+func checkGlobalNetworkSetExist(kubectl *calico.Kubectl, globalNetworkSetName string) string {
+	output, _ := kubectl.Get("globalnetworksets.projectcalico.org", "", globalNetworkSetName, "", "jsonpath={.metadata.name}", "", false)
+	return output
+}
 
 func checkSearchEvents(client *elastic.Client, searchKey string, searchValue string) {
 	Eventually(func() int {
