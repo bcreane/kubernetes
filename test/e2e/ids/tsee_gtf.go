@@ -46,10 +46,6 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 			globalNetworkSetName := "threatfeed" + "." + "global-threat-feed"
 			checkGlobalNetworkSet(kubectl, globalNetworkSetName)
 
-			output, err := kubectl.Get("globalnetworksets.projectcalico.org", "", globalNetworkSetName, "", "yaml", "", false)
-			Expect(err).NotTo(HaveOccurred())
-			framework.Logf("kubectl get globalnetworksets.p %s -o=yaml\n%s", globalNetworkSetName, output)
-
 			By("Creating clients to ICMP ping the blacklist server pods.")
 			for _, pod := range pods.Items {
 				icmpPod, err := f.ClientSet.CoreV1().Pods(f.Namespace.Name).Get(pod.Name, meta_v1.GetOptions{})
@@ -200,6 +196,10 @@ func checkGlobalNetworkSet(kubectl *calico.Kubectl, globalNetworkSetName string)
 
 func checkGlobalNetworkSetExist(kubectl *calico.Kubectl, globalNetworkSetName string) string {
 	output, _ := kubectl.Get("globalnetworksets.projectcalico.org", "", globalNetworkSetName, "", "jsonpath={.metadata.name}", "", false)
+	if output == globalNetworkSetName {
+		outputYaml, _ := kubectl.Get("globalnetworksets.projectcalico.org", "", globalNetworkSetName, "", "yaml", "", false)
+		framework.Logf("kubectl get globalnetworksets.p %s -o=yaml\n%s", globalNetworkSetName, outputYaml)
+	}
 	return output
 }
 
