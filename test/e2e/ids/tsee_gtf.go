@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/olivere/elastic"
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/json"
 	"strconv"
 	"strings"
 
@@ -22,38 +21,34 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 	var f = framework.NewDefaultFramework("cnx-suspicious-ips")
 	var err error
 	var pods *v1.PodList
-	var (
-		kubectl *calico.Kubectl
-	)
+	var kubectl *calico.Kubectl
+
 	Context("Suspicious IP security events.", func() {
 		var client *elastic.Client
-		felixConfigNeeded := true
 		BeforeEach(func() {
 			client = InitClient(GetURI())
-			if felixConfigNeeded {
-				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "10")
-				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "1")
-				felixConfigNeeded = false
-			}
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "10")
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "1")
+
 			pods = createConfiguration(f, kubectl)
 		})
 		AfterEach(func() {
 			DeleteIndices(client)
-			if !felixConfigNeeded {
-				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "300")
-				calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "2")
-			}
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "300")
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "2")
+
 			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "", "global-threat-feed", "")
 			Expect(err).To(BeNil())
 		})
 
-		It("Create GlobalThreatFeed, generate traffic to suspicious ips and verify security events have been created.", func() {
+		It("Generate traffic to suspicious ips and verify security events have been created.", func() {
 			By("Polling the GlobalNetworkSet to check that it's been created.")
 			globalNetworkSetName := "threatfeed" + "." + "global-threat-feed"
 			checkGlobalNetworkSet(kubectl, globalNetworkSetName)
+
 			output, err := kubectl.Get("globalnetworksets.projectcalico.org", "", globalNetworkSetName, "", "yaml", "", false)
 			Expect(err).NotTo(HaveOccurred())
-			framework.Logf("output:\n%s", output)
+			framework.Logf("kubectl get globalnetworksets.p %s -o=yaml\n%s", globalNetworkSetName, output)
 
 			By("Creating clients to ICMP ping the blacklist server pods.")
 			for _, pod := range pods.Items {
@@ -71,14 +66,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 				framework.Logf("Searching for %s: %s in at least one tigera_secure_ee_events* record", searchKey, pod.Status.PodIP)
 				checkSearchEvents(client, searchKey, pod.Status.PodIP)
 			}
-
-			By("Verifying security event records can be queried at index: tigera_secure_ee_events*")
-			for _, pod := range pods.Items {
-				dumpSearchResultRecords(client, searchKey, pod.Status.PodIP)
-			}
-
 		})
-
 	})
 })
 
@@ -231,27 +219,10 @@ func checkSearchEventsExist(client *elastic.Client, searchKey string, searchValu
 		Pretty(true).
 		Do(ctx)
 	Expect(err).ToNot(HaveOccurred())
-	return int(searchResult.Hits.TotalHits)
-}
 
-func dumpSearchResultRecords(client *elastic.Client, searchKey string, searchValue string) {
-	framework.Logf("Elasticsearch tigera_secure_ee_events* records for: %s: %s", searchKey, searchValue)
-	ctx, cancel := context.WithTimeout(context.Background(), framework.SingleCallTimeout)
-	defer cancel()
-	termQuery := elastic.NewTermQuery(searchKey, searchValue)
-	searchResult, err := client.Search().
-		Index("tigera_secure_ee_events*").
-		Query(termQuery).
-		Pretty(true).
-		Do(ctx)
-	Expect(err).ToNot(HaveOccurred())
-	Expect(searchResult.Hits.TotalHits).ToNot(BeZero())
-
-	framework.Logf("Found %s: %s in a total of %d entries\n", searchKey, searchValue, searchResult.TotalHits())
-	var jsonObject map[string]interface{}
-	for _, hit := range searchResult.Hits.Hits {
-		err := json.Unmarshal(*hit.Source, &jsonObject)
-		Expect(err).ToNot(HaveOccurred())
-		framework.Logf("%s: %s Entry: %s\n", searchKey, searchValue, hit.Source)
+	if int(searchResult.Hits.TotalHits) > 0 {
+		framework.Logf("Elasticsearch tigera_secure_ee_events* records for: %s: %s", searchKey, searchValue)
+		framework.Logf("Found %s: %s in a total of %d entries\n", searchKey, searchValue, searchResult.Hits.TotalHits)
 	}
+	return int(searchResult.Hits.TotalHits)
 }
