@@ -175,13 +175,7 @@ func (a *Awsctl) CreateTestVpcSG(name string, desc string) (string, error) {
 		// It is not helpful to do a DescribeSecurityGroups before trying to create
 		// the tag because even if the Describe 'finds' the security group it is still
 		// possible to get InvalidGroup.NotFound when doing the CreateTags.
-		cti := ec2.CreateTagsInput{
-			Resources: []*string{aws.String(sgId)},
-			Tags: []*ec2.Tag{&ec2.Tag{
-				Key:   aws.String("e2e-test"),
-				Value: aws.String(a.Client.Info.VPCInfo.ID)}},
-		}
-		_, err = a.Client.EC2().CreateTags(&cti)
+		err = a.Client.CreateTag(sgId, "e2e-test", a.Client.Info.VPCInfo.ID)
 		if err == nil {
 			break
 		}
