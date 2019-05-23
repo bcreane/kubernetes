@@ -29,6 +29,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 			client = InitClient(GetURI())
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "10")
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "1")
+			calico.RestartCalicoNodePods(f.ClientSet, "")
 
 			pods = createConfiguration(f, kubectl)
 		})
@@ -36,6 +37,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 			DeleteIndices(client)
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "300")
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "2")
+			calico.RestartCalicoNodePods(f.ClientSet, "")
 
 			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "", "global-threat-feed", "")
 			Expect(err).To(BeNil())
@@ -221,8 +223,7 @@ func checkSearchEventsExist(client *elastic.Client, searchKey string, searchValu
 	Expect(err).ToNot(HaveOccurred())
 
 	if int(searchResult.Hits.TotalHits) > 0 {
-		framework.Logf("Elasticsearch tigera_secure_ee_events* records for: %s: %s", searchKey, searchValue)
-		framework.Logf("Found %s: %s in a total of %d entries\n", searchKey, searchValue, searchResult.Hits.TotalHits)
+		framework.Logf("Found %s: %s in a total of %d record(s)\n", searchKey, searchValue, searchResult.Hits.TotalHits)
 	}
 	return int(searchResult.Hits.TotalHits)
 }
