@@ -128,7 +128,7 @@ func CountSyslogLines(f *framework.Framework, node *v1.Node) int64 {
 	framework.ExpectNoError(err)
 
 	By("Counting the log lines from the logging pod")
-	cmd := "journalctl --system | wc -l"
+	cmd := "journalctl --system -m | wc -l"
 	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
 	if err != nil {
 		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
@@ -188,7 +188,98 @@ func executeCmdInPodWithCustomizer(f *framework.Framework, cmd string, cmdTestCo
 	return pod, stdout, err
 }
 
+// Creates a pod and mounts /etc to get the Host OS version by executing /etc/issue
+func getImageForHostOsVersion(f *framework.Framework, node *v1.Node) string {
+	// Keep default image to 16.04. Update only for 18.04 OS
+	image := "ubuntu:16.04"
+
+	podName := GenerateRandomName("host-version")
+
+	volumes := []v1.Volume{
+		{
+			Name: "etc-issue",
+			VolumeSource: v1.VolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: "/etc",
+				},
+			},
+		},
+	}
+	containers := []v1.Container{
+		{
+			Name:  fmt.Sprintf("%s-container", podName),
+			Image: "ubuntu:16.04",
+			VolumeMounts: []v1.VolumeMount{
+				{
+					Name:      "etc-issue",
+					MountPath: "/etc",
+				},
+			},
+			Command: []string{"/bin/bash"},
+			Args:    []string{"-c", "sleep 360000"},
+		},
+	}
+
+	By(fmt.Sprintf("Creating a hostVersion pod %s in namespace %s", podName, f.Namespace.Name))
+
+	nodeID, ok := node.Labels[nodeIDLabelKey]
+	if !ok {
+		framework.Failf("node %+v is missing label %s. can't create hostVersion pod", *node, nodeIDLabelKey)
+		return image
+	}
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: f.Namespace.Name,
+			Labels: map[string]string{
+				"pod-name":     podName,
+				nodeIDLabelKey: nodeID,
+			},
+		},
+		Spec: v1.PodSpec{
+			Containers:    containers,
+			Volumes:       volumes,
+			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector: map[string]string{
+				nodeIDLabelKey: nodeID,
+			},
+		},
+	}
+
+	var err error
+	pod, err = f.ClientSet.CoreV1().Pods(f.Namespace.Name).Create(pod)
+	if err != nil {
+		framework.Logf("Failed to create hostVersion pod %v: %v", pod.ObjectMeta.Name, err)
+		return image
+	}
+
+	framework.Logf("Created hostVersion pod %v", pod.ObjectMeta.Name)
+
+	err = f.WaitForPodRunning(pod.Name)
+	if err != nil {
+		framework.Logf("HostVersion pod %s failed to enter running state, logs following: \n%s", pod.Name, GetPodInfo(f, pod))
+		return image
+	}
+
+	cmd := "cat /etc/issue"
+	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
+	if err != nil {
+		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
+		time.Sleep(10 * time.Second)
+		return image
+	}
+	framework.Logf("Host version found: %#v", output)
+
+	if strings.Contains(output, "18.04") {
+		image = "solita/ubuntu-systemd:18.04"
+	}
+	return image
+}
+
 func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
+
+	image := getImageForHostOsVersion(f, node)
 	podName := GenerateRandomName("logging")
 
 	volumes := []v1.Volume{
@@ -224,7 +315,7 @@ func CreateLoggingPod(f *framework.Framework, node *v1.Node) (*v1.Pod, error) {
 	containers := []v1.Container{
 		{
 			Name:         fmt.Sprintf("%s-container", podName),
-			Image:        "ubuntu:16.04",
+			Image:        image,
 			VolumeMounts: volumeMounts,
 			Command:      []string{"/bin/bash"},
 			Args:         []string{"-c", "sleep 360000"},
@@ -308,7 +399,7 @@ func GetNewCalicoDropLogs(f *framework.Framework, node *v1.Node, since int64, lo
 	}()
 
 	By(fmt.Sprintf("Retrieving the %s log lines", logPfx))
-	cmd := fmt.Sprintf("journalctl --system | tail -n +%d | grep \"%s\" || true", since+1, logPfx)
+	cmd := fmt.Sprintf("journalctl --system -m | tail -n +%d | grep \"%s\" || true", since+1, logPfx)
 	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
 	if err != nil {
 		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
