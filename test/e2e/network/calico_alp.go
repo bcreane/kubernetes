@@ -773,7 +773,7 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] prevent sidecar injection with p
 			defer func() {
 				framework.DeletePodOrFail(f.ClientSet, f.Namespace.Name, podName)
 				alp.WaitForPodNotFoundInNamespace(f, f.Namespace, podName)
-			} ()
+			}()
 
 			By("Verify sidecar containers for pod")
 			sidecars := alp.VerifySideCarsForPod(pod)
@@ -783,11 +783,11 @@ var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] prevent sidecar injection with p
 })
 
 var _ = SIGDescribe("[Feature:CalicoPolicy-ALP] calico application layer policy for pod that is not running dikastes", func() {
-        var calicoctl *calico.Calicoctl
+	var calicoctl *calico.Calicoctl
 
-        f := framework.NewDefaultFramework("calico-alp-without-dikastes")
+	f := framework.NewDefaultFramework("calico-alp-without-dikastes")
 
-        BeforeEach(func() {
+	BeforeEach(func() {
 		var err error
 
 		// See if Istio is installed. If not, then skip these tests so we don't cause spurious failures on non-Istio
@@ -936,8 +936,8 @@ func createIstioServerPodAndService(f *framework.Framework, namespace *v1.Namesp
 func createIstioGetPutPodAndService(f *framework.Framework, namespace *v1.Namespace, podName string, port int, labels map[string]string) (*v1.Pod, *v1.Service) {
 	pod, service := createGetPutPodAndService(f, namespace, podName, port, labels)
 
-        // Verify sidecar injection for pods.
-        alp.VerifyContainersForPod(pod)
+	// Verify sidecar injection for pods.
+	alp.VerifyContainersForPod(pod)
 
 	return pod, service
 }
@@ -1195,9 +1195,12 @@ func testIstioCannotGetPut(f *framework.Framework, ns *v1.Namespace, method stri
 		}
 	}()
 
-	// We are testing CannotGetPut. Execution of command should get no error but without a valid response.
-	// Log error if not.
-	if err != nil || strings.Contains(output, expect) {
+	// We are testing CannotGetPut. Execution of command should not have a valid response, and there should either be no
+	// error or error code 28 (which is curl's "operation timed out" error).
+	validResponse := strings.Contains(output, expect)
+	err28 := err != nil && strings.Contains(err.Error(), "command terminated with exit code 28")
+	testPassed := (err == nil || err28) && !validResponse
+	if !testPassed {
 		framework.Logf("Execution of cmd <%s> was successful. response: %s, error: %v", cmd, output, err)
 
 		containerName := clientPod.Spec.Containers[0].Name
