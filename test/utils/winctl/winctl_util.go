@@ -73,7 +73,7 @@ func GetClientImageAndCommand() (string, string) {
 	} else if os == "1803" {
 		return "microsoft/powershell:nanoserver", "C:\\Program Files\\PowerShell\\pwsh.exe"
 	} else if os == "1903" {
-		return "mcr.microsoft.com/windows/servercore/insider:10.0.18317.1000", "powershell.exe"
+		return "mcr.microsoft.com/windows/servercore/insider:10.0.18362.113", "powershell.exe"
 	} else {
 		framework.Failf("OS Version currently not supported")
 	}
