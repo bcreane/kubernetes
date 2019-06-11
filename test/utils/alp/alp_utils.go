@@ -37,7 +37,15 @@ const (
 	ProxyContainerName    = "istio-proxy"
 	IstioNamespace        = "istio-system"
 	PilotDiscoveryPort    = 15011
-	NumberOfRetries       = 50
+
+	// We use an asymmetric number of retries, depending on whether we expect the
+	// connection to eventually succeed (Can), or fail (Cannot).  These retries
+	// are expensive in terms of wall time for the test, so this keeps false
+	// failures low while lowering run times.  It does increase the probability
+	// of false test passes; we can tolerate this much easier since if something
+	// is really broken it should still fail most of the time.
+	CanNumberOfRetries    = 50
+	CannotNumberOfRetries = 20
 )
 
 func CheckIstioInstall(f *framework.Framework) (bool, error) {
@@ -203,12 +211,12 @@ func containerStateString(state *v1.ContainerState) string {
 	return "UNKNOWN"
 }
 
-func WrapPodCustomizerIncreaseRetries(podCustomizer func(pod *v1.Pod)) func(pod *v1.Pod) {
+func WrapPodCustomizerIncreaseRetries(podCustomizer func(pod *v1.Pod), n int) func(pod *v1.Pod) {
 	return func(pod *v1.Pod) {
 		podCustomizer(pod)
 		// Increase retries because Istio pods can sometimes take a while to connect to services
 		pod.Spec.Containers[0].Args[2] = strings.Replace(pod.Spec.Containers[0].Args[2],
-			"$(seq 1 5)", fmt.Sprintf("$(seq 1 %d)", NumberOfRetries), 1)
+			"$(seq 1 5)", fmt.Sprintf("$(seq 1 %d)", n), 1)
 	}
 }
 

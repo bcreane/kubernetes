@@ -1004,7 +1004,7 @@ func testIstioCanConnectX(f *framework.Framework, ns *v1.Namespace, podName stri
 		framework.Failf("pod %q was not deleted: %v", podName, err)
 	}
 
-	pc := alp.WrapPodCustomizerIncreaseRetries(podCustomizer)
+	pc := alp.WrapPodCustomizerIncreaseRetries(podCustomizer, alp.CanNumberOfRetries)
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
 	podClient := createNetworkClientPodX(f, ns, podName, target, pc)
 	containerName := podClient.Spec.Containers[0].Name
@@ -1064,7 +1064,7 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 		framework.Failf("pod %q was not deleted: %v", podName, err)
 	}
 
-	pc := alp.WrapPodCustomizerIncreaseRetries(podCustomizer)
+	pc := alp.WrapPodCustomizerIncreaseRetries(podCustomizer, alp.CannotNumberOfRetries)
 	target := fmt.Sprintf("%s.%s:%d", service.Name, service.Namespace, targetPort)
 	podClient := createNetworkClientPodX(f, ns, podName, target, pc)
 	containerName := podClient.Spec.Containers[0].Name
@@ -1104,14 +1104,14 @@ func testIstioCannotConnectX(f *framework.Framework, ns *v1.Namespace, podName s
 	}
 }
 
-func testIstioGetPutCmd(service *v1.Service, method string) (string, string) {
+func testIstioGetPutCmd(service *v1.Service, method string, n int) (string, string) {
 	var cmd string
 	var expect string
 	port := service.Spec.Ports[0].Port
 
 	// Setup retry. Each retry max timeout 5 seconds. Total timeout 50 seconds.
 	retryArgs := fmt.Sprintf("--connect-timeout 3 --max-time 5 --retry %d --retry-delay 0 --retry-max-time 50 --retry-connrefused",
-		alp.NumberOfRetries)
+		n)
 
 	switch method {
 	case http.MethodGet:
@@ -1131,7 +1131,7 @@ func testIstioGetPutCmd(service *v1.Service, method string) (string, string) {
 }
 
 func testIstioCanGetPut(f *framework.Framework, ns *v1.Namespace, method string, service *v1.Service, targetPod *v1.Pod, account *v1.ServiceAccount) {
-	cmd, expect := testIstioGetPutCmd(service, method)
+	cmd, expect := testIstioGetPutCmd(service, method, alp.CanNumberOfRetries)
 
 	clientPod, output, err := calico.ExecuteCmdInPodX(f, cmd, func(pod *v1.Pod) {
 		// Do not use same pod name for hostexec pod.
@@ -1173,7 +1173,7 @@ func testIstioCanGetPut(f *framework.Framework, ns *v1.Namespace, method string,
 }
 
 func testIstioCannotGetPut(f *framework.Framework, ns *v1.Namespace, method string, service *v1.Service, targetPod *v1.Pod, account *v1.ServiceAccount) {
-	cmd, expect := testIstioGetPutCmd(service, method)
+	cmd, expect := testIstioGetPutCmd(service, method, alp.CannotNumberOfRetries)
 
 	clientPod, output, err := calico.ExecuteCmdInPodX(f, cmd, func(pod *v1.Pod) {
 		pod.Name = fmt.Sprintf("%s%s", "getput-", utilrand.String(5))
