@@ -626,7 +626,7 @@ func GetPodInfo(f *framework.Framework, pod *v1.Pod) string {
 	return info
 }
 
-func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod) *v1.Pod {
+func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podName string, targetPod *v1.Pod, isPingable bool) *v1.Pod {
 	var imageUrl, commandStr string
 	var podArgs []string
 	var cmd string
@@ -635,7 +635,21 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 	if winctl.RunningWindowsTest() {
 		imageUrl, commandStr = winctl.GetClientImageAndCommand()
 		podArgs = append(podArgs, commandStr, "-Command")
-		cmd = fmt.Sprintf("ping -n 2 -w 10 %s", targetPod.Status.PodIP)
+		//On windows, it is observed that sometimes HNS policy taking time to come into effect
+		//hence added retries in allow/deny case.
+		if isPingable == true {
+			//This cmd will invoke in case server has allow ICMP policy in place,
+			//hence it retries if ping command fails
+			cmd = fmt.Sprintf("For ($i=0; $i -lt 5; $i++) { sleep 5;"+
+				"ping -n 2 -w 10 %s; if ($?) { exit 0; }"+
+				"else { echo failed loop $i ;continue; }; }; exit 1", targetPod.Status.PodIP)
+		} else {
+			//This cmd will invoke in case server has deny ICMP policy in place,
+			//hence it retries if ping command succeeded
+			cmd = fmt.Sprintf("For ($i=0; $i -lt 5; $i++) { sleep 5;"+
+				"ping -n 2 -w 10 %s; if (-Not $?) { exit 1; }"+
+				"else { echo failed loop $i ;continue; }; }; exit 0", targetPod.Status.PodIP)
+		}
 		nodeselector["beta.kubernetes.io/os"] = "windows"
 		imagePull = v1.PullIfNotPresent
 	} else {
@@ -672,7 +686,7 @@ func createPingClientPod(f *framework.Framework, namespace *v1.Namespace, podNam
 
 func TestCanPing(f *framework.Framework, ns *v1.Namespace, podName string, targetPod *v1.Pod) {
 	framework.Logf("Creating client pod %s that should successfully connect to %s.", podName, targetPod.Status.PodIP)
-	podClient := createPingClientPod(f, ns, podName, targetPod)
+	podClient := createPingClientPod(f, ns, podName, targetPod, true)
 	defer func() {
 		framework.Logf("Cleaning up the pod %s", podName)
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
@@ -691,7 +705,7 @@ func TestCanPing(f *framework.Framework, ns *v1.Namespace, podName string, targe
 
 func TestCannotPing(f *framework.Framework, ns *v1.Namespace, podName string, targetPod *v1.Pod) {
 	framework.Logf("Creating client pod %s that should successfully connect to %s.", podName, targetPod.Status.PodIP)
-	podClient := createPingClientPod(f, ns, podName, targetPod)
+	podClient := createPingClientPod(f, ns, podName, targetPod, false)
 	defer func() {
 		framework.Logf("Cleaning up the pod %s", podName)
 		if err := f.ClientSet.CoreV1().Pods(ns.Name).Delete(podClient.Name, nil); err != nil {
