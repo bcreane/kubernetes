@@ -190,6 +190,12 @@ func executeCmdInPodWithCustomizer(f *framework.Framework, cmd string, cmdTestCo
 
 // Creates a pod and mounts /etc to get the Host OS version by executing /etc/issue
 func getImageForHostOsVersion(f *framework.Framework, node *v1.Node) string {
+	override := os.Getenv("LOG_READER_IMAGE")
+	if override != "" {
+		framework.Logf("Log reader image override: %s", override)
+		return override
+	}
+
 	// Keep default image to 16.04. Update only for 18.04 OS
 	image := "ubuntu:16.04"
 
@@ -262,8 +268,24 @@ func getImageForHostOsVersion(f *framework.Framework, node *v1.Node) string {
 		return image
 	}
 
-	cmd := "cat /etc/issue"
+	// GKE defaults to using COS, which doesn't have anything in its /etc/issue file.  Read /etc/lsb_release first...
+	cmd := "cat /etc/lsb-release"
 	output, err := framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
+	if err != nil {
+		framework.Logf("failed to read /etc/lsb-release with cmd %v in %v/%v: %v; will try /etc/issue",
+			cmd, f.Namespace.Name, pod.Name, err)
+	} else {
+		framework.Logf("Loaded lsb_release file: %#v", output)
+		if strings.Contains(output, "CHROMEOS") {
+			framework.Logf("Looks like COS, using the 18.04 image.")
+			image = "solita/ubuntu-systemd:18.04"
+			return image
+		} // else fall through to old behaviour
+	}
+
+	// Fall back on reading /etc/issue.
+	cmd = "cat /etc/issue"
+	output, err = framework.RunHostCmd(f.Namespace.Name, pod.Name, cmd)
 	if err != nil {
 		framework.Failf("failed executing cmd %v in %v/%v: %v", cmd, f.Namespace.Name, pod.Name, err)
 		time.Sleep(10 * time.Second)
