@@ -1169,38 +1169,32 @@ func (c *Calicoctl) DatastoreType() string {
 	return c.datastore
 }
 
-// GetAsMapReturnError queries the requested resource using calicoctl, returning the value of the resource as
+// GetAsMap queries the requested resource using calicoctl, returning the value of the resource as
 // a map[string]interface{} (using standard JSON unmarshaling).
-func (c *Calicoctl) GetAsMapReturnError(kind, name, namespace string) (map[string]interface{}, error) {
+func (c *Calicoctl) GetAsMap(kind, name, namespace string) map[string]interface{} {
 	var y string
 	var err error
 	// Use the export option when querying the resource since we want it in a format where
 	// it can be easily reapplied.
 	if namespace == "" {
-		y, err = c.ExecReturnError("get", kind, name, "-o", "json", "--export")
+		y = c.execExpectNoError(DefaultCalicoctlBackoffLimit, "get", kind, name, "-o", "json", "--export")
 	} else {
-		y, err = c.ExecReturnError("get", kind, name, "-n", namespace, "-o", "json", "--export")
-	}
-	if err != nil {
-		return nil, err
+		y = c.execExpectNoError(DefaultCalicoctlBackoffLimit, "get", kind, name, "-n", namespace, "-o", "json", "--export")
 	}
 
 	m := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(y), &m); err != nil {
-		return nil, err
-	}
-	return m, nil
+	err = json.Unmarshal([]byte(y), &m)
+	Expect(err).ToNot(HaveOccurred())
+	return m
 }
 
-// ApplyFromMapReturnError applies the resource as specificed in the map. The map will be
+// ApplyFromMap applies the resource as specificed in the map. The map will be
 // marshaled into JSON and applied using calicoctl.
-func (c *Calicoctl) ApplyFromMapReturnError(r map[string]interface{}, args ...string) error {
+func (c *Calicoctl) ApplyFromMap(r map[string]interface{}, args ...string) {
 	b, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-	_, err = c.actionCtlWithError(DefaultCalicoctlBackoffLimit, string(b), "apply")
-	return err
+	Expect(err).ToNot(HaveOccurred())
+	c.actionCtl(DefaultCalicoctlBackoffLimit, string(b), "apply")
+	return
 }
 
 func (c *Calicoctl) Apply(yaml string, args ...string) {

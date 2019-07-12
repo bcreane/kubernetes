@@ -589,18 +589,8 @@ spec:
 })
 
 // setDropActionOverride sets the DropActionOverride global felix configuration option.
-func setDropActionOverride(ctl *calico.Calicoctl, val string) error {
-	fc, err := ctl.GetAsMapReturnError("felixconfiguration", "default", "")
-	if err != nil {
-		fc = map[string]interface{}{
-			"kind":       "FelixConfiguration",
-			"apiVersion": "projectcalico.org/v3",
-			"metadata": map[string]interface{}{
-				"name": "default",
-			},
-			"spec": map[string]interface{}{},
-		}
-	}
+func setDropActionOverride(ctl *calico.Calicoctl, val string) {
+	fc := ctl.GetAsMap("felixconfiguration", "default", "")
 	s := fc["spec"].(map[string]interface{})
 	if val == "" {
 		By("Removing the dropActionOverride setting")
@@ -609,5 +599,5 @@ func setDropActionOverride(ctl *calico.Calicoctl, val string) error {
 		By("Setting dropActionOverride to " + val)
 		s["dropActionOverride"] = val
 	}
-	return ctl.ApplyFromMapReturnError(fc)
+	ctl.ApplyFromMap(fc)
 }
