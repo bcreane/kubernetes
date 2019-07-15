@@ -271,50 +271,6 @@ spec:
 
 			})
 
-			It("should disallow unsupported policy configuration", func() {
-				// We cannot create explicit Deny rules when the HTTP match is specified (since Felix ignores
-				// it and would therefore be overzealous in dropping the packet). Verify we disallow this.
-				By("verifying it is not possible to create a Deny rule when HTTP is specified")
-				gnp := `
-apiVersion: projectcalico.org/v3
-kind: GlobalNetworkPolicy
-metadata:
-  name: default.this-should-fail
-spec:
-  tier: default
-  selector: pod-name == "server"
-  ingress:
-  - action: Deny
-    http:
-      methods: ["GET"]
-  egress:
-  - action: Allow
-`
-				err := calicoctl.ApplyWithBackoffError(1, gnp)
-				Expect(err).To(HaveOccurred())
-
-				// For similar reasons it's not possible to create a Pass rule when HTTP is specified.
-				By("verifying it is not possible to create a Pass rule when HTTP is specified")
-				np := `
-apiVersion: projectcalico.org/v3
-kind: NetworkPolicy
-metadata:
-  name: default.this-should-fail-as-well
-  namespace: default
-spec:
-  tier: default
-  selector: pod-name == "server"
-  ingress:
-  - action: Pass
-    http:
-      methods: ["GET"]
-  egress:
-  - action: Allow
-`
-				err = calicoctl.ApplyWithBackoffError(1, np)
-				Expect(err).To(HaveOccurred())
-			})
-
 			It("should honor tier and policy ordering / policies matching on http method and service acccount names", func() {
 				// This is a 3-part test where we apply a default tier NP, a t0 tier NP and a t0 tier GNP
 				// in the order defined below. All policies main selectors match on the server pod. Expected
