@@ -1518,7 +1518,6 @@ func (c *Calicoctl) executeCalicoctl(backoff int32, cmd string, args ...string) 
 		}
 	}()
 
-	allLogs := ""
 	jobErr := framework.WaitForJobFinish(f.ClientSet, jobClient.Namespace, jobClient.Name, 1)
 	if jobErr != nil {
 		framework.Logf("calicoctl job %v got error %v", jobClient, jobErr)
@@ -1526,17 +1525,26 @@ func (c *Calicoctl) executeCalicoctl(backoff int32, cmd string, args ...string) 
 		if err != nil {
 			framework.Failf("Error getting job description: %s", err)
 		}
-		allLogs += fmt.Sprintf("STARTJOBDESCRIBE\n%s\nENDJOBDESCRIBE for job %s:%s", desc, jobClient.Namespace, jobClient.Name)
+		framework.Logf("STARTJOBDESCRIBE\n%s\nENDJOBDESCRIBE for job %s:%s", desc, jobClient.Namespace, jobClient.Name)
 	}
 
-	// Collect pod logs regardless of execution result.
 	pl, err := framework.GetJobPods(f.ClientSet, jobClient.Namespace, jobClient.Name)
 	Expect(err).NotTo(HaveOccurred(), "could not get pods in calicoctl job")
+	successOutput := ""
 	for _, pod := range pl.Items {
-		allLogs += GetPodInfo(f, &pod)
+		// Log the Pod Info for debugging if the job failed.
+		if jobErr != nil {
+			framework.Logf(GetPodInfo(f, &pod))
+		}
+		// Find a successful run (if it exists) and grab the output
+		if pod.Status.Phase == v1.PodSucceeded {
+			logs, err := framework.GetPodLogs(f.ClientSet, pod.Namespace, pod.Name, calicoctlContainerName)
+			Expect(err).ToNot(HaveOccurred())
+			successOutput = logs
+		}
 	}
 
-	return allLogs, jobErr
+	return successOutput, jobErr
 }
 
 func LogCalicoDiagsForNode(f *framework.Framework, nodeName string) error {
