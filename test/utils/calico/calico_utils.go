@@ -1173,18 +1173,21 @@ func (c *Calicoctl) DatastoreType() string {
 // a map[string]interface{} (using standard JSON unmarshaling).
 func (c *Calicoctl) GetAsMap(kind, name, namespace string) map[string]interface{} {
 	var y string
+	var args []string
 	var err error
 	// Use the export option when querying the resource since we want it in a format where
 	// it can be easily reapplied.
 	if namespace == "" {
-		y = c.execExpectNoError(DefaultCalicoctlBackoffLimit, "get", kind, name, "-o", "json", "--export")
+		args = []string{"get", kind, name, "-o", "json", "--export"}
 	} else {
-		y = c.execExpectNoError(DefaultCalicoctlBackoffLimit, "get", kind, name, "-n", namespace, "-o", "json", "--export")
+		args = []string{"get", kind, name, "-n", namespace, "-o", "json", "--export"}
 	}
+	y = c.execExpectNoError(DefaultCalicoctlBackoffLimit, args...)
 
 	m := map[string]interface{}{}
 	err = json.Unmarshal([]byte(y), &m)
-	Expect(err).ToNot(HaveOccurred())
+	Expect(err).ToNot(HaveOccurred(),
+		fmt.Sprintf("Error unmarshalling.\nQuery: %s \nResponse: %s", strings.Join(args, " "), y))
 	return m
 }
 
