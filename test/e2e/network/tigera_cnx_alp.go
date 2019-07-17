@@ -284,7 +284,7 @@ spec:
 				//    allows PUT for svc-acct-a.  PUT for svc-acct-b is therefore implicity denied.
 				// -  A tier t0 NP that allows PUT for svc-acct-a and svc-acct-b, and then Denies svt-acct-a and
 				//    Passes for svt-acct-b. Thus GET for svc-acct-b is Allowed by the default tier policy.
-				// -  A lower order tier t0 GNP that Allows TCP GET for scv-acct-a, Allows UDP GET for svc-acct-b
+				// -  A lower order tier t0 GNP that Allows TCP GET for scv-acct-a, Allows UDP for svc-acct-b
 				//    and otherwise passes svc-acct-b. Since http is TCP based we expect svc-acct-b just to match on
 				//    the pass action and therefore will have the same connectivity from the default profile.
 				//
@@ -399,8 +399,6 @@ spec:
         selector: svc-acct-id == "a"
   - action: Allow
     protocol: UDP
-    http:
-      methods: ["GET", "PUT"]
     source:
       serviceAccounts:
         names: ["svc-acct-b"]
