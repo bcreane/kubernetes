@@ -40,9 +40,9 @@ func RunningWindowsTest() bool {
 	return strings.Contains(GinkgoConfig.FocusString, "WindowsPolicy")
 }
 
-// Temporarily disable readiness check for 1903 cluster.
+// Temporarily disable readiness check for windows cluster if flag is set.
 func DisableReadiness() bool {
-	return os.Getenv("WINDOWS_OS") == "1903"
+	return os.Getenv("WINDOWS_DISABLE_READINESS") == "true"
 }
 
 // Get Porter image based on windows OS version
