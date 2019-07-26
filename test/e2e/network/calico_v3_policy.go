@@ -1159,3 +1159,103 @@ func v2CheckPolicyExists(c *calico.Calicoctl, policyName, ns string) {
 func v2CheckPolicyDoesntExist(c *calico.Calicoctl, policyName, ns string) {
 	Expect(v2SearchPolicy(c, policyName, ns)).NotTo(BeTrue())
 }
+
+var _ = SIGDescribe("DNS policy", func() {
+
+	f := framework.NewDefaultFramework("calico-policy")
+
+	testDNSPolicy := func(externalService string, domainsToAllow ...string) func() {
+		return func() {
+			ns := f.Namespace
+			calicoctl := calico.ConfigureCalicoctl(f)
+
+			By("Starting a client pod that can curl")
+			framework.RunKubectlOrDie("run",
+				"test-client", "-n", ns.Name,
+				"--generator=run-pod/v1",
+				"--image=laurenceman/alpine")
+
+			By("Waiting for client pod to be ready")
+			framework.RunKubectlOrDie("wait",
+				"--for=condition=ready",
+				"pod/test-client", "-n", ns.Name)
+
+			curlService := func() error {
+				out, err := framework.RunKubectl("exec",
+					"test-client", "-n", ns.Name,
+					"--",
+					"curl",
+					"--connect-timeout", "3",
+					"-i",
+					"-L",
+					"-v",
+					externalService)
+				framework.Logf("curl output:\n%v", out)
+				return err
+			}
+
+			By("Checking initial connectivity to external service")
+			Expect(curlService()).NotTo(HaveOccurred())
+
+			By("Denying all pod egress except for DNS lookups")
+			calicoctl.Apply(
+				fmt.Sprintf(`
+  apiVersion: projectcalico.org/v3
+  kind: NetworkPolicy
+  metadata:
+    name: deny-all-egress-except-dns
+    namespace: %s
+  spec:
+    selector: "all()"
+    types:
+    - Egress
+    egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+        - 53
+    - action: Deny
+`, ns.Name),
+			)
+			defer func() {
+				calicoctl.Exec("delete", "-n", ns.Name, "policy", "deny-all-egress-except-dns")
+			}()
+
+			By("Checking now cannot reach external service")
+			Eventually(curlService, "3s", "1s").Should(HaveOccurred())
+
+			By("Allowing egress to external service domains")
+			calicoctl.Apply(
+				fmt.Sprintf(`
+  apiVersion: projectcalico.org/v3
+  kind: NetworkPolicy
+  metadata:
+    name: allow-egress-to-domains
+    namespace: %s
+  spec:
+    order: 1
+    selector: "all()"
+    types:
+    - Egress
+    egress:
+    - action: Allow
+      destination:
+        domains: [%s]
+`, ns.Name, strings.Join(domainsToAllow, ", ")),
+			)
+			defer func() {
+				calicoctl.Exec("delete", "-n", ns.Name, "policy", "allow-egress-to-domains")
+			}()
+
+			By("Checking now can reach external service")
+			Eventually(curlService, "10s", "1s").ShouldNot(HaveOccurred())
+		}
+	}
+
+	It("[Feature:DNSPolicy] should have connectivity to specific domains allowed by DNS policy",
+		testDNSPolicy("microsoft.com", "microsoft.com", "www.microsoft.com"))
+
+	It("[Feature:DNSWildcard] should have connectivity to wildcard domains allowed by DNS policy",
+		testDNSPolicy("microsoft.com", "\"*.com\""))
+})

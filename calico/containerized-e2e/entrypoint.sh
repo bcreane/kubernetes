@@ -11,6 +11,7 @@ E2E_PREFIX=""
 # Focus regexes from various sources.
 CALICO_FOCUS=""
 CNX_FOCUS=""
+EE_FOCUS=""
 DEF_FOCUS=""
 OPT_FOCUS=""
 FOCUS=""
@@ -57,6 +58,19 @@ function focus_cnx {
   CNX_FOCUS="\[Feature:CNX-${CNX_VER}\]|\[Feature:CNX\]|\[Feature:CNX-${CNX_VER}-RBAC\]"
 }
 
+function version_is_at_least {
+    ! [[ "$1" < "$2" ]]
+}
+
+function focus_ee {
+    if version_is_at_least $EE_VER 2.4; then
+	EE_FOCUS="\[Feature:DNSPolicy\]"
+	if version_is_at_least $EE_VER 2.5; then
+	    EE_FOCUS="${EE_FOCUS}|\[Feature:DNSWildcard\]"
+	fi
+    fi
+}
+
 function runner {
   local FOCUS
   FOCUS=$1
@@ -90,6 +104,7 @@ Usage: $0 \
 Arguments:
   --calico-version (v2|v3)              Run calico tests. [default: none]
   --cnx v3                              Run CNX tests. [default: none]
+  --ee <version>                        Run tests supported by the specified EE version. [default: none]
   --extended-networking (true|false)    Run extended networking tests. [default: false]
   --extended-conformance (true|false)   Run extended conformance tests. [default: false]
   --extra-args <EXTRA_ARGS>             Pass additional args to the e2e.test binary.
@@ -107,6 +122,7 @@ while [ -n "$1" ]; do
   case "$1" in
     --calico-version) CALICO_VER=$2; shift ;;
     --cnx) CNX_VER=$2; shift ;;
+    --ee) EE_VER=$2; shift ;;
     --extended-networking) EXT_NETWORKING=$2; shift ;;
     --extended-conformance) EXT_CONFORMANCE=$2; shift ;;
     --focus) OPT_FOCUS=$2; shift ;;
@@ -122,10 +138,11 @@ done
 # build out expected calico/cnx focus cmds
 if [ -n "$CALICO_VER" ]; then focus_calico ; fi
 if [ -n "$CNX_VER" ]; then focus_cnx ; fi
+if [ -n "$EE_VER" ]; then focus_ee ; fi
 if [ $LIST_TESTS ]; then list_tests ; exit 0; fi
 
 # Combine the focus and skip regexes.
-FOCUS=$(combine_regex "|" "$DEF_FOCUS" "$OPT_FOCUS" "$CALICO_FOCUS" "$CNX_FOCUS")
+FOCUS=$(combine_regex "|" "$DEF_FOCUS" "$OPT_FOCUS" "$CALICO_FOCUS" "$CNX_FOCUS" "$EE_FOCUS")
 SKIPS=$(combine_regex "|" "$DEF_SKIPS" "$OPT_SKIPS" "$CALICO_SKIPS" "$CNX_SKIPS")
 
 # focus_combined should have crafted calico/cnx focus if provided
