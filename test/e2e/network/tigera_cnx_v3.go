@@ -434,9 +434,9 @@ var _ = SIGDescribe("DNS policy", func() {
 		}
 	}
 
-	It("[Feature:DNSPolicy] should have connectivity to specific domains allowed by DNS policy",
+	It("[Feature:EE-v2.4] should have connectivity to specific domains allowed by DNS policy",
 		testDNSPolicy("microsoft.com", "microsoft.com", "www.microsoft.com"))
 
-	It("[Feature:DNSWildcard] should have connectivity to wildcard domains allowed by DNS policy",
+	It("[Feature:EE-v2.5] should have connectivity to wildcard domains allowed by DNS policy",
 		testDNSPolicy("microsoft.com", "\"*.com\""))
 })
