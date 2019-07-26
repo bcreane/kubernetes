@@ -345,7 +345,7 @@ var _ = SIGDescribe("DNS policy", func() {
 
 	f := framework.NewDefaultFramework("calico-policy")
 
-	testDNSPolicy := func(externalService string, domainsToAllow ...string) func() {
+	testDNSPolicy := func(externalService, blockedService string, domainsToAllow ...string) func() {
 		return func() {
 			ns := f.Namespace
 			calicoctl := calico.ConfigureCalicoctl(f)
@@ -361,22 +361,24 @@ var _ = SIGDescribe("DNS policy", func() {
 				"--for=condition=ready",
 				"pod/test-client", "-n", ns.Name)
 
-			curlService := func() error {
-				out, err := framework.RunKubectl("exec",
-					"test-client", "-n", ns.Name,
-					"--",
-					"curl",
-					"--connect-timeout", "3",
-					"-i",
-					"-L",
-					"-v",
-					externalService)
-				framework.Logf("curl output:\n%v", out)
-				return err
+			curlService := func(service string) func() error {
+				return func() error {
+					out, err := framework.RunKubectl("exec",
+						"test-client", "-n", ns.Name,
+						"--",
+						"curl",
+						"--connect-timeout", "3",
+						"-i",
+						"-L",
+						"-v",
+						service)
+					framework.Logf("curl output:\n%v", out)
+					return err
+				}
 			}
 
 			By("Checking initial connectivity to external service")
-			Expect(curlService()).NotTo(HaveOccurred())
+			Expect(curlService(externalService)()).NotTo(HaveOccurred())
 
 			By("Denying all pod egress except for DNS lookups")
 			calicoctl.Apply(
@@ -404,7 +406,7 @@ var _ = SIGDescribe("DNS policy", func() {
 			}()
 
 			By("Checking now cannot reach external service")
-			Eventually(curlService, "3s", "1s").Should(HaveOccurred())
+			Eventually(curlService(externalService), "3s", "1s").Should(HaveOccurred())
 
 			By("Allowing egress to external service domains")
 			calicoctl.Apply(
@@ -430,13 +432,16 @@ var _ = SIGDescribe("DNS policy", func() {
 			}()
 
 			By("Checking now can reach external service")
-			Eventually(curlService, "10s", "1s").ShouldNot(HaveOccurred())
+			Eventually(curlService(externalService), "10s", "1s").ShouldNot(HaveOccurred())
+
+			By("Checking cannot reach service that should still be blocked")
+			Eventually(curlService(blockedService), "3s", "1s").Should(HaveOccurred())
 		}
 	}
 
 	It("[Feature:EE-v2.4] should have connectivity to specific domains allowed by DNS policy",
-		testDNSPolicy("microsoft.com", "microsoft.com", "www.microsoft.com"))
+		testDNSPolicy("microsoft.com", "yahoo.com", "microsoft.com", "www.microsoft.com"))
 
 	It("[Feature:EE-v2.5] should have connectivity to wildcard domains allowed by DNS policy",
-		testDNSPolicy("microsoft.com", "\"*.com\""))
+		testDNSPolicy("microsoft.com", "google.co.uk", "\"*.com\""))
 })
