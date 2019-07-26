@@ -59,7 +59,7 @@ function focus_cnx {
 }
 
 function version_is_at_least {
-    ! [[ "$1" < "$2" ]]
+    [ "$1" = master ] || ! [[ "$1" < "$2" ]]
 }
 
 function focus_ee {
