@@ -1404,12 +1404,29 @@ func (c *Calicoctl) executeCalicoctl(backoff int32, cmd string, args ...string) 
 							Command: []string{cmd},
 							Args:    args,
 							Env:     env,
+							VolumeMounts: []v1.VolumeMount{
+								{
+									Name:"temp-volume",
+									MountPath:"/tmp",
+								},
+							},
+						},
+					},
+					Volumes: []v1.Volume{
+						{
+						    Name: "temp-volume",
+							VolumeSource: v1.VolumeSource{
+								HostPath: &v1.HostPathVolumeSource{
+									Path: "/tmp",
+								},
+							},
 						},
 					},
 					ServiceAccountName: c.serviceAccount.ObjectMeta.Name,
 					//Since calico policy would be applied from master, hence made NodeSelector as linux
 					NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 				},
+
 			},
 		},
 	}
@@ -1674,6 +1691,19 @@ type Kubectl struct {
 
 func (k *Kubectl) Create(yaml, ns, user string) error {
 	options := []string{"create", "-f", "-"}
+	if user != "" {
+		options = append(options, fmt.Sprintf("--as=%v", user))
+	}
+	if ns != "" {
+		options = append(options, fmt.Sprintf("--namespace=%v", ns))
+	}
+	_, err := framework.NewKubectlCommand(options...).WithStdinData(yaml).Exec()
+	return err
+}
+
+//DeleteYaml deletes resources given a yaml manifest as input.
+func (k *Kubectl) DeleteYaml(yaml, ns, user string) error {
+	options := []string{"delete", "-f", "-"}
 	if user != "" {
 		options = append(options, fmt.Sprintf("--as=%v", user))
 	}
