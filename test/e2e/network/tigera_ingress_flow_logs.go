@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 	"strings"
+	"context"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -120,7 +121,7 @@ data:
   enable-vts-status: 'true'
   use-forwarded-headers: 'true'
   compute-full-forwarded-for: 'true'
-  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$the_real_ip"}'
+  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$http_x_real_ip"}'
   access-log-path: '/var/log/calico/ingress/ingress.log'
 ---
 
@@ -326,7 +327,7 @@ metadata:
 data:
   enable-vts-status: 'true'
   use-forwarded-headers: 'true'
-  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$the_real_ip"}'
+  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$http_x_real_ip"}'
   access-log-path: '/var/log/calico/ingress/ingress.log'
 ---
 
@@ -658,23 +659,23 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nginx-ingress-controller-conf-multiple-ic
+  name: nginx-ingress-controller-conf-multiple-ic-1
   namespace: ingress-nginx-multiple-ic
   labels:
-    app: nginx-ingress-lb-multiple-ic
+    app: nginx-ingress-lb-multiple-ic-1
 data:
   enable-vts-status: 'true'
   use-forwarded-headers: 'true'
   compute-full-forwarded-for: 'true'
   use-proxy-protocol: 'false'
-  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$the_real_ip"}'
+  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$http_x_real_ip"}'
   access-log-path: '/var/log/calico/ingress/ingress.log'
 ---
 
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: nginx-ingress-controller-multiple-ic
+  name: nginx-ingress-controller-multiple-ic-1
   namespace: ingress-nginx-multiple-ic
 spec:
   replicas: 1
@@ -682,7 +683,7 @@ spec:
   template:
     metadata:
       labels:
-        app: nginx-ingress-lb-multiple-ic
+        app: nginx-ingress-lb-multiple-ic-1
 
     spec:
       terminationGracePeriodSeconds: 60
@@ -726,7 +727,7 @@ spec:
           args:
             - /nginx-ingress-controller	
             - --default-backend-service=$(POD_NAMESPACE)/default-backend-multiple-ic
-            - --configmap=$(POD_NAMESPACE)/nginx-ingress-controller-conf-multiple-ic
+            - --configmap=$(POD_NAMESPACE)/nginx-ingress-controller-conf-multiple-ic-1
             - --v=2
           env:
             - name: POD_NAME
@@ -751,6 +752,101 @@ spec:
           driver: nodeagent/uds
 ---
 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-controller-conf-multiple-ic-2
+  namespace: ingress-nginx-multiple-ic
+  labels:
+    app: nginx-ingress-lb-multiple-ic-2
+data:
+  enable-vts-status: 'true'
+  use-forwarded-headers: 'true'
+  compute-full-forwarded-for: 'true'
+  use-proxy-protocol: 'false'
+  log-format-upstream: 'tigera_secure_ee_ingress: {"source_port": $realip_remote_port, "destination_ip": "$server_addr", "destination_port": $server_port, "source_ip": "$realip_remote_addr", "x-forwarded-for": "$http_x_forwarded_for", "x-real-ip": "$http_x_real_ip"}'
+  access-log-path: '/var/log/calico/ingress/ingress.log'
+---
+
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-ingress-controller-multiple-ic-2
+  namespace: ingress-nginx-multiple-ic
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress-lb-multiple-ic-2
+
+    spec:
+      terminationGracePeriodSeconds: 60
+      serviceAccount: nginx-multiple-ic
+      containers:
+        - name: ingress-collector
+          image: gcr.io/unique-caldron-775/cnx/tigera/ingress-collector:master
+          imagePullPolicy: Always
+          env:
+          - name: FELIX_DIAL_TARGET
+            value: "/var/run/felix/nodeagent/socket"
+          - name: LOG_LEVEL
+            value: "debug"
+          volumeMounts:
+          - name: ingress-logs
+            mountPath: /var/log/calico/ingress
+          - name: felix-sync
+            mountPath: /var/run/felix
+        - name: nginx-ingress-controller
+          image: quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.24.1
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 10254
+              scheme: HTTP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10254
+              scheme: HTTP
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+          args:
+            - /nginx-ingress-controller	
+            - --default-backend-service=$(POD_NAMESPACE)/default-backend-multiple-ic
+            - --configmap=$(POD_NAMESPACE)/nginx-ingress-controller-conf-multiple-ic-2
+            - --v=2
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 80
+            - containerPort: 18080
+          volumeMounts:
+          - name: ingress-logs
+            mountPath: /var/log/calico/ingress
+      volumes:
+      - name: ingress-logs
+        emptyDir: {}
+      - name: felix-sync
+        flexVolume:
+          driver: nodeagent/uds
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -843,7 +939,7 @@ spec:
       nodePort: 32001
       name: http-mgmt
   selector:
-    app: nginx-ingress-lb-multiple-ic
+    app: nginx-ingress-lb-multiple-ic-1
 ---
 
 apiVersion: v1
@@ -861,7 +957,205 @@ spec:
       nodePort: 32002
       name: http-mgmt
   selector:
-    app: nginx-ingress-lb-multiple-ic`)
+    app: nginx-ingress-lb-multiple-ic-2`)
+
+const (
+	endTimeField              = "end_time" //field in elasticsearch document end_time. Used for Time range based query.
+)
+
+var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
+	var (
+		f        = framework.NewDefaultFramework("cnx-ingress-flow-logs")
+		esclient *elastic.Client
+	)
+
+	Context("Test ingress flow logs for HTTP traffic", func() {
+		BeforeEach(func() {
+			//cleanup if already resources present and re-create the setup.
+			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx", metav1.GetOptions{})
+			if err == nil {
+				cleanupHTTPServiceDeployment()
+			}
+
+			esclient = initializeSetup(f)
+		})
+
+		It("Sends HTTP traffic and validates logs in elasticsearch", func() {
+			var start time.Time
+			var x_real_ip_hdr string = "X-Real-IP: 3.3.3.3"
+			//create ingress controller, ingress resources, service and pods for  service.
+			setupHTTPService()
+
+			By("Sending HTTP traffic to service", func() {
+				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
+				start = time.Now()
+				_ = testForProtocolFlowLogs(f, "ingress-nginx", clientPodName, ingressServicePort, ingressPath, x_real_ip_hdr, false)
+			})
+
+			By("Searching for logs related to traffic in elasticsearch logs", func() {
+				end := start.Add(time.Minute * 2)
+
+				searchES(esclient, esFlowlogsIndex, &start, &end, "3.3.3.3")
+			})
+		})
+
+		AfterEach(func() {
+			resetFelixConfig(f)
+			framework.Logf("Cleanup ingress flow HTTP test setup")
+			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx", metav1.GetOptions{})
+			if err == nil {
+				cleanupHTTPServiceDeployment()
+			}
+		}, 1)
+	})
+
+	Context("Test ingress flow logs for HTTPS traffic", func() {
+		BeforeEach(func() {
+			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-https", metav1.GetOptions{})
+			if err == nil {
+				deleteConfigMap(f, "nginxconfigmap", "ingress-nginx-https")
+				deleteSecretForHTTPSService(f, "ingress-nginx-https", "nginxsecret")
+				cleanupHTTPSService()
+				cleanupHTTPSIngressDeployment()
+			}
+
+			esclient = initializeSetup(f)
+		})
+
+		AfterEach(func() {
+			resetFelixConfig(f)
+			framework.Logf("Cleanup ingress flow HTTPS traffic setup")
+			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-https", metav1.GetOptions{})
+			if err == nil {
+				deleteConfigMap(f, "nginxconfigmap", "ingress-nginx-https")
+				deleteSecretForHTTPSService(f, "ingress-nginx-https", "nginxsecret")
+				cleanupHTTPSService()
+				cleanupHTTPSIngressDeployment()
+			}
+		}, 1)
+
+		It("Sends HTTPs traffic and validates logs in Elasticsearch", func() {
+			var x_real_ip_hdr string = "X-Real-IP: 5.5.5.5"
+			var start time.Time
+
+			_, err := f.ClientSet.CoreV1().Namespaces().Create(&v1.Namespace{metav1.TypeMeta{}, metav1.ObjectMeta{Name: "ingress-nginx-https"}, v1.NamespaceSpec{}, v1.NamespaceStatus{}})
+			if err != nil {
+				framework.Logf("FAILED to create Namespace: %v, err: %v", "ingress-nginx-https",err)
+			}
+
+			//generate certificate, keys, configmap for HTTPS service
+			generateSelfSignedCertAndKeyForService(f)
+			createConfigMapForHTTPsService(f, "ingress-nginx-https")
+
+			//create ingress controller / ingress resources for HTTPS deployment
+			createHTTPSIngressDeployment()
+
+			By("Sending HTTPS traffic to service", func() {
+				start = time.Now()
+				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
+				_ = testForProtocolFlowLogs(f, "ingress-nginx-https", clientPodName, ingressServiceHTTPSPort, ingressHTTPSPath, x_real_ip_hdr, true)
+			})
+
+			By("Searching for logs related to HTTPS traffic in elasticsearch logs", func() {
+				end := start.Add(time.Minute * 2)
+				searchES(esclient, esFlowlogsIndex, &start, &end, "5.5.5.5")
+			})
+
+			err = f.ClientSet.CoreV1().Namespaces().Delete("ingress-nginx-https", &metav1.DeleteOptions{})
+			if err != nil {
+				framework.Logf("FAILED to create Namespace: %v, err: %v", "ingress-nginx-https",err)
+			}
+		})
+	})
+
+	Context("Test multiple ingresses flow logs", func() {
+		BeforeEach(func() {
+			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-multiple-ic", metav1.GetOptions{})
+			if err == nil {
+				cleanupMultipleIngressesScenario()
+			}
+
+			esclient = initializeSetup(f)
+		})
+
+		It("Sends HTTP traffic and validate logs in Elasticsearch for multi ingresses", func() {
+			var (
+				x_real_ip_hdr1 string = "X-Real-IP: 7.7.7.7"
+				x_real_ip_hdr2 string = "X-Real-IP: 9.9.9.9"
+				start time.Time
+			)
+
+			//create multiple ingresses for same service.
+			createMultipleIngressesScenario()
+			By("Sending HTTP traffic to service", func() {
+				start = time.Now()
+				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
+				_ = testForProtocolFlowLogs(f, "ingress-nginx-multiple-ic", clientPodName, ingressServicePortMultipleIC1, ingressPathMultipleIC1, x_real_ip_hdr1, false)
+				_ = testForProtocolFlowLogs(f, "ingress-nginx-multiple-ic", clientPodName, ingressServicePortMultipleIC2, ingressPathMultipleIC2, x_real_ip_hdr2, false)
+			})
+
+			By("Searching for logs related to traffic in elasticsearch logs", func() {
+				end := start.Add(time.Minute * 2)
+				searchES(esclient, esFlowlogsIndex, &start, &end, "7.7.7.7")
+
+				searchES(esclient, esFlowlogsIndex, &start, &end, "9.9.9.9")
+			})
+		})
+
+		AfterEach(func() {
+			resetFelixConfig(f)
+			framework.Logf("Cleaning up multiple ingress controller setup")
+			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-multiple-ic", metav1.GetOptions{})
+			if err == nil {
+				cleanupMultipleIngressesScenario()
+			}
+		}, 1)
+	})
+})
+
+//query ES for ip until found with timeout
+func searchES(esclient *elastic.Client, index string, start, end *time.Time, original_source_ips string) {
+	queries := buildIngressFlowLogQuery(start, end, original_source_ips)
+
+	framework.Logf("searchES: client: %+v index: %v start:%v end:%v original_source_ips:%v", esclient, index, start.String(), end.String(), original_source_ips)
+	Eventually(func() bool {
+		return foundInES(esclient, index, start, end, original_source_ips, queries)
+	}, 5*time.Minute, 3*time.Second).Should(BeTrue())
+}
+
+//check if expected original source ip is found in ES
+func foundInES(esclient *elastic.Client, index string, start, end *time.Time, original_source_ips string, queries elastic.Query) bool {
+	searchResult, err := (esclient.Search().
+		Index(esFlowlogsIndex).
+		Size(0).
+		Query(queries).
+		Do(context.Background()))
+	if err != nil {
+		framework.Logf("Failed to search: error: %v", err)
+	}
+	return searchResult.Hits.TotalHits > 0
+}
+
+//Build a boolean query for ingress flow logs
+func buildIngressFlowLogQuery(start, end *time.Time, original_source_ips string) elastic.Query {
+	queries := []elastic.Query{}
+
+	if start != nil && end != nil {
+		withinTimeRange := elastic.NewRangeQuery(endTimeField)
+		if start != nil {
+			withinTimeRange = withinTimeRange.From((*start).Unix())
+		}
+		if end != nil {
+			withinTimeRange = withinTimeRange.To((*end).Unix())
+		}
+		queries = append(queries, withinTimeRange)
+	}
+
+	tq := elastic.NewTermsQuery("original_source_ips", original_source_ips)
+	queries = append(queries, tq)
+
+	return elastic.NewBoolQuery().Must(queries...)
+}
 
 func initializeSetup(f *framework.Framework)  *elastic.Client {
 	if os.Getenv("ELASTIC_HOST") == "" {
@@ -871,7 +1165,7 @@ func initializeSetup(f *framework.Framework)  *elastic.Client {
 	esclient := ids.InitClient(ids.GetURI())
 
 
-	//setup ALP here.
+	//setup connection to Felix via the Policy Sync API
 	calicoctl := calico.ConfigureCalicoctl(f)
 
 	result, err := calicoctl.ExecReturnError("get", "felixconfiguration", "default", "-o", "yaml", "--export")
@@ -911,168 +1205,14 @@ func resetFelixConfig(f *framework.Framework) {
 	calicoctl.Apply(res)
 }
 
-var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
-	var (
-		f        = framework.NewDefaultFramework("cnx-ingress-flow-logs")
-		esclient *elastic.Client
-	)
-
-	Context("Test ingress flow logs for HTTP traffic", func() {
-		BeforeEach(func() {
-			//cleanup if already resources present and re-create the setup.
-			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx", metav1.GetOptions{})
-			if err == nil {
-				cleanupHTTPServiceDeployment()
-			}
-
-			esclient = initializeSetup(f)
-		})
-
-		It("Sends HTTP traffic and validates logs in elasticsearch", func() {
-
-			//create ingress controller, ingress resources, service and pods for  service.
-			setupHTTPService()
-
-			By("Sending HTTP traffic to service", func() {
-				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
-				_ = testForProtocolFlowLogs(f, "ingress-nginx", clientPodName, ingressServicePort, ingressPath, false)
-			})
-
-			By("Searching for logs related to traffic in elasticsearch logs", func() {
-				//need to define the key here - based on final log format - the key would change - for example, key
-				//could be sourceIP and expected value be pod IP.
-				key := "dest_port" //TBD.
-				expectedValue := "31564"
-
-				ids.CheckSearchEvents(esclient, esFlowlogsIndex, key, expectedValue)
-			})
-		})
-
-		AfterEach(func() {
-			resetFelixConfig(f)
-			time.Sleep(time.Second* 10)
-			framework.Logf("Cleanup ingress flow HTTP test setup")
-			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx", metav1.GetOptions{})
-			if err == nil {
-				cleanupHTTPServiceDeployment()
-			}
-		}, 1)
-	})
-
-	Context("Test ingress flow logs for HTTPS traffic", func() {
-		BeforeEach(func() {
-			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-https", metav1.GetOptions{})
-			if err == nil {
-				deleteConfigMap(f, "nginxconfigmap", "ingress-nginx-https")
-				deleteSecretForHTTPSService(f, "ingress-nginx-https", "nginxsecret")
-				cleanupHTTPSService()
-				cleanupHTTPSIngressDeployment()
-			}
-
-			esclient = initializeSetup(f)
-		})
-
-		AfterEach(func() {
-			resetFelixConfig(f)
-			time.Sleep(time.Second * 10)
-			framework.Logf("Cleanup ingress flow HTTPS traffic setup")
-			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-https", metav1.GetOptions{})
-			if err == nil {
-				deleteConfigMap(f, "nginxconfigmap", "ingress-nginx-https")
-				deleteSecretForHTTPSService(f, "ingress-nginx-https", "nginxsecret")
-				cleanupHTTPSService()
-				cleanupHTTPSIngressDeployment()
-			}
-		}, 1)
-
-		It("Sends HTTPs traffic and validates logs in Elasticsearch", func() {
-			_, err := f.ClientSet.CoreV1().Namespaces().Create(&v1.Namespace{metav1.TypeMeta{}, metav1.ObjectMeta{Name: "ingress-nginx-https"}, v1.NamespaceSpec{}, v1.NamespaceStatus{}})
-			if err != nil {
-				framework.Logf("FAILED to create Namespace: %v, err: %v", "ingress-nginx-https",err)
-			}
-
-			//generate certificate, keys, configmap for HTTPS service
-			generateSelfSignedCertAndKeyForService(f)
-			createConfigMapForHTTPsService(f, "ingress-nginx-https")
-
-			//create ingress controller / ingress resources for HTTPS deployment
-			createHTTPSIngressDeployment()
-
-			By("Sending HTTPS traffic to service", func() {
-				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
-				_ = testForProtocolFlowLogs(f, "ingress-nginx-https", clientPodName, ingressServiceHTTPSPort, ingressHTTPSPath, true)
-			})
-
-			By("Searching for logs related to HTTPS traffic in elasticsearch logs", func() {
-				//need to define the key here - based on final log format - the key would change - for example, key
-				//could be sourceIP and expected value be pod IP.
-
-				key := "dest_port" //TBD.
-				expectedValue := "32555"
-				ids.CheckSearchEvents(esclient, esFlowlogsIndex, key, expectedValue)
-			})
-
-			err = f.ClientSet.CoreV1().Namespaces().Delete("ingress-nginx-https", &metav1.DeleteOptions{})
-			if err != nil {
-				framework.Logf("FAILED to create Namespace: %v, err: %v", "ingress-nginx-https",err)
-			}
-		})
-	})
-
-	Context("Test multiple ingresses flow logs", func() {
-		BeforeEach(func() {
-			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-multiple-ic", metav1.GetOptions{})
-			if err == nil {
-				cleanupMultipleIngressesScenario()
-			}
-
-			esclient = initializeSetup(f)
-		})
-
-		It("Sends HTTP traffic and validate logs in Elasticsearch for multi ingresses", func() {
-			//create multiple ingresses for same service.
-			createMultipleIngressesScenario()
-			By("Sending HTTP traffic to service", func() {
-				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
-				_ = testForProtocolFlowLogs(f, "ingress-nginx-multiple-ic", clientPodName, ingressServicePortMultipleIC1, ingressPathMultipleIC1, false)
-				_ = testForProtocolFlowLogs(f, "ingress-nginx-multiple-ic", clientPodName, ingressServicePortMultipleIC2, ingressPathMultipleIC2, false)
-			})
-
-			By("Searching for logs related to traffic in elasticsearch logs", func() {
-				//need to define the key here - based on final log format - the key would change - for example, key
-				//could be sourceIP and expected value be pod IP.
-				key := "dest_port" //TBD.
-				expectedValue := ingressServicePortMultipleIC1
-
-				ids.CheckSearchEvents(esclient, esFlowlogsIndex, key, expectedValue)
-
-				key = "dest_port" //TBD.
-				expectedValue = ingressServicePortMultipleIC2
-
-				ids.CheckSearchEvents(esclient, esFlowlogsIndex, key, expectedValue)
-			})
-		})
-
-		AfterEach(func() {
-			resetFelixConfig(f)
-			time.Sleep(time.Second * 10)
-			framework.Logf("Cleaning up multiple ingress controller setup")
-			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-multiple-ic", metav1.GetOptions{})
-			if err == nil {
-				cleanupMultipleIngressesScenario()
-			}
-		}, 1)
-	})
-})
-
 //based on isHTTPS flag value - curl http or https to the backend service.
-func testForProtocolFlowLogs(f *framework.Framework, namespace, podName, servicePort, servicePath string, isHTTPS bool) string {
+func testForProtocolFlowLogs(f *framework.Framework, namespace, podName, servicePort, servicePath, x_real_ip_hdr string, isHTTPS bool) string {
 	var clientPod *v1.Pod
 
 	//ensure pods are running in the namespace.
 	waitForPodsInNamespace(f, namespace)
 
-	clientPod = createHTTPClientPod(f, podName, servicePort, servicePath ,isHTTPS)
+	clientPod = createHTTPClientPod(f, podName, servicePort, servicePath, x_real_ip_hdr, isHTTPS)
 
 	err := framework.WaitForPodSuccessInNamespace(f.ClientSet, clientPod.Name, "default")
 	if err != nil {
@@ -1083,7 +1223,7 @@ func testForProtocolFlowLogs(f *framework.Framework, namespace, podName, service
 	return clientPod.Status.PodIP
 }
 
-func createHTTPClientPod(f *framework.Framework, clientPodName, servicePort, servicePath string, isHTTPS bool) *v1.Pod {
+func createHTTPClientPod(f *framework.Framework, clientPodName, servicePort, servicePath, x_real_ip_hdr string, isHTTPS bool) *v1.Pod {
 	//use IP from internal IPs to build curl command.
 	IPs := getNodeInternalIPs(f)
 	framework.Logf("Private IPs are: %+v", IPs)
@@ -1094,9 +1234,9 @@ func createHTTPClientPod(f *framework.Framework, clientPodName, servicePort, ser
 	cmdArgs := []string{}
 	cmdArgs = append(cmdArgs, "-c")
 	if !isHTTPS {
-		cmdArgs = append(cmdArgs, fmt.Sprintf("curl http://%s:%s/%s -H '%s' -H '%s' -w 1 --retry 100", privateIP, servicePort, servicePath, realIPHeader, fwdedIPHeader))
+		cmdArgs = append(cmdArgs, fmt.Sprintf("curl http://%s:%s/%s -H '%s' -H '%s' -w 1 --retry 100", privateIP, servicePort, servicePath, x_real_ip_hdr, fwdedIPHeader))
 	} else {
-		cmdArgs = append(cmdArgs, fmt.Sprintf("curl https://%s:%s/%s -H \"%s\" -H \"%s\" --insecure", privateIP, servicePort, servicePath, realIPHeader, fwdedIPHeader))
+		cmdArgs = append(cmdArgs, fmt.Sprintf("curl https://%s:%s/%s -H \"%s\" -H \"%s\" --insecure", privateIP, servicePort, servicePath, x_real_ip_hdr, fwdedIPHeader))
 	}
 
 	clientPod := createCurlClientPod(f, "default", clientPodName, clientPodImageURL, cmdArgs)
