@@ -11,7 +11,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	apiv3 "github.com/projectcalico/libcalico-go/lib/apis/v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -70,7 +69,11 @@ spec:
 				output, err := kubectl.Get("globalreports", "", "tigera-sample-report-cis", "", "json", "", false)
 				Expect(err).NotTo(HaveOccurred())
 
-				report := new(apiv3.GlobalReport)
+				report := new(struct {
+					Status struct {
+						LastSuccessfulReportJobs []interface{}
+					}
+				})
 				Expect(json.Unmarshal([]byte(output), report)).NotTo(HaveOccurred())
 
 				return len(report.Status.LastSuccessfulReportJobs) > 0
