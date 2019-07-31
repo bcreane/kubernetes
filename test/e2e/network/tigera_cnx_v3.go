@@ -340,3 +340,108 @@ spec:
 		))
 	})
 })
+
+var _ = SIGDescribe("DNS policy", func() {
+
+	f := framework.NewDefaultFramework("calico-policy")
+
+	testDNSPolicy := func(externalService, blockedService string, domainsToAllow ...string) func() {
+		return func() {
+			ns := f.Namespace
+			calicoctl := calico.ConfigureCalicoctl(f)
+
+			By("Starting a client pod that can curl")
+			framework.RunKubectlOrDie("run",
+				"test-client", "-n", ns.Name,
+				"--generator=run-pod/v1",
+				"--image=laurenceman/alpine")
+
+			By("Waiting for client pod to be ready")
+			framework.RunKubectlOrDie("wait",
+				"--for=condition=ready",
+				"pod/test-client", "-n", ns.Name)
+
+			curlService := func(service string) func() error {
+				return func() error {
+					out, err := framework.RunKubectl("exec",
+						"test-client", "-n", ns.Name,
+						"--",
+						"curl",
+						"--connect-timeout", "3",
+						"-i",
+						"-L",
+						"-v",
+						service)
+					framework.Logf("curl output:\n%v", out)
+					return err
+				}
+			}
+
+			By("Checking initial connectivity to external service")
+			Expect(curlService(externalService)()).NotTo(HaveOccurred())
+
+			By("Denying all pod egress except for DNS lookups")
+			calicoctl.Apply(
+				fmt.Sprintf(`
+  apiVersion: projectcalico.org/v3
+  kind: NetworkPolicy
+  metadata:
+    name: deny-all-egress-except-dns
+    namespace: %s
+  spec:
+    selector: "all()"
+    types:
+    - Egress
+    egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+        - 53
+    - action: Deny
+`, ns.Name),
+			)
+			defer func() {
+				calicoctl.Exec("delete", "-n", ns.Name, "policy", "deny-all-egress-except-dns")
+			}()
+
+			By("Checking now cannot reach external service")
+			Eventually(curlService(externalService), "3s", "1s").Should(HaveOccurred())
+
+			By("Allowing egress to external service domains")
+			calicoctl.Apply(
+				fmt.Sprintf(`
+  apiVersion: projectcalico.org/v3
+  kind: NetworkPolicy
+  metadata:
+    name: allow-egress-to-domains
+    namespace: %s
+  spec:
+    order: 1
+    selector: "all()"
+    types:
+    - Egress
+    egress:
+    - action: Allow
+      destination:
+        domains: [%s]
+`, ns.Name, strings.Join(domainsToAllow, ", ")),
+			)
+			defer func() {
+				calicoctl.Exec("delete", "-n", ns.Name, "policy", "allow-egress-to-domains")
+			}()
+
+			By("Checking now can reach external service")
+			Eventually(curlService(externalService), "10s", "1s").ShouldNot(HaveOccurred())
+
+			By("Checking cannot reach service that should still be blocked")
+			Eventually(curlService(blockedService), "3s", "1s").Should(HaveOccurred())
+		}
+	}
+
+	It("[Feature:EE-v2.4] should have connectivity to specific domains allowed by DNS policy",
+		testDNSPolicy("microsoft.com", "yahoo.com", "microsoft.com", "www.microsoft.com"))
+
+	It("[Feature:EE-v2.5] should have connectivity to wildcard domains allowed by DNS policy",
+		testDNSPolicy("microsoft.com", "google.co.uk", "\"*.com\""))
+})

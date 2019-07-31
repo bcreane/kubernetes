@@ -6,6 +6,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"strings"
 	"time"
+	"os"
+	"log"
 
 	"github.com/olivere/elastic"
 	. "github.com/onsi/gomega"
@@ -17,9 +19,13 @@ const JobPollInterval = time.Second
 const PostFlowsynthSleepTime = 60 * time.Second
 
 func InitClient(uri string) *elastic.Client {
+
 	client, err := elastic.NewClient(
+		elastic.SetErrorLog(log.New(os.Stderr, "ELASTIC ", log.LstdFlags)),
+		elastic.SetInfoLog(log.New(os.Stdout, "", log.LstdFlags)),
 		elastic.SetURL(uri),
-	)
+		elastic.SetSniff(false))
+
 	Expect(err).NotTo(HaveOccurred())
 	return client
 }
@@ -182,3 +188,30 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	Expect(len(records) >= ts.Config.NumRecords).To(BeTrue(),
 	"At least %d anomalies were detected with score >= 75", ts.Config.NumRecords)
 }
+
+//CheckSearchEvents searches for a key and value in the given index in Elasticsearch
+func CheckSearchEvents(client *elastic.Client, index, searchKey, searchValue string) {
+	framework.Logf("CheckSearchEvents: client: %+v index: %v key:%v value:%v", client, index, searchKey, searchValue)
+	Eventually(func() int {
+		return checkSearchEventsExist(client, index, searchKey, searchValue)
+	}, 3*time.Minute, 1*time.Second).Should(BeNumerically(">", 0))
+}
+
+func checkSearchEventsExist(client *elastic.Client, index, searchKey, searchValue string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), framework.SingleCallTimeout)
+	defer cancel()
+	termQuery := elastic.NewTermQuery(searchKey, searchValue)
+	searchResult, err := client.Search().
+		Index(index).
+		Query(termQuery).
+		Pretty(true).
+		Do(ctx)
+
+	Expect(err).ToNot(HaveOccurred())
+
+	if int(searchResult.Hits.TotalHits) > 0 {
+		framework.Logf("Found %s: %s in a total of %d record(s)\n", searchKey, searchValue, searchResult.Hits.TotalHits)
+	}
+	return int(searchResult.Hits.TotalHits)
+}
+

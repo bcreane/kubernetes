@@ -1,7 +1,6 @@
 package ids
 
 import (
-	"context"
 	"fmt"
 	"github.com/olivere/elastic"
 	"k8s.io/api/core/v1"
@@ -62,7 +61,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
 			var searchKey = "dest_ip"
 			for _, pod := range pods.Items {
 				framework.Logf("Searching for %s: %s in at least one tigera_secure_ee_events* record", searchKey, pod.Status.PodIP)
-				checkSearchEvents(client, searchKey, pod.Status.PodIP)
+				CheckSearchEvents(client, "tigera_secure_ee_events*", searchKey, pod.Status.PodIP)
 			}
 		})
 	})
@@ -203,27 +202,4 @@ func checkGlobalNetworkSetExist(kubectl *calico.Kubectl, globalNetworkSetName st
 		framework.Logf("kubectl get globalnetworksets.p %s -o=yaml\n%s", globalNetworkSetName, outputYaml)
 	}
 	return output
-}
-
-func checkSearchEvents(client *elastic.Client, searchKey string, searchValue string) {
-	Eventually(func() int {
-		return checkSearchEventsExist(client, searchKey, searchValue)
-	}, 3*time.Minute, 1*time.Second).Should(BeNumerically(">", 0))
-}
-
-func checkSearchEventsExist(client *elastic.Client, searchKey string, searchValue string) int {
-	ctx, cancel := context.WithTimeout(context.Background(), framework.SingleCallTimeout)
-	defer cancel()
-	termQuery := elastic.NewTermQuery(searchKey, searchValue)
-	searchResult, err := client.Search().
-		Index("tigera_secure_ee_events*").
-		Query(termQuery).
-		Pretty(true).
-		Do(ctx)
-	Expect(err).ToNot(HaveOccurred())
-
-	if int(searchResult.Hits.TotalHits) > 0 {
-		framework.Logf("Found %s: %s in a total of %d record(s)\n", searchKey, searchValue, searchResult.Hits.TotalHits)
-	}
-	return int(searchResult.Hits.TotalHits)
 }

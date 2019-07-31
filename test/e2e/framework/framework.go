@@ -275,66 +275,69 @@ func (f *Framework) BeforeEach() {
 
 func (f *Framework) JustAfterEach() {
 	// Grab calico diags if the test failed.
-	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
+	if CurrentGinkgoTestDescription().Failed {
 		// If we've created the debug file or env var, pause the test here
 		MaybeWaitForInvestigation()
 
-		Logf("Collecting diags JustAfter failed test in %s", CurrentGinkgoTestDescription().TestText)
-		// TODO: figure out how to pass the 'since' parameter into the log getter, so that we only get logs from during this test
-		// Get logs, pod status, iptables, ipsets
-		// Logs:
-		Logf("Dumping logs from calico/node pods...")
-		logFunc := Logf
-		LogPodsWithLabels(f.ClientSet, "kube-system", map[string]string{"k8s-app": "calico-node"}, logFunc)
+		if TestContext.DumpLogsOnFailure {
 
-		// Pod status:
-		calicoNodeList, err := f.ClientSet.CoreV1().Pods("kube-system").List(metav1.ListOptions{LabelSelector: labels.SelectorFromSet(map[string]string{"k8s-app": "calico-node"}).String()})
-		if err != nil {
-			Logf("failed to get list of pods in kube-system with label k8s-app=calico-node")
-		}
-		for _, nodePod := range calicoNodeList.Items {
-			Logf("Podstatus for %s = %s", nodePod.Name, nodePod.Status)
-		}
+			Logf("Collecting diags JustAfter failed test in %s", CurrentGinkgoTestDescription().TestText)
+			// TODO: figure out how to pass the 'since' parameter into the log getter, so that we only get logs from during this test
+			// Get logs, pod status, iptables, ipsets
+			// Logs:
+			Logf("Dumping logs from calico/node pods...")
+			logFunc := Logf
+			LogPodsWithLabels(f.ClientSet, "kube-system", map[string]string{"k8s-app": "calico-node"}, logFunc)
 
-		// iptables & ipsets
-		_, nodeList := GetMasterAndWorkerNodesOrDie(f.ClientSet)
-		for _, node := range nodeList.Items {
-			one := int64(1)
-			privileged := true
-			podName := fmt.Sprintf("diagspod-%s", node.Name)
-			// run pod on node in hostnetwork and get iptables & ipsets diags
-			podspec := &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   podName,
-					Labels: map[string]string{"pod-name": podName},
-				},
-				Spec: v1.PodSpec{
-					Containers: []v1.Container{
-						{
-							Name:    "diags",
-							Image:   "calico/felix",
-							Command: []string{"sh", "-c", "ipset list; iptables-save -c"},
-							SecurityContext: &v1.SecurityContext{
-								Privileged: &privileged,
+			// Pod status:
+			calicoNodeList, err := f.ClientSet.CoreV1().Pods("kube-system").List(metav1.ListOptions{LabelSelector: labels.SelectorFromSet(map[string]string{"k8s-app": "calico-node"}).String()})
+			if err != nil {
+				Logf("failed to get list of pods in kube-system with label k8s-app=calico-node")
+			}
+			for _, nodePod := range calicoNodeList.Items {
+				Logf("Podstatus for %s = %s", nodePod.Name, nodePod.Status)
+			}
+
+			// iptables & ipsets
+			_, nodeList := GetMasterAndWorkerNodesOrDie(f.ClientSet)
+			for _, node := range nodeList.Items {
+				one := int64(1)
+				privileged := true
+				podName := fmt.Sprintf("diagspod-%s", node.Name)
+				// run pod on node in hostnetwork and get iptables & ipsets diags
+				podspec := &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   podName,
+						Labels: map[string]string{"pod-name": podName},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name:    "diags",
+								Image:   "calico/felix",
+								Command: []string{"sh", "-c", "ipset list; iptables-save -c"},
+								SecurityContext: &v1.SecurityContext{
+									Privileged: &privileged,
+								},
 							},
 						},
+						RestartPolicy:                 v1.RestartPolicyNever,
+						HostNetwork:                   true,
+						TerminationGracePeriodSeconds: &one, // Speed up pod termination.
+						NodeName:                      node.Name,
 					},
-					RestartPolicy:                 v1.RestartPolicyNever,
-					HostNetwork:                   true,
-					TerminationGracePeriodSeconds: &one, // Speed up pod termination.
-					NodeName: node.Name,
-				},
+				}
+				podClient := f.ClientSet.CoreV1().Pods(f.Namespace.Name)
+				_, err := podClient.Create(podspec)
+				if err != nil {
+					Logf("failed to create diags collection pod: %s", err)
+				}
+				err = f.WaitForPodNoLongerRunning(podName)
+				if err != nil {
+					Logf("failed to run diags collection pod: %s", err)
+				}
+				LogPodsWithLabels(f.ClientSet, f.Namespace.Name, map[string]string{"pod-name": podName}, logFunc)
 			}
-			podClient := f.ClientSet.CoreV1().Pods(f.Namespace.Name)
-			_, err := podClient.Create(podspec)
-			if err != nil {
-				Logf("failed to create diags collection pod: %s", err)
-			}
-			err = f.WaitForPodNoLongerRunning(podName)
-			if err != nil {
-				Logf("failed to run diags collection pod: %s", err)
-			}
-			LogPodsWithLabels(f.ClientSet, f.Namespace.Name, map[string]string{"pod-name": podName}, logFunc)
 		}
 	}
 }
