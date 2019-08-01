@@ -1175,8 +1175,13 @@ func initializeSetup(f *framework.Framework)  *elastic.Client {
 
 	temp := strings.TrimSpace(result)
 
-	temp = temp + "\n  policySyncPathPrefix: /var/run/nodeagent" + "\n  flowLogsFileAggregationKindForAllowed: 1" + "\n  flowLogsFlushInterval: 1s"
+	temp = temp + "\n  policySyncPathPrefix: /var/run/nodeagent"
 	calicoctl.Apply(temp)
+
+	calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "1")
+	calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "1")
+	calico.RestartCalicoNodePods(f.ClientSet, "")
+
 	return esclient
 }
 
@@ -1194,7 +1199,7 @@ func resetFelixConfig(f *framework.Framework) {
 
 	scanner := bufio.NewScanner(strings.NewReader(temp))
 	for scanner.Scan() {
-		if strings.Contains(scanner.Text(), "policySyncPathPrefix: /var/run/nodeagent") || strings.Contains(scanner.Text(), "flowLogsFileAggregationKindForAllowed: 1") || strings.Contains(scanner.Text(), "flowLogsFlushInterval: 1s") {
+		if strings.Contains(scanner.Text(), "policySyncPathPrefix: /var/run/nodeagent") {
 			//ignore this config line.
 			continue
 		}
@@ -1203,6 +1208,10 @@ func resetFelixConfig(f *framework.Framework) {
 	}
 
 	calicoctl.Apply(res)
+
+	calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "300")
+	calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "2")
+	calico.RestartCalicoNodePods(f.ClientSet, "")
 }
 
 //based on isHTTPS flag value - curl http or https to the backend service.
