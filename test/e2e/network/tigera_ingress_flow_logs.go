@@ -987,6 +987,18 @@ var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
 			setupHTTPService()
 
 			By("Sending HTTP traffic to service", func() {
+				err := framework.WaitForService(f.ClientSet, "ingress-nginx", "default-backend", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "default-backend")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				err = framework.WaitForService(f.ClientSet, "ingress-nginx", "nginx-ingress", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "nginx-ingress")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
 				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
 				start = time.Now()
 				_ = testForProtocolFlowLogs(f, "ingress-nginx", clientPodName, ingressServicePort, ingressPath, x_real_ip_hdr, false)
@@ -1051,6 +1063,18 @@ var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
 			createHTTPSIngressDeployment()
 
 			By("Sending HTTPS traffic to service", func() {
+				err = framework.WaitForService(f.ClientSet, "ingress-nginx-https", "nginxsvc", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "nginxsvc")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				err = framework.WaitForService(f.ClientSet, "ingress-nginx-https", "nginx-ingress-https", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "nginx-ingress-https")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
 				start = time.Now()
 				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
 				_ = testForProtocolFlowLogs(f, "ingress-nginx-https", clientPodName, ingressServiceHTTPSPort, ingressHTTPSPath, x_real_ip_hdr, true)
@@ -1088,6 +1112,24 @@ var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
 			//create multiple ingresses for same service.
 			createMultipleIngressesScenario()
 			By("Sending HTTP traffic to service", func() {
+				err := framework.WaitForService(f.ClientSet, "ingress-nginx-multiple-ic", "default-backend-multiple-ic", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "default-backend-multiple-ic")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				err = framework.WaitForService(f.ClientSet, "ingress-nginx-multiple-ic", "ingress-nginx-multiple-ic-1", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "ingress-nginx-multiple-ic-1")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				err = framework.WaitForService(f.ClientSet, "ingress-nginx-multiple-ic", "ingress-nginx-multiple-ic-2", true, framework.Poll, framework.ServiceRespondingTimeout)
+				if err != nil {
+					framework.Logf("Failed to see service %v running", "ingress-nginx-multiple-ic-2")
+				}
+				Expect(err).NotTo(HaveOccurred())
+
 				start = time.Now()
 				//create a pod to send traffic to the service and check pod created / sent traffic and exited fine.
 				_ = testForProtocolFlowLogs(f, "ingress-nginx-multiple-ic", clientPodName, ingressServicePortMultipleIC1, ingressPathMultipleIC1, x_real_ip_hdr1, false)
