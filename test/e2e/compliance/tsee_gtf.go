@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -22,7 +23,19 @@ const (
 	namespace      = "calico-monitoring"
 	uiServiceName  = "cnx-manager"
 	serviceAccount = "tigera-compliance-server"
+
+	complianceReportURLFmt = "https://%s:9443/compliance/reports"
+	defaultCNXManagerHost  = "cnx-manager.calico-monitoring.svc.cluster.local"
 )
+
+func getComplianceReportsURL() string {
+	host := os.Getenv("CNX_MANAGER_HOST")
+	if host == "" {
+		host = defaultCNXManagerHost
+	}
+
+	return fmt.Sprintf(complianceReportURLFmt, host)
+}
 
 var _ = Describe("[Feature:CNX-v3-Compliance-CIS]", func() {
 	var f = framework.NewDefaultFramework("cnx-compliance-cis")
@@ -90,7 +103,7 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 
 			// Make request
-			req, err := http.NewRequest(http.MethodGet, "https://cnx-manager.calico-monitoring.svc.cluster.local:9443/compliance/reports", nil)
+			req, err := http.NewRequest(http.MethodGet, getComplianceReportsURL(), nil)
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", secret.Data["token"]))
 
