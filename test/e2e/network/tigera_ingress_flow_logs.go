@@ -1219,7 +1219,10 @@ func testForProtocolFlowLogs(f *framework.Framework, namespace, podName, service
 	var clientPod *v1.Pod
 
 	//ensure pods are running in the namespace.
-	waitForPodsInNamespace(f, namespace)
+	for waitForPodsInNamespace(f, namespace) == false {
+		framework.Logf("testForProtocolFlowLogs: Waiting for pods to be ready to serve traffic!!!!")
+		time.Sleep(3)
+	}
 
 	clientPod = createHTTPClientPod(f, podName, servicePort, servicePath, x_real_ip_hdr, isHTTPS)
 
@@ -1258,6 +1261,7 @@ func createCurlClientPod(f *framework.Framework, namespace, podName, imageURL st
 	cleanupCurlClientPod(f, podName)
 
 	time.Sleep(time.Second * 30)
+
 	framework.Logf("createCurlClientPod: cmdArgs:%v", cmdArgs)
 	pod, err := f.ClientSet.CoreV1().Pods(namespace).Create(&v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1275,7 +1279,7 @@ func createCurlClientPod(f *framework.Framework, namespace, podName, imageURL st
 					Image:           imageURL,
 					Args:            cmdArgs,
 					Command: []string{"/bin/sh"},
-					ImagePullPolicy: v1.PullAlways,
+					ImagePullPolicy: v1.PullIfNotPresent, //TBD - should probably version lock it as well.
 				},
 			},
 		},
@@ -1491,8 +1495,8 @@ func cleanupMultipleIngressesScenario() {
 	}
 }
 
-//wait for pods to be running to proceed with tests.
-func waitForPodsInNamespace (f *framework.Framework, namespace string)   {
+//wait for pods to be running to proceed with tests. Returns bool indicating if Pods and containers ready to serve.
+func waitForPodsInNamespace (f *framework.Framework, namespace string) bool {
 	var podlist *v1.PodList
 	var err error
 
@@ -1503,4 +1507,16 @@ func waitForPodsInNamespace (f *framework.Framework, namespace string)   {
 		err = framework.WaitTimeoutForPodRunningInNamespace(f.ClientSet, p.ObjectMeta.Name, namespace, time.Second * 15)
 		Expect(err).To(BeNil())
 	}
+
+	for _,p := range podlist.Items {
+		for _, cs := range p.Status.ContainerStatuses {
+			framework.Logf("waitForPodsInNamespace: Container status: %+v", cs)
+			if !cs.Ready {
+				framework.Logf("waitForPodsInNamespace: Container is not ready: %+v =====", cs)
+				return false
+			}
+		}
+	}
+
+	return true
 }
