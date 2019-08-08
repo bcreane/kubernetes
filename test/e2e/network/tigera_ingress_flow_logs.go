@@ -196,6 +196,8 @@ spec:
           volumeMounts:
           - name: ingress-logs
             mountPath: /var/log/calico/ingress
+      imagePullSecrets:
+      - name: cnx-pull-secret
       volumes:
       - name: ingress-logs
         emptyDir: {}
@@ -405,6 +407,8 @@ spec:
           volumeMounts:
           - name: ingress-logs
             mountPath: /var/log/calico/ingress
+      imagePullSecrets:
+      - name: cnx-pull-secret
       volumes:
       - name: ingress-logs
         emptyDir: {}
@@ -744,6 +748,8 @@ spec:
           volumeMounts:
           - name: ingress-logs
             mountPath: /var/log/calico/ingress
+      imagePullSecrets:
+      - name: cnx-pull-secret
       volumes:
       - name: ingress-logs
         emptyDir: {}
