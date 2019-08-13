@@ -846,6 +846,8 @@ spec:
           volumeMounts:
           - name: ingress-logs
             mountPath: /var/log/calico/ingress
+      imagePullSecrets:
+      - name: cnx-pull-secret
       volumes:
       - name: ingress-logs
         emptyDir: {}
@@ -1227,7 +1229,7 @@ func testForProtocolFlowLogs(f *framework.Framework, namespace, podName, service
 	//ensure pods are running in the namespace.
 	for waitForPodsInNamespace(f, namespace) == false {
 		framework.Logf("testForProtocolFlowLogs: Waiting for pods to be ready to serve traffic!!!!")
-		time.Sleep(3)
+		time.Sleep(time.Second * 3)
 	}
 
 	clientPod = createHTTPClientPod(f, podName, servicePort, servicePath, x_real_ip_hdr, isHTTPS)
@@ -1507,10 +1509,21 @@ func waitForPodsInNamespace (f *framework.Framework, namespace string) bool {
 	var err error
 
 	podlist, err = f.ClientSet.CoreV1().Pods(namespace).List(metav1.ListOptions{})
+	if err != nil {
+		framework.Logf("waitForPodsInNamespace: Failed to list pods error:%v", err)
+	}
 	Expect(err).To(BeNil())
 
+	if len(podlist.Items) == 0 {
+		framework.Logf("waitForPodsInNamespace: No pods listed for namespace %v, retry", namespace)
+		return false
+	}
+
 	for _, p := range podlist.Items {
-		err = framework.WaitTimeoutForPodRunningInNamespace(f.ClientSet, p.ObjectMeta.Name, namespace, time.Second * 15)
+		err = framework.WaitForPodNameRunningInNamespace(f.ClientSet, p.ObjectMeta.Name, namespace)
+		if err != nil {
+			framework.Logf("waitForPodsInNamespace: Failed to wait: %v", err)
+		}
 		Expect(err).To(BeNil())
 	}
 
@@ -1518,7 +1531,7 @@ func waitForPodsInNamespace (f *framework.Framework, namespace string) bool {
 		for _, cs := range p.Status.ContainerStatuses {
 			framework.Logf("waitForPodsInNamespace: Container status: %+v", cs)
 			if !cs.Ready {
-				framework.Logf("waitForPodsInNamespace: Container is not ready: %+v =====", cs)
+				framework.Logf("waitForPodsInNamespace: Container is not ready: %+v", cs)
 				return false
 			}
 		}
