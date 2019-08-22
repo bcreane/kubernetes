@@ -1008,6 +1008,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
 		})
 
 		AfterEach(func() {
+			cleanupCurlClientPod(f, clientPodName)
 			resetFelixConfig(f)
 			framework.Logf("Cleanup ingress flow HTTP test setup")
 			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx", metav1.GetOptions{})
@@ -1031,6 +1032,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
 		})
 
 		AfterEach(func() {
+			cleanupCurlClientPod(f, clientPodName)
 			resetFelixConfig(f)
 			framework.Logf("Cleanup ingress flow HTTPS traffic setup")
 			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-https", metav1.GetOptions{})
@@ -1111,6 +1113,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
 		})
 
 		AfterEach(func() {
+			cleanupCurlClientPod(f, clientPodName)
 			resetFelixConfig(f)
 			framework.Logf("Cleaning up multiple ingress controller setup")
 			_, err := f.ClientSet.CoreV1().Namespaces().Get("ingress-nginx-multiple-ic", metav1.GetOptions{})
