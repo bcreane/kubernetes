@@ -971,7 +971,7 @@ const (
 	endTimeField              = "end_time" //field in elasticsearch document end_time. Used for Time range based query.
 )
 
-var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs]", func() {
+var _ = SIGDescribe("[Feature:CNX-v3-IngressFlowLogs][Feature:EE-v2.5]", func() {
 	var (
 		f        = framework.NewDefaultFramework("cnx-ingress-flow-logs")
 		esclient *elastic.Client

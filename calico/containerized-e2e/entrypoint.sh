@@ -68,11 +68,14 @@ function version_is_at_least {
 }
 
 function focus_ee {
-    if version_is_at_least $EE_VER v2.4; then
-       EE_FOCUS="\[Feature:EE-v2\.4\]"
-       if version_is_at_least $EE_VER v2.5; then
-           EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.5\]"
-       fi
+    if version_is_at_least $EE_VER v2.3; then
+        EE_FOCUS="\[Feature:EE-v2\.3\]"
+        if version_is_at_least $EE_VER v2.4; then
+            EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.4\]"
+            if version_is_at_least $EE_VER v2.5; then
+                EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.5\]"
+            fi
+        fi
     fi
 }
 
