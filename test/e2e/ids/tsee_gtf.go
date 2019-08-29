@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs]", func() {
+var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs][Feature:EE-v2.4]", func() {
 	var f = framework.NewDefaultFramework("cnx-suspicious-ips")
 	var err error
 	var pods *v1.PodList

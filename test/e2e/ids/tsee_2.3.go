@@ -23,7 +23,7 @@ const (
 	NumDays              = 3
 )
 
-var _ = SIGDescribe("[Feature:CNX-v3-IDS]", func() {
+var _ = SIGDescribe("[Feature:CNX-v3-IDS][Feature:EE-v2.3]", func() {
 	f := framework.NewDefaultFramework("calico-alp")
 
 	Context("Elastic IDS Jobs and Datafeeds", func() {

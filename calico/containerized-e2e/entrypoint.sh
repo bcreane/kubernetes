@@ -9,6 +9,7 @@ DEFAULT_TIMEOUTS="6m"
 E2E_PREFIX=""
 
 # Focus regexes from various sources.
+BASE_REGRESSION=""
 CALICO_FOCUS=""
 CNX_FOCUS=""
 EE_FOCUS=""
@@ -33,6 +34,10 @@ function combine_regex {
     fi
   done
   echo "${parms[*]}"
+}
+
+function focus_regression {
+  BASE_REGRESSION="Feature:(CalicoPolicy|CNX)|Feature:(CalicoPolicy|CNX)-ALP"
 }
 
 function focus_calico {
@@ -63,11 +68,14 @@ function version_is_at_least {
 }
 
 function focus_ee {
-    if version_is_at_least $EE_VER v2.4; then
-	EE_FOCUS="\[Feature:EE-v2\.4\]"
-	if version_is_at_least $EE_VER v2.5; then
-	    EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.5\]"
-	fi
+    if version_is_at_least $EE_VER v2.3; then
+        EE_FOCUS="\[Feature:EE-v2\.3\]"
+        if version_is_at_least $EE_VER v2.4; then
+            EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.4\]"
+            if version_is_at_least $EE_VER v2.5; then
+                EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.5\]"
+            fi
+        fi
     fi
 }
 
@@ -102,6 +110,7 @@ Usage: $0 \
   docker run --net=host -v \$KUBECONFIG:/root/kubeconfig gcr.io/unique-caldron-775/k8s-e2e ARGS...
 
 Arguments:
+  --base-regression (true|false)           Run all Calico, EE feature tests. [default: none]
   --calico-version (v2|v3)              Run calico tests. [default: none]
   --cnx v3                              Run CNX tests. [default: none]
   --ee <version>                        Run tests supported by the specified EE version. [default: none]
@@ -123,6 +132,7 @@ while [ -n "$1" ]; do
     --calico-version) CALICO_VER=$2; shift ;;
     --cnx) CNX_VER=$2; shift ;;
     --ee) EE_VER=$2; shift ;;
+    --base-regression) REGRESSION=$2; shift ;;
     --extended-networking) EXT_NETWORKING=$2; shift ;;
     --extended-conformance) EXT_CONFORMANCE=$2; shift ;;
     --focus) OPT_FOCUS=$2; shift ;;
@@ -139,13 +149,14 @@ done
 if [ -n "$CALICO_VER" ]; then focus_calico ; fi
 if [ -n "$CNX_VER" ]; then focus_cnx ; fi
 if [ -n "$EE_VER" ]; then focus_ee ; fi
+if [ -n "$REGRESSION" ]; then focus_regression ; fi
 if [ $LIST_TESTS ]; then list_tests ; exit 0; fi
 
 # Combine the focus and skip regexes.
-FOCUS=$(combine_regex "|" "$DEF_FOCUS" "$OPT_FOCUS" "$CALICO_FOCUS" "$CNX_FOCUS" "$EE_FOCUS")
+FOCUS=$(combine_regex "|" "$DEF_FOCUS" "$OPT_FOCUS" "$CALICO_FOCUS" "$CNX_FOCUS" "$EE_FOCUS" "$BASE_REGRESSION")
 SKIPS=$(combine_regex "|" "$DEF_SKIPS" "$OPT_SKIPS" "$CALICO_SKIPS" "$CNX_SKIPS")
 
-# focus_combined should have crafted calico/cnx focus if provided
+# focus_combined should have crafted a base_regression and EE-release focus if provided
 if [ -n "$FOCUS" ]; then
   focus_info "$FOCUS"
   runner "$FOCUS"
