@@ -2,6 +2,7 @@
 
 set -e
 
+GINKGO_NODES="${GINKGO_NODES:=1}"
 CALICO_VER=""
 EXT_NETWORKING=""
 EXT_CONFORMANCE=""
@@ -82,7 +83,8 @@ function focus_ee {
 function runner {
   local FOCUS
   FOCUS=$1
-  e2e.test -kubeconfig=/root/kubeconfig \
+  /usr/bin/ginkgo -nodes=${GINKGO_NODES} /usr/bin/e2e.test -- \
+    --kubeconfig=/root/kubeconfig \
     --ginkgo.focus="$FOCUS" \
     --ginkgo.skip="$SKIPS" \
     -report-dir=/report \
