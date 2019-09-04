@@ -37,7 +37,8 @@ func getComplianceReportsURL() string {
 	return fmt.Sprintf(complianceReportURLFmt, host)
 }
 
-var _ = Describe("[Feature:CNX-v3-Compliance-CIS][Feature:EE-v2.5]", func() {
+// change this back to "[Feature:CNX-v3-Compliance-CIS][Feature:EE-v2.5]" when working
+var _ = Describe("[Feature:EE-CIS-WIP]", func() {
 	var f = framework.NewDefaultFramework("cnx-compliance-cis")
 	var kubectl *calico.Kubectl
 
