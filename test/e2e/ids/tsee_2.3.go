@@ -1,6 +1,7 @@
 package ids
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -30,6 +31,7 @@ var _ = SIGDescribe("[Feature:CNX-v3-IDS][Feature:EE-v2.3]", func() {
 		var client *elastic.Client
 		BeforeEach(func() {
 			client = InitClient(GetURI())
+			WaitForElastic(context.Background(), client)
 		})
 		AfterEach(func() {
 			DeleteIndices(client)

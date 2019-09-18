@@ -3,11 +3,12 @@ package ids
 import (
 	"context"
 	"fmt"
-	"k8s.io/kubernetes/test/e2e/framework"
+	"log"
+	"os"
 	"strings"
 	"time"
-	"os"
-	"log"
+
+	"k8s.io/kubernetes/test/e2e/framework"
 
 	"github.com/olivere/elastic"
 	. "github.com/onsi/gomega"
@@ -17,6 +18,8 @@ import (
 const JobTimeout = time.Second * 180
 const JobPollInterval = time.Second
 const PostFlowsynthSleepTime = 60 * time.Second
+const ElasticHealthTimeout = time.Minute * 5
+const ElasticHealthPollInterval = time.Second * 5
 
 func InitClient(uri string) *elastic.Client {
 
@@ -28,6 +31,30 @@ func InitClient(uri string) *elastic.Client {
 
 	Expect(err).NotTo(HaveOccurred())
 	return client
+}
+
+func WaitForElastic(ctx context.Context, client *elastic.Client) {
+	ctx, _ = context.WithTimeout(ctx, ElasticHealthTimeout)
+	lastError := "context expired before getting health for the first time"
+	for {
+		select {
+		case <-ctx.Done():
+			framework.Failf("deadline exceeded for elasticsearch to become healthy, last error was: %s", lastError)
+		default:
+			r, err := client.ClusterHealth().Do(ctx)
+			if err != nil {
+				lastError = fmt.Sprintf("failed to get elasticsearch health: %s", err.Error())
+				time.Sleep(ElasticHealthPollInterval)
+				continue
+			}
+			if r.Status != "green" {
+				lastError = fmt.Sprintf("elasticsearch ClusterHealth.Status %s", r.Status)
+				time.Sleep(ElasticHealthPollInterval)
+				continue
+			}
+			return
+		}
+	}
 }
 
 func DeleteIndices(client *elastic.Client) {
@@ -140,11 +167,11 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	Expect(dfStats[0].State).To(Equal("stopped"))
 
 	framework.Logf("Starting datafeed %s", ts.Datafeed)
-	start := Time(time.Unix(0,0))
+	start := Time(time.Unix(0, 0))
 	end := Time(time.Now())
 	started, err := StartDatafeed(ctx, client, ts.Datafeed, &OpenDatafeedOptions{
 		Start: &start,
-		End: &end,
+		End:   &end,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(started).To(BeTrue())
@@ -180,13 +207,13 @@ func RunJob(client *elastic.Client, ts TestSpec) {
 	Expect(time.Time(jobStats[0].DataCounts.LatestRecordTimestamp)).To(BeTemporally(">=", ts.Config.EndTime.Add(tzOffset).Add(-time.Second*3600)), "All records must have been processed")
 
 	records, err := GetRecords(ctx, client, ts.Job, &GetRecordsOptions{
-		Start:          &ts.Config.StartTime,
-		End:            &ts.Config.EndTime,
-		RecordScore:    ts.Config.RecordScore,
+		Start:       &ts.Config.StartTime,
+		End:         &ts.Config.EndTime,
+		RecordScore: ts.Config.RecordScore,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(len(records) >= ts.Config.NumRecords).To(BeTrue(),
-	"At least %d anomalies were detected with score >= 75", ts.Config.NumRecords)
+		"At least %d anomalies were detected with score >= 75", ts.Config.NumRecords)
 }
 
 //CheckSearchEvents searches for a key and value in the given index in Elasticsearch
@@ -214,4 +241,3 @@ func checkSearchEventsExist(client *elastic.Client, index, searchKey, searchValu
 	}
 	return int(searchResult.Hits.TotalHits)
 }
-
