@@ -47,7 +47,10 @@ func WaitForElastic(ctx context.Context, client *elastic.Client) {
 				time.Sleep(ElasticHealthPollInterval)
 				continue
 			}
-			if r.Status != "green" {
+			// green or yellow means the cluster is healthy enough to test with (yellow just means
+			// there aren't enough nodes for proper replication, which will always be true of single
+			// node clusters)
+			if !(r.Status == "green" || r.Status == "yellow") {
 				lastError = fmt.Sprintf("elasticsearch ClusterHealth.Status %s", r.Status)
 				time.Sleep(ElasticHealthPollInterval)
 				continue
