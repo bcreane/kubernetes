@@ -1,20 +1,24 @@
 package ids
 
 import (
+	"context"
 	"fmt"
-	"github.com/olivere/elastic"
-	"k8s.io/api/core/v1"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/olivere/elastic"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/utils/calico"
-	"time"
 )
+
+var suspiciousDomains = []string{"test00.malware.tigera.net", "test01.malware.tigera.net", "tëst02.malware.tigera.net"}
 
 var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs][Feature:EE-v2.4]", func() {
 	var f = framework.NewDefaultFramework("cnx-suspicious-ips")
@@ -26,11 +30,12 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs][Feature:EE-v2.4]", func() {
 		var client *elastic.Client
 		BeforeEach(func() {
 			client = InitClient(GetURI())
+			WaitForElastic(context.Background(), client)
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFLUSHINTERVAL", "10")
 			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_FLOWLOGSFILEAGGREGATIONKINDFORALLOWED", "1")
 			calico.RestartCalicoNodePods(f.ClientSet, "")
 
-			pods = createConfiguration(f, kubectl)
+			pods = createSuspiciousIPsCfg(f, kubectl)
 		})
 		AfterEach(func() {
 			DeleteIndices(client)
@@ -67,7 +72,49 @@ var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousIPs][Feature:EE-v2.4]", func() {
 	})
 })
 
-func createConfiguration(f *framework.Framework, kubectl *calico.Kubectl) *v1.PodList {
+var _ = SIGDescribe("[Feature:CNX-v3-SuspiciousDomains][Feature:EE-v2.6]", func() {
+	var f = framework.NewDefaultFramework("cnx-suspicious-domains")
+	var err error
+	var kubectl *calico.Kubectl
+
+	Context("Suspicious DNS security events.", func() {
+		var client *elastic.Client
+		BeforeEach(func() {
+			client = InitClient(GetURI())
+			WaitForElastic(context.Background(), client)
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_DNSLOGSFILEENABLED", "true")
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_DNSLOGSFLUSHINTERVAL", "10")
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_DNSLOGSFILEAGGREGATIONKIND", "0")
+			calico.RestartCalicoNodePods(f.ClientSet, "")
+
+			createSuspiciousDomainsThreatFeed(f, kubectl)
+		})
+		AfterEach(func() {
+			DeleteIndices(client)
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_DNSLOGSFLUSHINTERVAL", "300")
+			calico.SetCalicoNodeEnvironmentWithRetry(f.ClientSet, "FELIX_DNSLOGSFILEAGGREGATIONKIND", "1")
+			calico.RestartCalicoNodePods(f.ClientSet, "")
+
+			err = kubectl.Delete("globalthreatfeed.projectcalico.org", "", "global-threat-feed", "")
+			Expect(err).To(BeNil())
+		})
+
+		It("Generate queries to suspicious domains and verify security events have been created.", func() {
+
+			By("Creating clients to query the suspicious domains")
+			calico.TestDNSQuery(f, f.Namespace, "dns-querier", suspiciousDomains)
+
+			By("Waiting for detection of DNS queries in tigera_secure_ee_events*")
+			var searchKey = "suspicious_domains"
+			for _, domain := range suspiciousDomains {
+				framework.Logf("Searching for %s: %s in at least one tigera_secure_ee_events* record", searchKey, domain)
+				CheckSearchEvents(client, "tigera_secure_ee_events*", searchKey, domain)
+			}
+		})
+	})
+})
+
+func createSuspiciousIPsCfg(f *framework.Framework, kubectl *calico.Kubectl) *v1.PodList {
 	identifierKey := "identifier"
 	podServerA, serviceA := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-a", []int{80}, map[string]string{identifierKey: "server-blacklist"})
 	podServerB, serviceB := calico.CreateServerPodAndServiceWithLabels(f, f.Namespace, "server-b", []int{80}, map[string]string{identifierKey: "server-blacklist"})
@@ -187,6 +234,95 @@ spec:
 	err = kubectl.Create(globalThreatFeedStr, "", "")
 	Expect(err).To(BeNil())
 	return pods
+}
+
+func createSuspiciousDomainsThreatFeed(f *framework.Framework, kubectl *calico.Kubectl) {
+	// we need to escape the newlines, otherwise it breaks the nginx config language.
+	// however, we don't want to escape all non-ASCII characters, e.g. strconv.QuoteToASCII
+	// because the domain list includes some international characters, which should be left
+	// in UTF-8 encoding.
+	blacklist := strings.Join(suspiciousDomains, "\\n")
+	configmapDeploymentServiceStr := fmt.Sprintf(`
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  nginx-dns.conf: |
+    server {
+        location / {
+            return 200 %s;
+            add_header Content-Type text/plain;
+        }
+    }
+metadata:
+  name: dns-threats
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dns-threatfeed
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dns-threatfeed
+  template:
+    metadata:
+      labels:
+        app: dns-threatfeed
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          volumeMounts:
+          - name: config
+            mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: config
+          configMap:
+            name: dns-threats
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: dns-threatfeed
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  selector:
+    app: dns-threatfeed
+`,
+		blacklist)
+
+	By("Creating a configmap, deployment and service that serve the IPs of the pods labeled with the threatfeed.")
+	framework.Logf("This is the configmap that is passed in: %v", configmapDeploymentServiceStr)
+	err := kubectl.Create(configmapDeploymentServiceStr, f.Namespace.Name, "")
+	Expect(err).To(BeNil())
+
+	// Create url for the GlobalThreatFeed to query
+	globalThreatFeedURL := "dns-threatfeed" + "." + f.Namespace.Name
+	globalThreatFeedStr := fmt.Sprintf(`
+apiVersion: projectcalico.org/v3
+kind: GlobalThreatFeed
+metadata:
+  name: global-threat-feed
+spec:
+  content: DomainNameSet
+  pull:
+    http:
+      url: http://%s
+`,
+		globalThreatFeedURL)
+
+	By("Creating a GlobalThreatFeed and GlobalNetworkSet that queries the service that serves blacklist IPs.")
+	framework.Logf("GlobalThreatFeed passed in: %v", globalThreatFeedStr)
+	err = kubectl.Create(globalThreatFeedStr, "", "")
+	Expect(err).To(BeNil())
+	return
 }
 
 func checkGlobalNetworkSet(kubectl *calico.Kubectl, globalNetworkSetName string) {

@@ -70,6 +70,9 @@ const (
 	PacketPrefix = "calico-packet:\\s"
 
 	DefaultCalicoctlBackoffLimit = 6
+
+	podCmdDNS   = "dig"
+	podImageDNS = "calico/dig:latest"
 )
 
 var (
@@ -744,6 +747,42 @@ func TestCannotPing(f *framework.Framework, ns *v1.Namespace, podName string, ta
 	Expect(err).To(HaveOccurred(), fmt.Sprintf("checking %s could not communicate with server.", podClient.Name))
 }
 
+// TestDNSQuery creates a pod which queries the given domains. We test that the pod and query execute successfully, but
+// do not assert any tests on the results of the query (for example, that it returned any results).
+func TestDNSQuery(f *framework.Framework, ns *v1.Namespace, podName string, domains []string) {
+	podArgs := append([]string{podCmdDNS}, domains...)
+	nodeselector := map[string]string{"beta.kubernetes.io/os": "linux"}
+	pod, err := f.ClientSet.CoreV1().Pods(ns.Name).Create(&v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: podName,
+			Labels: map[string]string{
+				"pod-name": podName,
+			},
+		},
+		Spec: v1.PodSpec{
+			RestartPolicy: v1.RestartPolicyNever,
+			NodeSelector:  nodeselector,
+			Containers: []v1.Container{
+				{
+					Name:  podName,
+					Image: podImageDNS,
+					Args:  podArgs,
+				},
+			},
+		},
+	})
+	Expect(err).NotTo(HaveOccurred())
+
+	framework.Logf("Waiting for %s to complete.", pod.Name)
+	err = framework.WaitForPodNoLongerRunningInNamespace(f.ClientSet, pod.Name, ns.Name)
+	Expect(err).NotTo(HaveOccurred(), "Pod did not finish as expected.")
+
+	framework.Logf("Waiting for %s to complete.", pod.Name)
+	err = framework.WaitForPodSuccessInNamespace(f.ClientSet, pod.Name, ns.Name)
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("checking %s could complete DNS query", pod.Name))
+	return
+}
+
 // Create a server pod with specified labels and a listening container for each port in ports[].
 // Will also assign a pod label with key: "pod-name" and label set to the given podname for later use by the network
 // policy.
@@ -1406,15 +1445,15 @@ func (c *Calicoctl) executeCalicoctl(backoff int32, cmd string, args ...string) 
 							Env:     env,
 							VolumeMounts: []v1.VolumeMount{
 								{
-									Name:"temp-volume",
-									MountPath:"/tmp",
+									Name:      "temp-volume",
+									MountPath: "/tmp",
 								},
 							},
 						},
 					},
 					Volumes: []v1.Volume{
 						{
-						    Name: "temp-volume",
+							Name: "temp-volume",
 							VolumeSource: v1.VolumeSource{
 								HostPath: &v1.HostPathVolumeSource{
 									Path: "/tmp",
@@ -1426,7 +1465,6 @@ func (c *Calicoctl) executeCalicoctl(backoff int32, cmd string, args ...string) 
 					//Since calico policy would be applied from master, hence made NodeSelector as linux
 					NodeSelector: map[string]string{"beta.kubernetes.io/os": "linux"},
 				},
-
 			},
 		},
 	}
