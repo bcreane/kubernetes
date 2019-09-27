@@ -75,6 +75,9 @@ function focus_ee {
             EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.4\]"
             if version_is_at_least $EE_VER v2.5; then
                 EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.5\]"
+                if version_is_at_least $EE_VER v2.6; then
+                    EE_FOCUS="${EE_FOCUS}|\[Feature:EE-v2\.6\]"
+                fi
             fi
         fi
     fi
